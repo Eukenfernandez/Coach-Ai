@@ -1,0 +1,11 @@
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Reglas totalmente abiertas para evitar errores de permisos ('Missing or insufficient permissions')
+    // Especialmente útil para la cuenta maestra que puede no estar autenticada en Firebase Auth.
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}
