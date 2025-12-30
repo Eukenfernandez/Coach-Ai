@@ -153,8 +153,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
    const showCalculator = true;
    const showSupplements = true;
 
+   // Define MenuItem type for proper TypeScript inference
+   type MenuItem = { id: string; label: string; icon: any; special?: boolean };
+
    // Build menu items based on sport type
-   const baseMenuItems = [
+   const baseMenuItems: MenuItem[] = [
       { id: 'dashboard', label: t.dashboard, icon: LayoutDashboard },
       { id: 'gallery', label: t.gallery, icon: Video },
       { id: 'strength', label: t.strength, icon: Dumbbell },
@@ -163,7 +166,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
    ];
 
    // Add sport-specific menu items
-   let sportMenuItems: { id: string; label: string; icon: any }[] = [];
+   let sportMenuItems: MenuItem[] = [];
    if (isTeamSport) {
       // Team sports: show Matches instead of Competition/Training
       sportMenuItems = [{ id: 'matches', label: t.matches, icon: Dribbble }];
@@ -176,7 +179,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
    }
    // Non-competitive sports: no additional items
 
-   const menuItems = [
+   const menuItems: MenuItem[] = [
       ...baseMenuItems,
       ...sportMenuItems,
       ...(showSupplements ? [{ id: 'supplements', label: t.supplements, icon: Pill }] : []),
