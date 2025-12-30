@@ -80,6 +80,8 @@ export interface MatchRecord {
 // Sport category constants
 export const TEAM_SPORTS = ['soccer', 'basketball', 'rugby_football', 'baseball'];
 export const NON_COMPETITIVE_SPORTS = ['gym'];
+// Sports where gym/weight training is relevant (includes gym itself + combat sports + athletics for strength training)
+export const GYM_RELATED_SPORTS = ['gym', 'combat', 'athletics', 'rugby_football'];
 
 export type SportType = string;
 

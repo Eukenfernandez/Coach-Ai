@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Screen, User, Language, TEAM_SPORTS, NON_COMPETITIVE_SPORTS } from '../types';
+import { Screen, User, Language, TEAM_SPORTS, NON_COMPETITIVE_SPORTS, GYM_RELATED_SPORTS } from '../types';
 import { LayoutDashboard, Video, Dumbbell, Target, MessageSquareQuote, LogOut, Trophy, FileText, X, Calculator, Users, ChevronDown, User as UserIcon, Settings, Sun, Moon, Trash2, AlertTriangle, Star, Pill, PanelLeft, Dribbble } from 'lucide-react';
 import { StorageService } from '../services/storageService';
 
@@ -149,8 +149,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
    const isTeamSport = TEAM_SPORTS.includes(userSport);
    const isNonCompetitive = NON_COMPETITIVE_SPORTS.includes(userSport);
 
-   // Enable all features by default
-   const showCalculator = true;
+   // Enable features based on sport type
+   const showCalculator = GYM_RELATED_SPORTS.includes(userSport);
    const showSupplements = true;
 
    // Define MenuItem type for proper TypeScript inference

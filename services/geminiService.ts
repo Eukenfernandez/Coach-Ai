@@ -7,21 +7,21 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
  * Helper to get the AI instance safely.
  */
 const getAIClient = () => {
-  return new GoogleGenAI({ apiKey: process.env.API_KEY });
+  return new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
 };
 
 /**
  * Helper to retry calls with exponential backoff
  */
 async function generateWithRetry(
-  model: string, 
-  contents: any, 
+  model: string,
+  contents: any,
   retries = 3,
   systemInstruction?: string
 ): Promise<GenerateContentResponse> {
   const ai = getAIClient();
   let lastError;
-  
+
   for (let i = 0; i < retries; i++) {
     try {
       return await ai.models.generateContent({
@@ -68,13 +68,13 @@ export const analyzeFrame = async (
 ): Promise<string> => {
   const systemContext = getSystemPromptForLang(language, 'frame');
   const fullPrompt = `Contexto previo: ${chatHistory.slice(-2).join('\n')}\n\nPregunta: ${promptText}`;
-  
+
   let modelName = 'gemini-3-flash-preview'; // Default/Free (Standard)
-  
+
   if (modelTier === 'advanced') {
-     modelName = 'gemini-3-flash-preview'; 
+    modelName = 'gemini-3-flash-preview';
   } else if (modelTier === 'premium') {
-     modelName = 'gemini-3-pro-preview';
+    modelName = 'gemini-3-pro-preview';
   }
 
   const contents = {
@@ -97,7 +97,7 @@ export const analyzeFrame = async (
 
 export const chatWithCoach = async (
   message: string,
-  history: {role: string, text: string}[],
+  history: { role: string, text: string }[],
   modelTier: 'standard' | 'advanced' | 'premium' = 'standard',
   language: 'es' | 'ing' | 'eus' = 'es'
 ): Promise<string> => {
