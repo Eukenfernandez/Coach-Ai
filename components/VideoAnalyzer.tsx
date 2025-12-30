@@ -58,7 +58,7 @@ const DualScrubber: React.FC<DualScrubberProps> = ({
    const TICK_GAP = 10;
    const TICKS_PER_GROUP = 10;
    const PATTERN_WIDTH = TICK_GAP * TICKS_PER_GROUP;
-   const PIXELS_PER_SECOND = 80; 
+   const PIXELS_PER_SECOND = 80;
 
    useEffect(() => {
       const updateWidth = () => { if (slowRef.current) setContainerWidth(slowRef.current.clientWidth); };
@@ -90,21 +90,21 @@ const DualScrubber: React.FC<DualScrubberProps> = ({
    const touchStartSlow = (e: React.TouchEvent) => { setIsDraggingSlow(true); setDragStartX(e.touches[0].clientX); setTimeStartDrag(curr); onScrubStart(); };
 
    useEffect(() => {
-      const onEnd = () => { 
-        if (isDraggingFast || isDraggingSlow) {
-          setIsDraggingFast(false); 
-          setIsDraggingSlow(false); 
-          if (rafRef.current) cancelAnimationFrame(rafRef.current);
-          onScrubEnd();
-        }
+      const onEnd = () => {
+         if (isDraggingFast || isDraggingSlow) {
+            setIsDraggingFast(false);
+            setIsDraggingSlow(false);
+            if (rafRef.current) cancelAnimationFrame(rafRef.current);
+            onScrubEnd();
+         }
       };
 
       const onMove = (e: MouseEvent | TouchEvent) => {
          if (!isDraggingFast && !isDraggingSlow) return;
-         
+
          // Use requestAnimationFrame for smoother UI updates during drag
          if (rafRef.current) cancelAnimationFrame(rafRef.current);
-         
+
          rafRef.current = requestAnimationFrame(() => {
             const clientX = 'touches' in e ? e.touches[0].clientX : (e as MouseEvent).clientX;
             if (isDraggingFast) handleFastMove(clientX);
@@ -179,7 +179,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
    const [playbackRate, setPlaybackRate] = useState(1);
    const [isPlaying, setIsPlaying] = useState(false);
    const [isScrubbing, setIsScrubbing] = useState(false); // Track dragging state
-   
+
    // Zoom & Pan State
    const [zoom, setZoom] = useState(1);
    const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -201,7 +201,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
    const [chatInput, setChatInput] = useState('');
    const [chatMessages, setChatMessages] = useState<ChatMessage[]>([{ id: 'intro', role: 'model', text: 'Hola, soy tu entrenador IA. ¿Qué quieres analizar de este vídeo?', timestamp: new Date() }]);
    const [isChatLoading, setIsChatLoading] = useState(false);
-   
+
    const [isVideoLoaded, setIsVideoLoaded] = useState(false);
    const [videoError, setVideoError] = useState<string | null>(null);
    const videoRef = useRef<HTMLVideoElement>(null);
@@ -215,12 +215,23 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
    const [drawShape, setDrawShape] = useState<'free' | 'line'>('free');
    const [selectedColor, setSelectedColor] = useState(DRAWING_COLORS[0].hex);
    const [drawings, setDrawings] = useState<Line[]>([]);
-   
+
    const activeUrl = video.url || video.remoteUrl || "";
    const canDeepAnalysis = limits?.canUseDeepAnalysis ?? false;
    const messagesUsed = usage?.chatCount || 0;
    const chatLimit = limits?.maxChatMessagesPerMonth === 'unlimited' ? Infinity : (limits?.maxChatMessagesPerMonth as number || 0);
    const isLimitReached = messagesUsed >= chatLimit;
+
+   // First-time Gemini notification
+   const [showGeminiTip, setShowGeminiTip] = useState(() => {
+      const hasSeenTip = localStorage.getItem('coachai_gemini_tip_seen');
+      return !hasSeenTip;
+   });
+
+   const dismissGeminiTip = () => {
+      setShowGeminiTip(false);
+      localStorage.setItem('coachai_gemini_tip_seen', 'true');
+   };
 
    useEffect(() => {
       setIsVideoLoaded(false);
@@ -257,7 +268,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
 
       if (isSynced && videoRef2.current) {
          const targetTime = t1 + syncOffset;
-         
+
          if (isPlaying && !isScrubbing) {
             // SMOOTH SYNC LOGIC:
             // When playing, we only force the second video to seek if the drift is significant (> 0.15s).
@@ -312,18 +323,18 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
    const getCanvasCoordinates = (e: React.MouseEvent | React.TouchEvent) => {
       const canvas = canvasRef.current;
       if (!canvas) return { x: 0, y: 0 };
-      
+
       const rect = canvas.getBoundingClientRect();
       const clientX = 'touches' in e ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
       const clientY = 'touches' in e ? e.touches[0].clientY : (e as React.MouseEvent).clientY;
-      
+
       // Calculate coordinates relative to the actual drawing surface (bitmap)
       // We calculate the scale factor between the visual size (rect) and internal size (canvas.width)
       const scaleX = canvas.width / rect.width;
       const scaleY = canvas.height / rect.height;
 
       return {
-         x: (clientX - rect.left) * scaleX, 
+         x: (clientX - rect.left) * scaleX,
          y: (clientY - rect.top) * scaleY
       };
    };
@@ -332,7 +343,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
       if (isDrawingMode) {
          setIsDrawing(true);
          const { x, y } = getCanvasCoordinates(e);
-         
+
          if (activeTool === 'pen') {
             // Start a new line
             setDrawings(prev => [...prev, { id: Date.now().toString(), points: [{ x, y }], color: selectedColor, isStraight: drawShape === 'line' }]);
@@ -349,7 +360,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
    };
 
    const eraseAt = (x: number, y: number) => {
-      const ERASE_RADIUS = 20; // Pixel radius
+      const ERASE_RADIUS = 40; // Increased pixel radius for easier erasing
       setDrawings(prev => prev.filter(line => {
          // Check if any point in the line is close to the eraser
          return !line.points.some(p => Math.hypot(p.x - x, p.y - y) < ERASE_RADIUS);
@@ -359,7 +370,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
    const handleMouseMove = (e: React.MouseEvent | React.TouchEvent) => {
       if (isDrawing && isDrawingMode) {
          const { x, y } = getCanvasCoordinates(e);
-         
+
          if (activeTool === 'pen') {
             setDrawings(prev => {
                const lastLine = prev[prev.length - 1];
@@ -409,7 +420,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
       if (videoRef.current) {
          videoRef.current.currentTime = time;
          // Update state directly for UI responsiveness during drag
-         setCurrentTime(time); 
+         setCurrentTime(time);
          if (compareVideo && isSynced && videoRef2.current) {
             videoRef2.current.currentTime = time + syncOffset;
          }
@@ -481,17 +492,17 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
             {/* Primary Toolbar */}
             <div className="p-4 flex justify-between items-center pointer-events-auto">
                <button onClick={onBack} className="p-3 bg-black/40 backdrop-blur-md rounded-full text-white border border-white/10 hover:bg-white/10"><ChevronLeft size={20} /></button>
-               
+
                <div className="flex items-center gap-3">
-                  
+
                   {/* Drawing Tools (Integrated, visible only when active) */}
                   {isDrawingMode && (
                      <div className="flex items-center gap-2 bg-neutral-900/90 backdrop-blur-md border border-neutral-700 p-1.5 rounded-full animate-in slide-in-from-right-4 duration-300 shadow-xl mr-2">
                         {/* Colors */}
                         <div className="flex gap-1.5 pr-2 border-r border-white/10">
                            {DRAWING_COLORS.map(c => (
-                              <button 
-                                 key={c.id} 
+                              <button
+                                 key={c.id}
                                  onClick={() => { setSelectedColor(c.hex); setActiveTool('pen'); }}
                                  className={`w-4 h-4 rounded-full border-[1.5px] transition-transform ${selectedColor === c.hex && activeTool === 'pen' ? 'border-white scale-125' : 'border-transparent hover:scale-110'}`}
                                  style={{ backgroundColor: c.hex }}
@@ -501,21 +512,21 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
 
                         {/* Tools */}
                         <div className="flex gap-1">
-                           <button 
+                           <button
                               onClick={() => { setActiveTool('pen'); setDrawShape('free'); }}
                               className={`p-1.5 rounded-full transition-colors ${activeTool === 'pen' && drawShape === 'free' ? 'bg-white/20 text-white' : 'text-neutral-400 hover:text-white'}`}
                               title="Lápiz Libre"
                            >
                               <PenTool size={14} />
                            </button>
-                           <button 
+                           <button
                               onClick={() => { setActiveTool('pen'); setDrawShape('line'); }}
                               className={`p-1.5 rounded-full transition-colors ${activeTool === 'pen' && drawShape === 'line' ? 'bg-white/20 text-white' : 'text-neutral-400 hover:text-white'}`}
                               title="Línea Recta"
                            >
                               <Minus size={14} className="-rotate-45" />
                            </button>
-                           <button 
+                           <button
                               onClick={() => setActiveTool('eraser')}
                               className={`p-1.5 rounded-full transition-colors ${activeTool === 'eraser' ? 'bg-white/20 text-white' : 'text-neutral-400 hover:text-white'}`}
                               title="Goma de Borrar"
@@ -523,8 +534,8 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
                               <Eraser size={14} />
                            </button>
                            <div className="w-px h-4 bg-white/10 mx-0.5 self-center"></div>
-                           <button 
-                              onClick={() => setDrawings([])} 
+                           <button
+                              onClick={() => setDrawings([])}
                               className="p-1.5 text-red-400 hover:bg-red-900/30 rounded-full transition-colors"
                               title="Borrar Todo"
                            >
@@ -535,8 +546,8 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
                   )}
 
                   {/* Drawing Mode Toggle */}
-                  <button 
-                     onClick={() => setIsDrawingMode(!isDrawingMode)} 
+                  <button
+                     onClick={() => setIsDrawingMode(!isDrawingMode)}
                      className={`p-3 rounded-full border transition-all ${isDrawingMode ? 'bg-orange-600 border-orange-500 text-white' : 'bg-black/40 border-white/10 text-white hover:bg-white/10'}`}
                      title="Modo Lápiz"
                   >
@@ -545,18 +556,18 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
 
                   <div className="h-8 w-px bg-white/10 mx-1"></div>
 
-                  <button 
-                     onClick={handleCompareClick} 
+                  <button
+                     onClick={handleCompareClick}
                      className={`p-3 rounded-full border transition-all ${compareVideo ? 'bg-blue-600 border-blue-500 text-white' : 'bg-black/40 border-white/10 text-white hover:bg-white/10'}`}
                      title="Comparar Vídeo"
                   >
                      <Split size={20} />
                   </button>
                   <input type="file" ref={compareInputRef} className="hidden" accept="video/*" onChange={handleCompareUpload} />
-                  
+
                   {/* Sync Button (Only when comparing) */}
                   {compareVideo && (
-                     <button 
+                     <button
                         onClick={toggleSync}
                         className={`p-3 rounded-full border transition-all ${isSynced ? 'bg-green-600 border-green-500 text-white' : 'bg-black/40 border-white/10 text-white hover:bg-white/10'}`}
                         title="Sincronizar movimiento"
@@ -565,50 +576,74 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
                      </button>
                   )}
 
-                  <button 
-                     onClick={() => setIsChatOpen(!isChatOpen)} 
+                  <button
+                     onClick={() => setIsChatOpen(!isChatOpen)}
                      className={`p-3 rounded-full border transition-all ${isChatOpen ? 'bg-purple-600 border-purple-500 text-white' : 'bg-black/40 border-white/10 text-white hover:bg-white/10'}`}
                   >
-                     <Sparkles size={20} />
+                     {/* Gemini Logo SVG */}
+                     <svg width="20" height="20" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M14 0C14 7.732 7.732 14 0 14C7.732 14 14 20.268 14 28C14 20.268 20.268 14 28 14C20.268 14 14 7.732 14 0Z" fill="currentColor" />
+                     </svg>
                   </button>
+
+                  {/* First-time Gemini Notification Tooltip */}
+                  {showGeminiTip && (
+                     <div className="absolute top-16 right-0 bg-gradient-to-r from-purple-600 to-blue-600 text-white p-4 rounded-xl shadow-2xl max-w-xs animate-in slide-in-from-top duration-300 z-50">
+                        <div className="flex items-start gap-3">
+                           <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center flex-shrink-0">
+                              <svg width="24" height="24" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                 <path d="M14 0C14 7.732 7.732 14 0 14C7.732 14 14 20.268 14 28C14 20.268 20.268 14 28 14C20.268 14 14 7.732 14 0Z" fill="white" />
+                              </svg>
+                           </div>
+                           <div className="flex-1">
+                              <h4 className="font-bold text-sm mb-1">¡Analiza con Gemini AI!</h4>
+                              <p className="text-xs text-white/80">Pulsa este botón para obtener análisis inteligente de tu técnica con IA.</p>
+                           </div>
+                           <button onClick={dismissGeminiTip} className="text-white/60 hover:text-white">
+                              <X size={16} />
+                           </button>
+                        </div>
+                        <div className="absolute -top-2 right-6 w-0 h-0 border-l-8 border-r-8 border-b-8 border-transparent border-b-purple-600"></div>
+                     </div>
+                  )}
                </div>
             </div>
          </div>
 
          {/* Main Workspace */}
          <div className="flex-1 flex flex-col relative bg-black">
-            
+
             {/* Video Container Area */}
-            <div className="flex-1 relative overflow-hidden flex items-center justify-center bg-neutral-900"
-                 style={{ cursor: isDrawingMode ? (activeTool === 'eraser' ? 'cell' : 'crosshair') : (zoom > 1 ? 'grab' : 'default') }}
-                 onMouseDown={handleMouseDown}
-                 onTouchStart={handleMouseDown}
-                 onMouseMove={handleMouseMove}
-                 onTouchMove={handleMouseMove}
-                 onMouseUp={handleMouseUp}
-                 onTouchEnd={handleMouseUp}
-                 onMouseLeave={handleMouseUp}
+            <div className="flex-1 relative overflow-hidden flex items-center justify-center bg-black"
+               style={{ cursor: isDrawingMode ? (activeTool === 'eraser' ? 'cell' : 'crosshair') : (zoom > 1 ? 'grab' : 'default') }}
+               onMouseDown={handleMouseDown}
+               onTouchStart={handleMouseDown}
+               onMouseMove={handleMouseMove}
+               onTouchMove={handleMouseMove}
+               onMouseUp={handleMouseUp}
+               onTouchEnd={handleMouseUp}
+               onMouseLeave={handleMouseUp}
             >
                {!isVideoLoaded && !videoError && <Loader2 size={40} className="animate-spin text-orange-500 absolute" />}
-               
+
                {/* Transformed Wrapper */}
-               <div 
+               <div
                   ref={wrapperRef}
-                  className={`relative flex items-center justify-center transition-transform duration-75 ease-linear ${compareVideo ? 'w-full h-full gap-1' : 'w-full h-full'}`} 
-                  style={{ 
+                  className={`relative flex items-center justify-center transition-transform duration-75 ease-linear ${compareVideo ? 'w-full h-full gap-1' : 'w-full h-full'}`}
+                  style={{
                      transform: `scale(${zoom}) translate(${pan.x}px, ${pan.y}px)`,
                   }}
                >
                   {/* Primary Video */}
                   <div className={`relative flex items-center justify-center ${compareVideo ? 'w-1/2 h-full' : 'w-full h-full'}`}>
                      {activeUrl && (
-                        <video 
-                           ref={videoRef} 
-                           src={activeUrl} 
-                           className="max-h-full max-w-full object-contain pointer-events-none select-none" 
-                           playsInline 
-                           onLoadedData={handleLoadedData} 
-                           onTimeUpdate={handleTimeUpdatePrimary} 
+                        <video
+                           ref={videoRef}
+                           src={activeUrl}
+                           className="max-h-full max-w-full object-contain pointer-events-none select-none"
+                           playsInline
+                           onLoadedData={handleLoadedData}
+                           onTimeUpdate={handleTimeUpdatePrimary}
                         />
                      )}
                   </div>
@@ -616,19 +651,19 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
                   {/* Comparison Video */}
                   {compareVideo && (
                      <div className="relative w-1/2 h-full flex items-center justify-center border-l border-white/10">
-                        <video 
-                           ref={videoRef2} 
-                           src={compareVideo.url} 
-                           className="max-h-full max-w-full object-contain pointer-events-none select-none" 
-                           playsInline 
+                        <video
+                           ref={videoRef2}
+                           src={compareVideo.url}
+                           className="max-h-full max-w-full object-contain pointer-events-none select-none"
+                           playsInline
                            onLoadedData={(e) => setCompareDuration(e.currentTarget.duration)}
-                           onTimeUpdate={handleTimeUpdateSecondary} 
+                           onTimeUpdate={handleTimeUpdateSecondary}
                         />
                      </div>
                   )}
 
                   {/* Canvas Overlay (Shares transform with videos) */}
-                  <canvas 
+                  <canvas
                      ref={canvasRef}
                      className="absolute inset-0 z-20 pointer-events-none"
                   />
@@ -638,42 +673,42 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
                <div className="absolute bottom-36 right-4 z-40 flex flex-col gap-2 bg-black/60 backdrop-blur-md rounded-xl p-1 border border-white/10">
                   <button onClick={() => { setZoom(z => Math.min(4, z + 0.5)); }} className="p-2 text-white hover:bg-white/10 rounded-lg"><ZoomIn size={20} /></button>
                   <span className="text-[10px] text-center font-mono text-neutral-400">{Math.round(zoom * 100)}%</span>
-                  <button onClick={() => { setZoom(z => Math.max(1, z - 0.5)); setPan({x:0, y:0}); }} className="p-2 text-white hover:bg-white/10 rounded-lg"><ZoomOut size={20} /></button>
+                  <button onClick={() => { setZoom(z => Math.max(1, z - 0.5)); setPan({ x: 0, y: 0 }); }} className="p-2 text-white hover:bg-white/10 rounded-lg"><ZoomOut size={20} /></button>
                </div>
             </div>
 
             {/* Controls Bar */}
             <div className="bg-black border-t border-neutral-900 px-4 py-4 z-30">
                <div className={`w-full ${compareVideo && !isSynced ? 'grid grid-cols-2 gap-4' : ''} mb-4`}>
-                  <DualScrubber 
-                     curr={currentTime} 
-                     dur={duration} 
-                     setTime={seek} 
-                     onScrubStart={() => setIsScrubbing(true)} 
-                     onScrubEnd={() => setIsScrubbing(false)} 
-                     label="CAM A" 
+                  <DualScrubber
+                     curr={currentTime}
+                     dur={duration}
+                     setTime={seek}
+                     onScrubStart={() => setIsScrubbing(true)}
+                     onScrubEnd={() => setIsScrubbing(false)}
+                     label="CAM A"
                   />
                   {compareVideo && !isSynced && (
-                     <DualScrubber 
-                        curr={compareTime} 
-                        dur={compareDuration} 
-                        setTime={seek2} 
-                        onScrubStart={() => setIsScrubbing(true)} 
-                        onScrubEnd={() => setIsScrubbing(false)} 
-                        isSecondary 
-                        label="CAM B" 
+                     <DualScrubber
+                        curr={compareTime}
+                        dur={compareDuration}
+                        setTime={seek2}
+                        onScrubStart={() => setIsScrubbing(true)}
+                        onScrubEnd={() => setIsScrubbing(false)}
+                        isSecondary
+                        label="CAM B"
                      />
                   )}
                </div>
 
                <div className="flex items-center justify-center gap-8">
-                  <button onClick={() => { const rates = [0.25, 0.5, 1]; setPlaybackRate(rates[(rates.indexOf(playbackRate)+1)%3]); if(videoRef.current) videoRef.current.playbackRate = playbackRate; }} className="text-xs font-bold bg-neutral-900 px-3 py-1.5 rounded-lg border border-neutral-800 text-neutral-400 w-12">{playbackRate}x</button>
+                  <button onClick={() => { const rates = [0.25, 0.5, 1]; setPlaybackRate(rates[(rates.indexOf(playbackRate) + 1) % 3]); if (videoRef.current) videoRef.current.playbackRate = playbackRate; }} className="text-xs font-bold bg-neutral-900 px-3 py-1.5 rounded-lg border border-neutral-800 text-neutral-400 w-12">{playbackRate}x</button>
                   <div className="flex items-center gap-6">
                      <button onClick={() => frameStep('prev')} className="text-neutral-400 hover:text-white"><ChevronLeft size={28} /></button>
                      <button onClick={togglePlay} className="w-14 h-14 bg-white rounded-full flex items-center justify-center text-black hover:scale-105 transition-transform">{isPlaying ? <Pause size={28} fill="black" /> : <Play size={28} fill="black" className="ml-1" />}</button>
                      <button onClick={() => frameStep('next')} className="text-neutral-400 hover:text-white"><ChevronRight size={28} /></button>
                   </div>
-                  <button onClick={() => { if(videoRef.current) videoRef.current.currentTime = 0; }} className="text-neutral-500 hover:text-white"><RotateCcw size={20} /></button>
+                  <button onClick={() => { if (videoRef.current) videoRef.current.currentTime = 0; }} className="text-neutral-500 hover:text-white"><RotateCcw size={20} /></button>
                </div>
             </div>
          </div>
@@ -691,7 +726,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
                         <div className={`p-3 rounded-2xl text-xs leading-relaxed max-w-[85%] ${msg.role === 'user' ? 'bg-purple-600 text-white rounded-tr-none' : 'bg-neutral-800 border border-neutral-700 text-neutral-200 rounded-tl-none'}`}>{msg.text}</div>
                      </div>
                   ))}
-                  
+
                   {/* Left-Aligned Loading State */}
                   {isChatLoading && (
                      <div className="flex gap-3">
