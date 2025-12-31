@@ -9,7 +9,7 @@ const firebaseConfig = {
   apiKey: "AIzaSyAiSaQ_H7Ja3rLg2IPm_7k6lZL_XmWaPX4",
   authDomain: "entrenamientos-bfac2.firebaseapp.com",
   projectId: "entrenamientos-bfac2",
-  storageBucket: "entrenamientos-bfac2.appspot.com",
+  storageBucket: "entrenamientos-bfac2.firebasestorage.app",
   messagingSenderId: "708498062460",
   appId: "1:708498062460:web:83cb6635febcd927d75df9"
 };
