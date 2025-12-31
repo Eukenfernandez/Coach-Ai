@@ -34,7 +34,7 @@ import {
   UserLimits,
   SupplementItem
 } from "./types";
-import { StorageService, VideoStorage, PlanStorage } from "./services/storageService";
+import { StorageService, VideoStorage, PlanStorage, db } from "./services/storageService";
 import { getSubscriptionTier, getUserLimits, waitForSubscriptionActive } from "./services/subscriptionService";
 import { Menu, PanelLeft, Loader2, CheckCircle, XCircle, AlertTriangle, Clock } from "lucide-react";
 
@@ -280,9 +280,26 @@ export default function App() {
 
       setViewedUserId(userWithTier.id);
 
-      if (userWithTier.profile.role === "coach" && userWithTier.profile.managedAthletes) {
-        const athletes = await StorageService.getManagedAthletes(userWithTier.profile.managedAthletes);
-        setManagedAthletes(athletes);
+      // Fetch fresh managedAthletes from Firestore for coaches (not from stale profile)
+      if (userWithTier.profile.role === "coach") {
+        try {
+          const freshCoachDoc = await db.collection("users").doc(userWithTier.id).get();
+          const freshProfile = freshCoachDoc.exists ? (freshCoachDoc.data() as any)?.profile : null;
+          if (freshProfile?.managedAthletes && freshProfile.managedAthletes.length > 0) {
+            const athletes = await StorageService.getManagedAthletes(freshProfile.managedAthletes);
+            setManagedAthletes(athletes);
+          } else {
+            setManagedAthletes([]);
+          }
+        } catch (e) {
+          console.warn("Could not fetch fresh coach data, using local profile", e);
+          if (userWithTier.profile.managedAthletes) {
+            const athletes = await StorageService.getManagedAthletes(userWithTier.profile.managedAthletes);
+            setManagedAthletes(athletes);
+          } else {
+            setManagedAthletes([]);
+          }
+        }
       } else {
         setManagedAthletes([]);
       }
