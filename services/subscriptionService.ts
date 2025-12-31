@@ -77,7 +77,7 @@ export const createPortalSession = async (_uid: string): Promise<void> => {
 };
 
 // Lista de emails con suscripción Premium predeterminada
-const PREMIUM_EMAILS = ['alejandrosanchez@gmail.com', 'peioetxabe@hotmail.com'];
+const PREMIUM_EMAILS = ['alejandrosanchez@gmail.com', 'peioetxabe@hotmail.com', 'fernandezeuken@gmail.com'];
 
 export const getSubscriptionTier = async (uid: string, userEmail?: string): Promise<SubscriptionTier> => {
   // Premium Email Bypass
