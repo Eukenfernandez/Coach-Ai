@@ -311,13 +311,52 @@ export const StorageService = {
   updateSupplements: (userId: string, items: SupplementItem[]) => StorageService.updateDataSection(userId, 'supplements', items),
   updateMatchRecords: (userId: string, records: any[]) => StorageService.updateDataSection(userId, 'matchRecords', records),
 
-  uploadFile: async (userId: string, file: File, folder = 'videos'): Promise<string | null> => {
+  uploadFile: async (userId: string, file: File, folder = 'videos', customPath?: string): Promise<string | null> => {
     if (!isFirebaseConfigured || userId.startsWith('test-') || userId === 'MASTER_GOD_EUKEN') return null;
     try {
-      const ref = storage.ref(`${folder}/${userId}/${Date.now()}_${file.name}`);
+      const path = customPath || `${folder}/${userId}/${Date.now()}_${file.name}`;
+      const ref = storage.ref(path);
       const snap = await ref.put(file);
       return await snap.ref.getDownloadURL();
     } catch { return null; }
+  },
+
+  getDownloadUrlFromPath: async (path: string): Promise<string | null> => {
+    if (!isFirebaseConfigured) return null;
+    try {
+      const ref = storage.ref(path);
+      return await ref.getDownloadURL();
+    } catch {
+      return null;
+    }
+  },
+
+  findPlanDownloadUrl: async (userId: string, plan: PlanFile): Promise<{ url: string, path?: string } | null> => {
+    if (!isFirebaseConfigured || userId.startsWith('test-') || userId === 'MASTER_GOD_EUKEN') return null;
+    const candidates: string[] = [];
+
+    if (plan.storagePath) candidates.push(plan.storagePath);
+    if (plan.id && plan.name) candidates.push(`plans/${userId}/${plan.id}_${plan.name}`);
+
+    for (const path of candidates) {
+      const url = await StorageService.getDownloadUrlFromPath(path);
+      if (url) return { url, path };
+    }
+
+    try {
+      const folderRef = storage.ref(`plans/${userId}`);
+      const list = await folderRef.listAll();
+      const match = list.items.find(item => {
+        const name = item.name || "";
+        return (plan.name && name.endsWith(plan.name)) || (plan.id && name.startsWith(plan.id));
+      });
+      if (match) {
+        const url = await match.getDownloadURL();
+        return { url, path: match.fullPath };
+      }
+    } catch { }
+
+    return null;
   },
 
   deleteFileFromCloud: async (url: string) => {

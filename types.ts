@@ -42,6 +42,7 @@ export interface PlanFile {
   file?: File | Blob;
   isLocal?: boolean;
   remoteUrl?: string;
+  storagePath?: string;
 }
 
 export interface ChatMessage {

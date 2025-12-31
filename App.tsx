@@ -359,14 +359,36 @@ export default function App() {
 
       const loadedPlans = data.plans || [];
       if (loadedPlans.length > 0) {
+        let plansUpdated = false;
         const hydrated = await Promise.all(
           loadedPlans.map(async (p) => {
             const blob = await PlanStorage.getPlan(p.id);
-            if (blob) return { ...p, url: URL.createObjectURL(blob), file: blob as any, isLocal: true };
-            if (p.remoteUrl) return { ...p, url: p.remoteUrl, isLocal: false };
+            if (blob) {
+              return { ...p, url: URL.createObjectURL(blob), file: blob as any, isLocal: true };
+            }
+
+            if (p.remoteUrl) {
+              return { ...p, url: p.remoteUrl, isLocal: false };
+            }
+
+            if (StorageService.isCloudMode()) {
+              const found = await StorageService.findPlanDownloadUrl(targetId, p);
+              if (found?.url) {
+                plansUpdated = true;
+                return { ...p, remoteUrl: found.url, storagePath: found.path || p.storagePath, url: found.url, isLocal: false };
+              }
+            }
+
             return p;
           })
         );
+
+        if (plansUpdated) {
+          // Persist recovered URLs so the entry stops being broken for other sessions
+          const sanitized = hydrated.map(plan => ({ ...plan, url: "", file: undefined }));
+          await StorageService.updatePlans(targetId, sanitized);
+        }
+
         setPlans(hydrated);
       } else {
         setPlans([]);
@@ -527,6 +549,7 @@ export default function App() {
     if ((effectiveUsage.plansCount || 0) >= planLimit) return;
 
     const id = Date.now().toString();
+    const storagePath = `plans/${viewedUserId}/${id}_${file.name}`;
 
     // Optimistic update
     const planForState: PlanFile = {
@@ -535,7 +558,8 @@ export default function App() {
       date: new Date().toLocaleDateString(),
       isLocal: true,
       file: file,
-      url: URL.createObjectURL(file) // Create local URL for immediate viewing
+      url: URL.createObjectURL(file), // Create local URL for immediate viewing
+      storagePath
     };
 
     setPlans((prev) => [...prev, planForState]);
@@ -547,7 +571,13 @@ export default function App() {
       let cloudUrl = "";
       if (StorageService.isCloudMode() && viewedUserId !== 'MASTER_GOD_EUKEN') {
         // Use 'plans' folder or generic upload
-        cloudUrl = (await StorageService.uploadFile(viewedUserId, file, 'plans')) || "";
+        cloudUrl = (await StorageService.uploadFile(viewedUserId, file, 'plans', storagePath)) || "";
+      }
+
+      // If cloud upload failed in cloud mode, avoid saving a broken entry
+      if (StorageService.isCloudMode() && !cloudUrl) {
+        setPlans((prev) => prev.filter(p => p.id !== id));
+        return;
       }
 
       // Increment logic
@@ -567,6 +597,7 @@ export default function App() {
         ...planForState,
         isLocal: !cloudUrl,
         remoteUrl: cloudUrl || undefined,
+        storagePath,
         // We do NOT save the file object or blob url to DB/LocalStorage string
         file: undefined,
         url: ""
