@@ -191,10 +191,10 @@ export const CoachTeamManagement: React.FC<CoachTeamManagementProps> = ({ curren
                            <div
                               key={athlete.id}
                               onClick={() => onSelectAthlete(athlete.id)}
-                              className={`p - 4 rounded - xl border flex items - center justify - between cursor - pointer transition - all group ${activeAthleteId === athlete.id
-                                    ? 'bg-orange-50 dark:bg-orange-600/10 border-orange-500 ring-1 ring-orange-500'
-                                    : 'bg-white dark:bg-neutral-950 border-neutral-200 dark:border-neutral-800 hover:border-neutral-400 dark:hover:border-neutral-600'
-                                 } `}
+                              className={`p-4 rounded-xl border flex items-center justify-between cursor-pointer transition-all group ${activeAthleteId === athlete.id
+                                 ? 'bg-orange-50 dark:bg-orange-600/10 border-orange-500 ring-1 ring-orange-500'
+                                 : 'bg-white dark:bg-neutral-950 border-neutral-200 dark:border-neutral-800 hover:border-neutral-400 dark:hover:border-neutral-600'
+                                 }`}
                            >
                               <div className="flex items-center gap-3">
                                  <div className="w-10 h-10 rounded-full bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center text-neutral-900 dark:text-white font-bold">
