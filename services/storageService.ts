@@ -9,7 +9,7 @@ const firebaseConfig = {
   apiKey: "AIzaSyAiSaQ_H7Ja3rLg2IPm_7k6lZL_XmWaPX4",
   authDomain: "entrenamientos-bfac2.firebaseapp.com",
   projectId: "entrenamientos-bfac2",
-  storageBucket: "entrenamientos-bfac2.firebasestorage.app",
+  storageBucket: "entrenamientos-bfac2.appspot.com",
   messagingSenderId: "708498062460",
   appId: "1:708498062460:web:83cb6635febcd927d75df9"
 };
@@ -314,11 +314,16 @@ export const StorageService = {
   uploadFile: async (userId: string, file: File, folder = 'videos', customPath?: string): Promise<string | null> => {
     if (!isFirebaseConfigured || userId.startsWith('test-') || userId === 'MASTER_GOD_EUKEN') return null;
     try {
-      const path = customPath || `${folder}/${userId}/${Date.now()}_${file.name}`;
+      // Ensure path is safe even if customPath wasn't sanitized
+      let path = customPath || `${folder}/${userId}/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+
       const ref = storage.ref(path);
       const snap = await ref.put(file);
       return await snap.ref.getDownloadURL();
-    } catch { return null; }
+    } catch (e) {
+      console.error("Upload failed:", e);
+      return null;
+    }
   },
 
   getDownloadUrlFromPath: async (path: string): Promise<string | null> => {
@@ -333,16 +338,22 @@ export const StorageService = {
 
   findPlanDownloadUrl: async (userId: string, plan: PlanFile): Promise<{ url: string, path?: string } | null> => {
     if (!isFirebaseConfigured || userId.startsWith('test-') || userId === 'MASTER_GOD_EUKEN') return null;
-    const candidates: string[] = [];
+    let candidates: string[] = [];
 
     if (plan.storagePath) candidates.push(plan.storagePath);
-    if (plan.id && plan.name) candidates.push(`plans/${userId}/${plan.id}_${plan.name}`);
+    // Also try sanitized version if original name had spaces
+    if (plan.id && plan.name) {
+      candidates.push(`plans/${userId}/${plan.id}_${plan.name}`);
+      const sanitized = plan.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      candidates.push(`plans/${userId}/${plan.id}_${sanitized}`);
+    }
 
     for (const path of candidates) {
       const url = await StorageService.getDownloadUrlFromPath(path);
       if (url) return { url, path };
     }
 
+    // List all and fuzzy match
     try {
       const folderRef = storage.ref(`plans/${userId}`);
       const list = await folderRef.listAll();

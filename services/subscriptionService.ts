@@ -8,7 +8,7 @@ import type { SubscriptionTier, UserLimits } from '../types';
 import { db } from './storageService';
 
 export const STRIPE_PRODUCTS = {
-  PRO_ATHLETE: 'prod_TeGEbgvAQJO9pN', 
+  PRO_ATHLETE: 'prod_TeGEbgvAQJO9pN',
   PRO_COACH: 'prod_TeGEbgvAQJO9pN',
   PREMIUM: 'prod_TeGEbgvAQJO9pN',
 } as const;
@@ -46,7 +46,7 @@ export const createCheckoutSession = async (uid: string, priceId: string): Promi
             unsubscribe();
             const message = data.error.message ?? 'Error desconocido.';
             if (message.includes('No such customer')) {
-               db.collection('customers').doc(uid).delete().then(() => reject(new Error('Resincronizado. Inténtalo de nuevo.')));
+              db.collection('customers').doc(uid).delete().then(() => reject(new Error('Resincronizado. Inténtalo de nuevo.')));
               return;
             }
             reject(new Error(message));
@@ -87,23 +87,32 @@ export const getSubscriptionTier = async (uid: string, userEmail?: string): Prom
 
   // Test Account Bypass
   if (uid.startsWith('test-')) {
-     if (uid === 'test-pro') return 'PRO_ATHLETE';
-     if (uid === 'test-coach-pro') return 'PRO_COACH';
-     if (uid === 'test-coach-premium') return 'PREMIUM';
-     return 'FREE';
+    if (uid === 'test-pro') return 'PRO_ATHLETE';
+    if (uid === 'test-coach-pro') return 'PRO_COACH';
+    if (uid === 'test-coach-premium') return 'PREMIUM';
+    return 'FREE';
   }
 
   if (!db || uid === 'MASTER_GOD_EUKEN') return 'PREMIUM';
   try {
     const querySnapshot = await db.collection('customers').doc(uid).collection('subscriptions')
-        .where('status', 'in', ['active', 'trialing'])
-        .get();
-    
+      .where('status', 'in', ['active', 'trialing'])
+      .get();
+
     if (querySnapshot.empty) return 'FREE';
-    
+
     const subscriptionData = querySnapshot.docs[0].data() as any;
-    const priceId: string | undefined = subscriptionData?.items?.[0]?.price?.id ?? subscriptionData?.items?.data?.[0]?.price?.id ?? subscriptionData?.price?.id;
-    
+
+    // Safety check and extraction
+    let priceId: string | undefined;
+    if (subscriptionData?.items?.data?.[0]?.price?.id) {
+      priceId = subscriptionData.items.data[0].price.id;
+    } else if (subscriptionData?.items?.[0]?.price?.id) {
+      priceId = subscriptionData.items[0].price.id;
+    } else if (subscriptionData?.price?.id) {
+      priceId = subscriptionData.price.id;
+    }
+
     if (!priceId) return 'FREE';
     if (priceId === STRIPE_PRICES.PREMIUM) return 'PREMIUM';
     if (priceId === STRIPE_PRICES.PRO_COACH) return 'PRO_COACH';
@@ -122,29 +131,38 @@ export const waitForSubscriptionActive = async (uid: string, userEmail?: string)
 
   // Test Account Bypass
   if (uid.startsWith('test-')) {
-     if (uid === 'test-pro') return 'PRO_ATHLETE';
-     if (uid === 'test-coach-pro') return 'PRO_COACH';
-     if (uid === 'test-coach-premium') return 'PREMIUM';
-     return 'FREE';
+    if (uid === 'test-pro') return 'PRO_ATHLETE';
+    if (uid === 'test-coach-pro') return 'PRO_COACH';
+    if (uid === 'test-coach-premium') return 'PREMIUM';
+    return 'FREE';
   }
 
   if (!db) return 'FREE';
   return new Promise<SubscriptionTier>((resolve) => {
     let resolved = false;
-    
+
     const timeoutId = window.setTimeout(() => { if (!resolved) resolve('FREE'); }, 20000);
-    
+
     const unsubscribe = db.collection('customers').doc(uid).collection('subscriptions')
       .where('status', 'in', ['active', 'trialing'])
       .onSnapshot((snapshot) => {
         if (snapshot.empty) return;
         const docData = snapshot.docs[0].data() as any;
-        const priceId: string | undefined = docData?.items?.[0]?.price?.id ?? docData?.items?.data?.[0]?.price?.id ?? docData?.price?.id;
+
+        let priceId: string | undefined;
+        if (docData?.items?.data?.[0]?.price?.id) {
+          priceId = docData.items.data[0].price.id;
+        } else if (docData?.items?.[0]?.price?.id) {
+          priceId = docData.items[0].price.id;
+        } else if (docData?.price?.id) {
+          priceId = docData.price.id;
+        }
+
         let tier: SubscriptionTier = 'FREE';
         if (priceId === STRIPE_PRICES.PREMIUM) tier = 'PREMIUM';
         else if (priceId === STRIPE_PRICES.PRO_COACH) tier = 'PRO_COACH';
         else if (priceId === STRIPE_PRICES.PRO_ATHLETE) tier = 'PRO_ATHLETE';
-        
+
         if (tier !== 'FREE') {
           resolved = true;
           window.clearTimeout(timeoutId);
@@ -160,7 +178,7 @@ export const getUserLimits = (tier: SubscriptionTier): UserLimits => {
     case 'PREMIUM': // Entrenador Premium (79.99€)
       return {
         tier: 'PREMIUM',
-        maxAnalysisPerMonth: 300, 
+        maxAnalysisPerMonth: 300,
         maxPdfUploads: 300,
         maxVideoDurationSeconds: 600, // 10 minutos
         maxChatMessagesPerMonth: 500,

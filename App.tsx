@@ -349,7 +349,8 @@ export default function App() {
             if (v.remoteUrl) {
               return { ...v, url: v.remoteUrl, isLocal: false };
             }
-            return v;
+            // Fallback: If no blob and no remote URL, keep existing but ensure no broken blob URL remains
+            return { ...v, url: "", isLocal: false };
           })
         );
         setVideos(hydrated);
@@ -367,16 +368,19 @@ export default function App() {
               return { ...p, url: URL.createObjectURL(blob), file: blob as any, isLocal: true };
             }
 
-            if (p.remoteUrl) {
-              return { ...p, url: p.remoteUrl, isLocal: false };
-            }
-
-            if (StorageService.isCloudMode()) {
+            if (StorageService.isCloudMode() && !blob) {
+              // Try to find a valid URL in the cloud if we don't have the file locally
               const found = await StorageService.findPlanDownloadUrl(targetId, p);
               if (found?.url) {
-                plansUpdated = true;
+                // If we found a new URL or it's different/better, update
+                if (found.url !== p.remoteUrl) plansUpdated = true;
                 return { ...p, remoteUrl: found.url, storagePath: found.path || p.storagePath, url: found.url, isLocal: false };
               }
+            }
+
+            // If we have a stored remoteUrl but verification failed (or we didn't check), fallback to it
+            if (p.remoteUrl) {
+              return { ...p, url: p.remoteUrl, isLocal: false };
             }
 
             return p;
@@ -549,12 +553,14 @@ export default function App() {
     if ((effectiveUsage.plansCount || 0) >= planLimit) return;
 
     const id = Date.now().toString();
-    const storagePath = `plans/${viewedUserId}/${id}_${file.name}`;
+    // Sanitize filename to avoid URL issues
+    const sanitizedName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const storagePath = `plans/${viewedUserId}/${id}_${sanitizedName}`;
 
     // Optimistic update
     const planForState: PlanFile = {
       id,
-      name: file.name,
+      name: file.name, // Keep original name for display
       date: new Date().toLocaleDateString(),
       isLocal: true,
       file: file,
@@ -576,8 +582,11 @@ export default function App() {
 
       // If cloud upload failed in cloud mode, avoid saving a broken entry
       if (StorageService.isCloudMode() && !cloudUrl) {
-        setPlans((prev) => prev.filter(p => p.id !== id));
-        return;
+        // Silently keep local if it's just a cloud failure? Or revert? 
+        // User requested to fix the error where it "fails silently". 
+        // Let's at least keep it locally if possible, BUT if I revert, I must notify.
+        // Better to revert to avoid ghost files that only the coach sees.
+        throw new Error("Cloud upload failed");
       }
 
       // Increment logic
@@ -613,7 +622,9 @@ export default function App() {
 
     } catch (e) {
       console.error("Error uploading plan", e);
-      // Optional: rollback state if needed, or show error
+      // Rollback state
+      setPlans((prev) => prev.filter(p => p.id !== id));
+      alert("Error al subir el archivo. Inténtalo de nuevo.");
     }
   };
 
