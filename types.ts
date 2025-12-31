@@ -83,6 +83,65 @@ export const NON_COMPETITIVE_SPORTS = ['gym'];
 // Sports where gym/weight training is relevant (includes gym itself + combat sports + athletics for strength training)
 export const GYM_RELATED_SPORTS = ['gym', 'combat', 'athletics', 'rugby_football'];
 
+// === SPORT METRIC CONFIGURATION ===
+// Disciplines where the metric is TIME (lower is better)
+export const TIME_BASED_DISCIPLINES = [
+  // Sprint distances
+  '60m', '100m', '200m', '400m',
+  // Middle distance
+  '800m', '1500m', '3000m', '5000m', '10000m',
+  // Long distance running
+  'Media Maratón', 'Maratón', 'Ultramaratón', 'Cross Country', 'Trail Running', 'Running',
+  // Hurdles
+  '60m Vallas', '100m Vallas', '110m Vallas', '400m Vallas', '3000m Obst.',
+  // Other timed events
+  'Marcha', 'Relevos',
+  // Swimming
+  'Natación', 'Aguas Abiertas',
+  // Cycling
+  'Ruta', 'MTB XC', 'MTB Downhill', 'Pista', 'BMX', 'Triatlón', 'Duatlón', 'Gravel',
+  // Rowing/Kayak
+  'Remo', 'Piragüismo'
+];
+
+// Disciplines where the metric is DISTANCE/HEIGHT (higher is better)
+export const DISTANCE_BASED_DISCIPLINES = [
+  // Jumps
+  'Salto Longitud', 'Triple Salto', 'Salto Altura', 'Pértiga',
+  // Throws
+  'Lanz. Peso', 'Lanz. Disco', 'Lanz. Jabalina', 'Lanz. Martillo',
+  // Combined events (treated as points, but stored same way)
+  'Decatlón', 'Heptatlón',
+  // Golf (lower is better but uses strokes)
+  'Golf'
+];
+
+// Helper function to check if a discipline uses time-based metrics
+export const isTimeBased = (discipline: string): boolean => {
+  return TIME_BASED_DISCIPLINES.some(d =>
+    discipline.toLowerCase().includes(d.toLowerCase()) || d.toLowerCase().includes(discipline.toLowerCase())
+  );
+};
+
+// Helper function to check if a discipline uses distance-based metrics  
+export const isDistanceBased = (discipline: string): boolean => {
+  return DISTANCE_BASED_DISCIPLINES.some(d =>
+    discipline.toLowerCase().includes(d.toLowerCase()) || d.toLowerCase().includes(discipline.toLowerCase())
+  );
+};
+
+// Get the appropriate unit for a discipline
+export const getMetricUnit = (discipline: string): string => {
+  if (isTimeBased(discipline)) return 's';
+  if (isDistanceBased(discipline)) return 'm';
+  return ''; // No unit for team sports, etc.
+};
+
+// Get whether "best" means minimum (time) or maximum (distance)
+export const isBestMinimum = (discipline: string): boolean => {
+  return isTimeBased(discipline);
+};
+
 export type SportType = string;
 
 export interface UserProfile {
