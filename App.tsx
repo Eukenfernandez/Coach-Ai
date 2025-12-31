@@ -527,23 +527,63 @@ export default function App() {
     if ((effectiveUsage.plansCount || 0) >= planLimit) return;
 
     const id = Date.now().toString();
-    await PlanStorage.savePlan(id, file);
 
-    // Increment logic
-    const payerId = isCoach ? currentUser.id : viewedUserId;
-    await StorageService.incrementUsage(payerId, 'plan');
+    // Optimistic update
+    const planForState: PlanFile = {
+      id,
+      name: file.name,
+      date: new Date().toLocaleDateString(),
+      isLocal: true,
+      file: file,
+      url: URL.createObjectURL(file) // Create local URL for immediate viewing
+    };
 
-    if (isCoach) {
-      const freshCoachData = await StorageService.getUserData(currentUser.id);
-      setMyUsage(freshCoachData.usage);
-    } else {
-      const freshAthleteData = await StorageService.getUserData(viewedUserId);
-      setUsage(freshAthleteData.usage);
+    setPlans((prev) => [...prev, planForState]);
+
+    try {
+      await PlanStorage.savePlan(id, file);
+
+      // --- CLOUD UPLOAD LOGIC ---
+      let cloudUrl = "";
+      if (StorageService.isCloudMode() && viewedUserId !== 'MASTER_GOD_EUKEN') {
+        // Use 'plans' folder or generic upload
+        cloudUrl = (await StorageService.uploadFile(viewedUserId, file, 'plans')) || "";
+      }
+
+      // Increment logic
+      const payerId = isCoach ? currentUser.id : viewedUserId;
+      await StorageService.incrementUsage(payerId, 'plan');
+
+      if (isCoach) {
+        const freshCoachData = await StorageService.getUserData(currentUser.id);
+        setMyUsage(freshCoachData.usage);
+      } else {
+        const freshAthleteData = await StorageService.getUserData(viewedUserId);
+        setUsage(freshAthleteData.usage);
+      }
+
+      // Update state and DB with final data
+      const planForDb: PlanFile = {
+        ...planForState,
+        isLocal: !cloudUrl,
+        remoteUrl: cloudUrl || undefined,
+        // We do NOT save the file object or blob url to DB/LocalStorage string
+        file: undefined,
+        url: ""
+      };
+
+      const currentData = await StorageService.getUserData(viewedUserId);
+      const newPlanList = [...currentData.plans, planForDb];
+
+      await StorageService.updatePlans(viewedUserId, newPlanList);
+
+      // Update local state to have the remoteUrl but keep the local file/url for this session
+      setPlans((prev) => prev.map(p => p.id === id ? { ...p, remoteUrl: cloudUrl || undefined } : p));
+
+    } catch (e) {
+      console.error("Error uploading plan", e);
+      // Optional: rollback state if needed, or show error
     }
-
-    const updated = [...plans, { id, name: file.name, date: new Date().toLocaleDateString(), isLocal: true, file: file }];
-    setPlans(updated);
-    await StorageService.updatePlans(viewedUserId, updated.map(p => ({ ...p, url: "", file: undefined })));
   };
 
   const handleDeletePlan = async (id: string) => {
