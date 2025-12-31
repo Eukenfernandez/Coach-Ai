@@ -6,7 +6,7 @@ import {
    Play, Pause, ChevronLeft, ChevronRight, X,
    ZoomIn, ZoomOut, PenTool, Eraser,
    Sparkles, Split, Send, RotateCcw,
-   Loader2, Move, Trash2, Palette, MousePointer2, Minus, Circle, Link2, Unlink
+   Loader2, Move, Trash2, Palette, MousePointer2, Minus, Circle, Link2, Unlink, Lock
 } from 'lucide-react';
 
 interface VideoAnalyzerProps {
@@ -16,6 +16,7 @@ interface VideoAnalyzerProps {
    limits?: UserLimits;
    onIncrementUsage?: () => void;
    language: Language;
+   onNavigate?: (screen: 'pricing') => void;
 }
 
 interface Line {
@@ -173,7 +174,7 @@ const DualScrubber: React.FC<DualScrubberProps> = ({
    );
 };
 
-export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usage, limits, onIncrementUsage, language }) => {
+export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usage, limits, onIncrementUsage, language, onNavigate }) => {
    const [currentTime, setCurrentTime] = useState(0);
    const [duration, setDuration] = useState(0);
    const [playbackRate, setPlaybackRate] = useState(1);
@@ -224,6 +225,9 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
 
    // Check if user can compare videos (Pro/Premium only)
    const canCompare = limits?.canCompareVideos ?? false;
+
+   // Upgrade modal for compare feature
+   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
    // First-time Gemini notification
    const [showGeminiTip, setShowGeminiTip] = useState(() => {
@@ -593,11 +597,28 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
                   {/* Compare Button with Tooltip */}
                   <div className="relative">
                      <button
-                        onClick={handleCompareClick}
-                        className={`p-3 rounded-full border transition-all ${compareVideo ? 'bg-blue-600 border-blue-500 text-white' : 'bg-black/40 border-white/10 text-white hover:bg-white/10'}`}
-                        title="Comparar Vídeo"
+                        onClick={() => {
+                           if (canCompare) {
+                              handleCompareClick();
+                           } else {
+                              setShowUpgradeModal(true);
+                           }
+                        }}
+                        className={`p-3 rounded-full border transition-all relative ${compareVideo
+                           ? 'bg-blue-600 border-blue-500 text-white'
+                           : canCompare
+                              ? 'bg-black/40 border-white/10 text-white hover:bg-white/10'
+                              : 'bg-neutral-800/60 border-neutral-700 text-neutral-500 cursor-pointer'
+                           }`}
+                        title={canCompare ? "Comparar Vídeo" : "Función Pro/Premium"}
                      >
                         <Split size={20} />
+                        {/* Lock badge for free users */}
+                        {!canCompare && (
+                           <div className="absolute -top-1 -right-1 w-4 h-4 bg-orange-500 rounded-full flex items-center justify-center">
+                              <Lock size={10} className="text-white" />
+                           </div>
+                        )}
                      </button>
 
                      {/* First-time Compare Video Notification Tooltip (Pro/Premium only) */}
@@ -825,6 +846,37 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
                   <input type="text" value={chatInput} onChange={e => setChatInput(e.target.value)} placeholder="Pregunta..." className="flex-1 bg-neutral-900 border border-neutral-700 rounded-xl px-4 py-2 text-xs text-white outline-none focus:border-purple-500" />
                   <button type="submit" className="p-2 bg-purple-600 text-white rounded-xl hover:bg-purple-500"><Send size={16} /></button>
                </form>
+            </div>
+         )}
+
+         {/* Upgrade Modal for Compare Feature */}
+         {showUpgradeModal && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+               <div className="bg-neutral-900 border border-neutral-800 p-6 rounded-3xl max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-200">
+                  <div className="flex flex-col items-center text-center">
+                     <div className="w-16 h-16 bg-blue-500/10 rounded-full flex items-center justify-center mb-4">
+                        <Split size={32} className="text-blue-500" />
+                     </div>
+                     <h3 className="text-xl font-bold text-white mb-2">Función Pro/Premium</h3>
+                     <p className="text-neutral-400 text-sm mb-6">
+                        La comparación de vídeos lado a lado está disponible para usuarios Atleta Pro y Atleta Premium. ¡Mejora tu plan para desbloquear esta función!
+                     </p>
+                     {onNavigate && (
+                        <button
+                           onClick={() => { setShowUpgradeModal(false); onNavigate('pricing'); }}
+                           className="w-full py-3 px-4 bg-gradient-to-r from-blue-600 to-cyan-500 text-white font-bold rounded-xl hover:opacity-90 transition-opacity"
+                        >
+                           Ver Planes
+                        </button>
+                     )}
+                     <button
+                        onClick={() => setShowUpgradeModal(false)}
+                        className="mt-3 text-sm text-neutral-500 hover:text-white transition-colors"
+                     >
+                        Cerrar
+                     </button>
+                  </div>
+               </div>
             </div>
          )}
       </div>
