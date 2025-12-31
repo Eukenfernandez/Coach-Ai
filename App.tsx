@@ -788,7 +788,7 @@ export default function App() {
         {currentScreen === "calculator" && <PlateCalculator language={language} />}
         {currentScreen === "supplements" && <SupplementsTracker supplements={supplements} onUpdate={handleUpdateSupplements} language={language} />}
         {currentScreen === "coach" && <CoachChat language={language} usage={displayedUsage} limits={userLimits} onMessageSent={handleIncrementChat} />}
-        {currentScreen === "team_management" && <CoachTeamManagement currentUser={currentUser} onSelectAthlete={handleSwitchAthlete} activeAthleteId={viewedUserId} language={language} />}
+        {currentScreen === "team_management" && <CoachTeamManagement currentUser={currentUser} onSelectAthlete={handleSwitchAthlete} activeAthleteId={viewedUserId} language={language} onAthleteRemoved={(athleteId) => setManagedAthletes(prev => prev.filter(a => a.id !== athleteId))} />}
         {currentScreen === "pricing" && <PricingSection currentUser={currentUser} language={language} />}
         {currentScreen === "profile" && <Profile currentUser={currentUser} onUpdateUser={setCurrentUser} onLogout={handleLogout} language={language} onRefreshData={() => loadDataForUser(viewedUserId!)} />}
       </main>
