@@ -792,22 +792,28 @@ export default function App() {
           </div>
         )}
 
-        {currentScreen === "dashboard" && <Dashboard userProfile={currentUser.profile} videos={videos} strengthRecords={strengthRecords} throwRecords={competitionRecords} trainingRecords={trainingRecords} onNavigate={navigateTo} language={language} />}
-        {currentScreen === "gallery" && <Gallery videos={videos} onSelectVideo={(v) => { setSelectedVideo(v); setCurrentScreen("analyzer"); }} onUpload={handleUploadVideo} onDelete={handleDeleteVideo} language={language} usage={displayedUsage} limits={userLimits} onNavigate={navigateTo} />}
-        {/* Pass language to VideoAnalyzer */}
-        {currentScreen === "analyzer" && selectedVideo && <VideoAnalyzer video={selectedVideo} onBack={() => navigateTo("gallery")} usage={displayedUsage} limits={userLimits} onIncrementUsage={handleIncrementChat} language={language} onNavigate={navigateTo} />}
-        {currentScreen === "planning" && <PlanGallery plans={plans} onSelectPlan={(p) => { setSelectedPlan(p); setCurrentScreen("planViewer"); }} onUpload={handleUploadPlan} onDelete={handleDeletePlan} language={language} usage={displayedUsage} limits={userLimits} onNavigate={navigateTo} />}
-        {currentScreen === "planViewer" && selectedPlan && <PdfViewer plan={selectedPlan} onBack={() => navigateTo("planning")} />}
-        {currentScreen === "strength" && <StrengthTracker records={strengthRecords} onAddRecord={handleAddStrength} onDeleteRecord={handleDeleteStrength} exercises={customExercises} onUpdateExercises={(e) => { setCustomExercises(e); void StorageService.updateCustomExercises(viewedUserId!, e); }} language={language} />}
-        {currentScreen === "competition" && <JavelinTracker profile={currentUser.profile!} records={competitionRecords} onAddRecord={handleAddCompetition} onDeleteRecord={handleDeleteCompetition} language={language} />}
-        {currentScreen === "training" && <TrainingTracker profile={currentUser.profile!} records={trainingRecords} onAddRecord={handleAddTraining} onDeleteRecord={handleDeleteTraining} language={language} />}
-        {currentScreen === "matches" && <MatchTracker profile={currentUser.profile!} records={matchRecords} onAddRecord={handleAddMatch} onDeleteRecord={handleDeleteMatch} language={language} />}
-        {currentScreen === "calculator" && <PlateCalculator language={language} />}
-        {currentScreen === "supplements" && <SupplementsTracker supplements={supplements} onUpdate={handleUpdateSupplements} language={language} />}
-        {currentScreen === "coach" && <CoachChat language={language} usage={displayedUsage} limits={userLimits} onMessageSent={handleIncrementChat} />}
-        {currentScreen === "team_management" && <CoachTeamManagement currentUser={currentUser} onSelectAthlete={handleSwitchAthlete} activeAthleteId={viewedUserId} language={language} onAthleteRemoved={(athleteId) => setManagedAthletes(prev => prev.filter(a => a.id !== athleteId))} />}
-        {currentScreen === "pricing" && <PricingSection currentUser={currentUser} language={language} />}
-        {currentScreen === "profile" && <Profile currentUser={currentUser} onUpdateUser={setCurrentUser} onLogout={handleLogout} language={language} onRefreshData={() => loadDataForUser(viewedUserId!)} />}
+        <div className="flex-1 overflow-hidden relative">
+          {currentScreen === "dashboard" && <Dashboard userProfile={currentUser.profile} videos={videos} strengthRecords={strengthRecords} throwRecords={competitionRecords} trainingRecords={trainingRecords} onNavigate={navigateTo} language={language} />}
+          {currentScreen === "gallery" && <Gallery videos={videos} onSelectVideo={(v) => { setSelectedVideo(v); setCurrentScreen("analyzer"); }} onUpload={handleUploadVideo} onDelete={handleDeleteVideo} language={language} usage={displayedUsage} limits={userLimits} onNavigate={navigateTo} />}
+          {/* Pass language to VideoAnalyzer */}
+          {currentScreen === "analyzer" && selectedVideo && <VideoAnalyzer video={selectedVideo} onBack={() => navigateTo("gallery")} usage={displayedUsage} limits={userLimits} onIncrementUsage={handleIncrementChat} language={language} onNavigate={navigateTo} />}
+          {currentScreen === "planning" && <PlanGallery plans={plans} onSelectPlan={(p) => { setSelectedPlan(p); setCurrentScreen("planViewer"); }} onUpload={handleUploadPlan} onDelete={handleDeletePlan} language={language} usage={displayedUsage} limits={userLimits} onNavigate={navigateTo} />}
+          {currentScreen === "planViewer" && selectedPlan && <PdfViewer plan={selectedPlan} onBack={() => navigateTo("planning")} />}
+          {currentScreen === "strength" && <StrengthTracker records={strengthRecords} onAddRecord={handleAddStrength} onDeleteRecord={handleDeleteStrength} exercises={customExercises} onUpdateExercises={(e) => { setCustomExercises(e); void StorageService.updateCustomExercises(viewedUserId!, e); }} language={language} />}
+          {currentScreen === "competition" && <JavelinTracker profile={currentUser.profile!} records={competitionRecords} onAddRecord={handleAddCompetition} onDeleteRecord={handleDeleteCompetition} language={language} />}
+          {currentScreen === "training" && <TrainingTracker profile={currentUser.profile!} records={trainingRecords} onAddRecord={handleAddTraining} onDeleteRecord={handleDeleteTraining} language={language} />}
+          {currentScreen === "matches" && <MatchTracker profile={currentUser.profile!} records={matchRecords} onAddRecord={handleAddMatch} onDeleteRecord={handleDeleteMatch} language={language} />}
+          {currentScreen === "calculator" && <PlateCalculator language={language} />}
+          {currentScreen === "supplements" && <SupplementsTracker supplements={supplements} onUpdate={handleUpdateSupplements} language={language} />}
+          {currentScreen === "coach" && <CoachChat language={language} usage={displayedUsage} limits={userLimits} onMessageSent={handleIncrementChat} />}
+          {currentScreen === "team_management" && <CoachTeamManagement currentUser={currentUser} onSelectAthlete={handleSwitchAthlete} activeAthleteId={viewedUserId} language={language} onAthleteRemoved={(athleteId) => setManagedAthletes(prev => prev.filter(a => a.id !== athleteId))} />}
+          {currentScreen === "pricing" && <PricingSection currentUser={currentUser} language={language} />}
+          {currentScreen === "profile" && <Profile currentUser={currentUser} onUpdateUser={setCurrentUser} onLogout={handleLogout} language={language} onRefreshData={() => loadDataForUser(viewedUserId!)} />}
+        </div>
+
+        <div className="py-2 text-center text-[10px] text-neutral-600 border-t border-neutral-800 bg-neutral-950 flex-none z-10">
+          Copy Right CoachAi
+        </div>
       </main>
     </div>
   );
