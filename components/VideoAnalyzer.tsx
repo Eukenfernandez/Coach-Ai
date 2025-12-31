@@ -590,94 +590,103 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
 
                   <div className="h-8 w-px bg-white/10 mx-1"></div>
 
-                  <button
-                     onClick={handleCompareClick}
-                     className={`p-3 rounded-full border transition-all ${compareVideo ? 'bg-blue-600 border-blue-500 text-white' : 'bg-black/40 border-white/10 text-white hover:bg-white/10'}`}
-                     title="Comparar Vídeo"
-                  >
-                     <Split size={20} />
-                  </button>
+                  {/* Compare Button with Tooltip */}
+                  <div className="relative">
+                     <button
+                        onClick={handleCompareClick}
+                        className={`p-3 rounded-full border transition-all ${compareVideo ? 'bg-blue-600 border-blue-500 text-white' : 'bg-black/40 border-white/10 text-white hover:bg-white/10'}`}
+                        title="Comparar Vídeo"
+                     >
+                        <Split size={20} />
+                     </button>
+
+                     {/* First-time Compare Video Notification Tooltip (Pro/Premium only) */}
+                     {showCompareTip && canCompare && !showGeminiTip && (
+                        <div className="absolute top-14 right-0 bg-gradient-to-r from-blue-600 to-cyan-500 text-white p-4 rounded-xl shadow-2xl w-64 animate-in slide-in-from-top duration-300 z-50">
+                           <div className="flex items-start gap-3">
+                              <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center flex-shrink-0">
+                                 <Split size={20} />
+                              </div>
+                              <div className="flex-1">
+                                 <h4 className="font-bold text-sm mb-1">¡Compara Vídeos!</h4>
+                                 <p className="text-xs text-white/80">Como usuario Pro/Premium, puedes comparar dos vídeos lado a lado para analizar tu técnica.</p>
+                              </div>
+                              <button onClick={dismissCompareTip} className="text-white/60 hover:text-white">
+                                 <X size={16} />
+                              </button>
+                           </div>
+                           <div className="absolute -top-2 right-4 w-0 h-0 border-l-8 border-r-8 border-b-8 border-transparent border-b-blue-600"></div>
+                        </div>
+                     )}
+                  </div>
                   <input type="file" ref={compareInputRef} className="hidden" accept="video/*" onChange={handleCompareUpload} />
 
-                  {/* Sync Button (Only when comparing) */}
+                  {/* Sync Button with Tooltip (Only when comparing) */}
                   {compareVideo && (
+                     <div className="relative">
+                        <button
+                           onClick={toggleSync}
+                           className={`p-3 rounded-full border transition-all ${isSynced ? 'bg-green-600 border-green-500 text-white' : 'bg-black/40 border-white/10 text-white hover:bg-white/10'}`}
+                           title="Sincronizar movimiento"
+                        >
+                           {isSynced ? <Link2 size={20} /> : <Unlink size={20} />}
+                        </button>
+
+                        {/* First-time Sync Notification Tooltip */}
+                        {showSyncTip && (
+                           <div className="absolute top-14 right-0 bg-gradient-to-r from-green-600 to-emerald-500 text-white p-4 rounded-xl shadow-2xl w-64 animate-in slide-in-from-top duration-300 z-50">
+                              <div className="flex items-start gap-3">
+                                 <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center flex-shrink-0">
+                                    <Link2 size={20} />
+                                 </div>
+                                 <div className="flex-1">
+                                    <h4 className="font-bold text-sm mb-1">¡Sincroniza los Vídeos!</h4>
+                                    <p className="text-xs text-white/80">Alinea los vídeos manualmente y pulsa este botón para que se muevan juntos.</p>
+                                 </div>
+                                 <button onClick={dismissSyncTip} className="text-white/60 hover:text-white">
+                                    <X size={16} />
+                                 </button>
+                              </div>
+                              <div className="absolute -top-2 right-4 w-0 h-0 border-l-8 border-r-8 border-b-8 border-transparent border-b-green-600"></div>
+                           </div>
+                        )}
+                     </div>
+                  )}
+
+                  {/* Gemini Button with Tooltip */}
+                  <div className="relative">
                      <button
-                        onClick={toggleSync}
-                        className={`p-3 rounded-full border transition-all ${isSynced ? 'bg-green-600 border-green-500 text-white' : 'bg-black/40 border-white/10 text-white hover:bg-white/10'}`}
-                        title="Sincronizar movimiento"
+                        onClick={() => setIsChatOpen(!isChatOpen)}
+                        className={`p-3 rounded-full border transition-all ${isChatOpen ? 'bg-purple-600 border-purple-500 text-white' : 'bg-black/40 border-white/10 text-white hover:bg-white/10'}`}
                      >
-                        {isSynced ? <Link2 size={20} /> : <Unlink size={20} />}
+                        {/* Gemini Logo SVG */}
+                        <svg width="20" height="20" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+                           <path d="M14 0C14 7.732 7.732 14 0 14C7.732 14 14 20.268 14 28C14 20.268 20.268 14 28 14C20.268 14 14 7.732 14 0Z" fill="currentColor" />
+                        </svg>
                      </button>
-                  )}
 
-                  <button
-                     onClick={() => setIsChatOpen(!isChatOpen)}
-                     className={`p-3 rounded-full border transition-all ${isChatOpen ? 'bg-purple-600 border-purple-500 text-white' : 'bg-black/40 border-white/10 text-white hover:bg-white/10'}`}
-                  >
-                     {/* Gemini Logo SVG */}
-                     <svg width="20" height="20" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M14 0C14 7.732 7.732 14 0 14C7.732 14 14 20.268 14 28C14 20.268 20.268 14 28 14C20.268 14 14 7.732 14 0Z" fill="currentColor" />
-                     </svg>
-                  </button>
-
-                  {/* First-time Gemini Notification Tooltip */}
-                  {showGeminiTip && (
-                     <div className="absolute top-16 right-0 bg-gradient-to-r from-purple-600 to-blue-600 text-white p-4 rounded-xl shadow-2xl max-w-xs animate-in slide-in-from-top duration-300 z-50">
-                        <div className="flex items-start gap-3">
-                           <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center flex-shrink-0">
-                              <svg width="24" height="24" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                 <path d="M14 0C14 7.732 7.732 14 0 14C7.732 14 14 20.268 14 28C14 20.268 20.268 14 28 14C20.268 14 14 7.732 14 0Z" fill="white" />
-                              </svg>
+                     {/* First-time Gemini Notification Tooltip */}
+                     {showGeminiTip && (
+                        <div className="absolute top-14 right-0 bg-gradient-to-r from-purple-600 to-blue-600 text-white p-4 rounded-xl shadow-2xl w-64 animate-in slide-in-from-top duration-300 z-50">
+                           <div className="flex items-start gap-3">
+                              <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center flex-shrink-0">
+                                 <svg width="24" height="24" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M14 0C14 7.732 7.732 14 0 14C7.732 14 14 20.268 14 28C14 20.268 20.268 14 28 14C20.268 14 14 7.732 14 0Z" fill="white" />
+                                 </svg>
+                              </div>
+                              <div className="flex-1">
+                                 <h4 className="font-bold text-sm mb-1">¡Analiza con Gemini AI!</h4>
+                                 <p className="text-xs text-white/80">Pulsa este botón para obtener análisis inteligente de tu técnica con IA.</p>
+                              </div>
+                              <button onClick={dismissGeminiTip} className="text-white/60 hover:text-white">
+                                 <X size={16} />
+                              </button>
                            </div>
-                           <div className="flex-1">
-                              <h4 className="font-bold text-sm mb-1">¡Analiza con Gemini AI!</h4>
-                              <p className="text-xs text-white/80">Pulsa este botón para obtener análisis inteligente de tu técnica con IA.</p>
-                           </div>
-                           <button onClick={dismissGeminiTip} className="text-white/60 hover:text-white">
-                              <X size={16} />
-                           </button>
+                           <div className="absolute -top-2 right-4 w-0 h-0 border-l-8 border-r-8 border-b-8 border-transparent border-b-purple-600"></div>
                         </div>
-                        <div className="absolute -top-2 right-6 w-0 h-0 border-l-8 border-r-8 border-b-8 border-transparent border-b-purple-600"></div>
-                     </div>
-                  )}
+                     )}
+                  </div>
 
-                  {/* First-time Compare Video Notification Tooltip (Pro/Premium only) */}
-                  {showCompareTip && canCompare && !showGeminiTip && (
-                     <div className="absolute top-16 right-24 bg-gradient-to-r from-blue-600 to-cyan-500 text-white p-4 rounded-xl shadow-2xl max-w-xs animate-in slide-in-from-top duration-300 z-50">
-                        <div className="flex items-start gap-3">
-                           <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center flex-shrink-0">
-                              <Split size={20} />
-                           </div>
-                           <div className="flex-1">
-                              <h4 className="font-bold text-sm mb-1">¡Compara Vídeos!</h4>
-                              <p className="text-xs text-white/80">Como usuario Pro/Premium, puedes comparar dos vídeos lado a lado para analizar tu técnica.</p>
-                           </div>
-                           <button onClick={dismissCompareTip} className="text-white/60 hover:text-white">
-                              <X size={16} />
-                           </button>
-                        </div>
-                        <div className="absolute -top-2 right-6 w-0 h-0 border-l-8 border-r-8 border-b-8 border-transparent border-b-blue-600"></div>
-                     </div>
-                  )}
-
-                  {/* First-time Sync Notification Tooltip (shows when compare video is added) */}
-                  {showSyncTip && compareVideo && (
-                     <div className="absolute top-16 right-16 bg-gradient-to-r from-green-600 to-emerald-500 text-white p-4 rounded-xl shadow-2xl max-w-xs animate-in slide-in-from-top duration-300 z-50">
-                        <div className="flex items-start gap-3">
-                           <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center flex-shrink-0">
-                              <Link2 size={20} />
-                           </div>
-                           <div className="flex-1">
-                              <h4 className="font-bold text-sm mb-1">¡Sincroniza los Vídeos!</h4>
-                              <p className="text-xs text-white/80">Alinea los vídeos manualmente y pulsa el botón de sincronizar para que se muevan juntos.</p>
-                           </div>
-                           <button onClick={dismissSyncTip} className="text-white/60 hover:text-white">
-                              <X size={16} />
-                           </button>
-                        </div>
-                        <div className="absolute -top-2 right-6 w-0 h-0 border-l-8 border-r-8 border-b-8 border-transparent border-b-green-600"></div>
-                     </div>
-                  )}
                </div>
             </div>
          </div>
