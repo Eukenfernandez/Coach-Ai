@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { User, UserProfile, Language } from '../types';
 import { StorageService } from '../services/storageService';
-import { User as UserIcon, Save, Trash2, Activity, AlertTriangle, ChevronRight, Check, Search } from 'lucide-react';
+import { User as UserIcon, Save, Trash2, Activity, AlertTriangle, ChevronRight, Check, Search, Dumbbell, Target, Waves, Swords, Bike, Users, Trophy } from 'lucide-react';
 
 interface ProfileProps {
    currentUser: User;
@@ -41,7 +41,10 @@ const TEXTS = {
       selectDisciplineDesc: 'Elige la disciplina específica que practicas dentro de {sport}.',
       searchDiscipline: 'Buscar modalidad...',
       noResults: 'No se encontraron resultados.',
-      continue: 'Continuar'
+      continue: 'Continuar',
+      // Category selection
+      selectCategory: 'Elige tu Deporte',
+      selectCategoryDesc: 'Selecciona la categoría principal de tu deporte.',
    },
    ing: {
       title: 'My Profile',
@@ -71,7 +74,9 @@ const TEXTS = {
       selectDisciplineDesc: 'Choose the specific discipline you practice within {sport}.',
       searchDiscipline: 'Search discipline...',
       noResults: 'No results found.',
-      continue: 'Continue'
+      continue: 'Continue',
+      selectCategory: 'Choose Your Sport',
+      selectCategoryDesc: 'Select the main category of your sport.',
    },
    eus: {
       title: 'Nire Profila',
@@ -101,8 +106,10 @@ const TEXTS = {
       selectDisciplineDesc: 'Aukeratu {sport} barruan praktikatzen duzun diziplina zehatza.',
       searchDiscipline: 'Bilatu modalitatea...',
       noResults: 'Ez da emaitzarik aurkitu.',
-      continue: 'Jarraitu'
-   }
+      continue: 'Jarraitu',
+      selectCategory: 'Aukeratu Zure Kirola',
+      selectCategoryDesc: 'Hautatu zure kirolaren kategoria nagusia.',
+   },
 };
 
 const SPORTS_LIST: Record<string, string> = {
@@ -133,6 +140,22 @@ const SPORTS_DISCIPLINES: Record<string, string[]> = {
    other: ['Golf', 'Escalada', 'Gimnasia', 'Voleibol', 'Balonmano', 'Hockey', 'Tiro con Arco', 'Skate', 'Esquí', 'Snowboard', 'Hípica']
 };
 
+// Sports with icons for visual selector (like Onboarding)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const ALL_SPORTS_STRUCTURE: Record<string, { icon: any; disciplines: string[] }> = {
+   gym: { icon: Dumbbell, disciplines: SPORTS_DISCIPLINES.gym },
+   athletics: { icon: Activity, disciplines: SPORTS_DISCIPLINES.athletics },
+   soccer: { icon: Trophy, disciplines: SPORTS_DISCIPLINES.soccer },
+   basketball: { icon: Trophy, disciplines: SPORTS_DISCIPLINES.basketball },
+   tennis_padel: { icon: Target, disciplines: SPORTS_DISCIPLINES.tennis_padel },
+   combat: { icon: Swords, disciplines: SPORTS_DISCIPLINES.combat },
+   baseball: { icon: Users, disciplines: SPORTS_DISCIPLINES.baseball },
+   rugby_football: { icon: Users, disciplines: SPORTS_DISCIPLINES.rugby_football },
+   water: { icon: Waves, disciplines: SPORTS_DISCIPLINES.water },
+   cycling: { icon: Bike, disciplines: SPORTS_DISCIPLINES.cycling },
+   other: { icon: Target, disciplines: SPORTS_DISCIPLINES.other }
+};
+
 export const Profile: React.FC<ProfileProps> = ({ currentUser, onUpdateUser, onLogout, language, onRefreshData }) => {
    // CORRECCIÓN AQUI: Añadido "as keyof typeof TEXTS"
    const t = TEXTS[language as keyof typeof TEXTS] || TEXTS.es;
@@ -145,7 +168,7 @@ export const Profile: React.FC<ProfileProps> = ({ currentUser, onUpdateUser, onL
    const [pendingSport, setPendingSport] = useState<string | null>(null);
    const [pendingDiscipline, setPendingDiscipline] = useState<string | null>(null);
    const [disciplineSearch, setDisciplineSearch] = useState('');
-   const [step, setStep] = useState<'idle' | 'select_discipline' | 'confirm_change' | 'confirm_data'>('idle');
+   const [step, setStep] = useState<'idle' | 'select_category' | 'select_discipline' | 'confirm_change' | 'confirm_data'>('idle');
 
    // Filtered disciplines
    const availableDisciplines = pendingSport ? (SPORTS_DISCIPLINES[pendingSport] || []) : [];
@@ -320,18 +343,28 @@ export const Profile: React.FC<ProfileProps> = ({ currentUser, onUpdateUser, onL
 
                   <div>
                      <label className="block text-xs text-neutral-500 mb-2">{t.sport}</label>
-                     <div className="relative">
-                        <select
-                           value={formData.sport || ''}
-                           onChange={(e) => initiateSportChange(e.target.value)}
-                           className="w-full bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg p-3 text-neutral-900 dark:text-white focus:outline-none focus:border-blue-500 appearance-none cursor-pointer font-medium"
-                        >
-                           {Object.entries(SPORTS_LIST).map(([key, label]) => (
-                              <option key={key} value={key}>{label}</option>
-                           ))}
-                        </select>
-                        <ChevronRight className="absolute right-4 top-1/2 -translate-y-1/2 rotate-90 text-neutral-500 pointer-events-none" size={16} />
-                     </div>
+                     <button
+                        type="button"
+                        onClick={() => setStep('select_category')}
+                        className="w-full bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl p-4 text-left hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors group"
+                     >
+                        <div className="flex items-center gap-3">
+                           {formData.sport && ALL_SPORTS_STRUCTURE[formData.sport] && (
+                              <div className="w-10 h-10 bg-orange-100 dark:bg-orange-500/20 rounded-lg flex items-center justify-center">
+                                 {React.createElement(ALL_SPORTS_STRUCTURE[formData.sport].icon, { size: 20, className: "text-orange-600 dark:text-orange-500" })}
+                              </div>
+                           )}
+                           <div className="flex-1">
+                              <span className="block font-bold text-neutral-900 dark:text-white">
+                                 {currentSportLabel || 'Seleccionar deporte'}
+                              </span>
+                              {formData.discipline && (
+                                 <span className="block text-xs text-neutral-500">{formData.discipline}</span>
+                              )}
+                           </div>
+                           <ChevronRight size={18} className="text-neutral-400 group-hover:translate-x-1 transition-transform" />
+                        </div>
+                     </button>
                   </div>
                </div>
 
@@ -368,6 +401,55 @@ export const Profile: React.FC<ProfileProps> = ({ currentUser, onUpdateUser, onL
             </div>
 
          </div>
+
+         {/* SPORT CATEGORY SELECTION MODAL */}
+         {step === 'select_category' && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+               <div className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 p-6 rounded-3xl max-w-4xl w-full shadow-2xl animate-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col">
+                  <div className="flex flex-col items-center text-center mb-6">
+                     <div className="w-16 h-16 bg-blue-100 dark:bg-blue-500/10 rounded-full flex items-center justify-center mb-4 text-blue-600 dark:text-blue-500">
+                        <Trophy size={32} />
+                     </div>
+                     <h3 className="text-xl font-bold text-neutral-900 dark:text-white mb-2">{t.selectCategory}</h3>
+                     <p className="text-neutral-500 dark:text-neutral-400 text-sm">
+                        {t.selectCategoryDesc}
+                     </p>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto min-h-[300px] p-1">
+                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                        {Object.entries(ALL_SPORTS_STRUCTURE).map(([key, data]) => {
+                           // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                           const Icon = data.icon as any;
+                           const label = SPORTS_LIST[key] || key;
+                           const isSelected = formData.sport === key;
+
+                           return (
+                              <button
+                                 key={key}
+                                 onClick={() => initiateSportChange(key)}
+                                 className={`p-4 rounded-xl border text-left transition-all relative flex flex-col items-start gap-2 ${isSelected
+                                       ? 'bg-orange-600 border-orange-500 text-white shadow-lg'
+                                       : 'bg-white dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-700'
+                                    }`}
+                              >
+                                 <Icon size={24} className={isSelected ? "text-white" : "text-neutral-500 dark:text-neutral-400"} />
+                                 <span className="font-bold block text-sm leading-tight">{label}</span>
+                                 {isSelected && <div className="absolute top-2 right-2"><Check size={14} /></div>}
+                              </button>
+                           );
+                        })}
+                     </div>
+                  </div>
+
+                  <div className="mt-6 pt-4 border-t border-neutral-200 dark:border-neutral-800">
+                     <button onClick={cancelChange} className="w-full py-3 px-4 bg-transparent text-neutral-500 hover:text-neutral-900 dark:hover:text-white font-medium rounded-xl transition-colors">
+                        {t.cancel}
+                     </button>
+                  </div>
+               </div>
+            </div>
+         )}
 
          {/* DISCIPLINE SELECTION MODAL */}
          {step === 'select_discipline' && (
