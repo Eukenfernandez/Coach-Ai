@@ -222,6 +222,9 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
    const chatLimit = limits?.maxChatMessagesPerMonth === 'unlimited' ? Infinity : (limits?.maxChatMessagesPerMonth as number || 0);
    const isLimitReached = messagesUsed >= chatLimit;
 
+   // Check if user can compare videos (Pro/Premium only)
+   const canCompare = limits?.canCompareVideos ?? false;
+
    // First-time Gemini notification
    const [showGeminiTip, setShowGeminiTip] = useState(() => {
       const hasSeenTip = localStorage.getItem('coachai_gemini_tip_seen');
@@ -232,6 +235,37 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
       setShowGeminiTip(false);
       localStorage.setItem('coachai_gemini_tip_seen', 'true');
    };
+
+   // First-time Compare Video notification (only for Pro/Premium users)
+   const [showCompareTip, setShowCompareTip] = useState(() => {
+      if (!canCompare) return false;
+      const hasSeenTip = localStorage.getItem('coachai_compare_tip_seen');
+      return !hasSeenTip;
+   });
+
+   const dismissCompareTip = () => {
+      setShowCompareTip(false);
+      localStorage.setItem('coachai_compare_tip_seen', 'true');
+   };
+
+   // First-time Sync notification (shows after user adds compare video)
+   const [showSyncTip, setShowSyncTip] = useState(false);
+   const [hasSeenSyncTip, setHasSeenSyncTip] = useState(() => {
+      return localStorage.getItem('coachai_sync_tip_seen') === 'true';
+   });
+
+   const dismissSyncTip = () => {
+      setShowSyncTip(false);
+      setHasSeenSyncTip(true);
+      localStorage.setItem('coachai_sync_tip_seen', 'true');
+   };
+
+   // Show sync tip when user first adds a compare video
+   useEffect(() => {
+      if (compareVideo && !hasSeenSyncTip && canCompare) {
+         setShowSyncTip(true);
+      }
+   }, [compareVideo, hasSeenSyncTip, canCompare]);
 
    useEffect(() => {
       setIsVideoLoaded(false);
@@ -604,6 +638,44 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
                            </button>
                         </div>
                         <div className="absolute -top-2 right-6 w-0 h-0 border-l-8 border-r-8 border-b-8 border-transparent border-b-purple-600"></div>
+                     </div>
+                  )}
+
+                  {/* First-time Compare Video Notification Tooltip (Pro/Premium only) */}
+                  {showCompareTip && canCompare && !showGeminiTip && (
+                     <div className="absolute top-16 right-24 bg-gradient-to-r from-blue-600 to-cyan-500 text-white p-4 rounded-xl shadow-2xl max-w-xs animate-in slide-in-from-top duration-300 z-50">
+                        <div className="flex items-start gap-3">
+                           <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center flex-shrink-0">
+                              <Split size={20} />
+                           </div>
+                           <div className="flex-1">
+                              <h4 className="font-bold text-sm mb-1">¡Compara Vídeos!</h4>
+                              <p className="text-xs text-white/80">Como usuario Pro/Premium, puedes comparar dos vídeos lado a lado para analizar tu técnica.</p>
+                           </div>
+                           <button onClick={dismissCompareTip} className="text-white/60 hover:text-white">
+                              <X size={16} />
+                           </button>
+                        </div>
+                        <div className="absolute -top-2 right-6 w-0 h-0 border-l-8 border-r-8 border-b-8 border-transparent border-b-blue-600"></div>
+                     </div>
+                  )}
+
+                  {/* First-time Sync Notification Tooltip (shows when compare video is added) */}
+                  {showSyncTip && compareVideo && (
+                     <div className="absolute top-16 right-16 bg-gradient-to-r from-green-600 to-emerald-500 text-white p-4 rounded-xl shadow-2xl max-w-xs animate-in slide-in-from-top duration-300 z-50">
+                        <div className="flex items-start gap-3">
+                           <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center flex-shrink-0">
+                              <Link2 size={20} />
+                           </div>
+                           <div className="flex-1">
+                              <h4 className="font-bold text-sm mb-1">¡Sincroniza los Vídeos!</h4>
+                              <p className="text-xs text-white/80">Alinea los vídeos manualmente y pulsa el botón de sincronizar para que se muevan juntos.</p>
+                           </div>
+                           <button onClick={dismissSyncTip} className="text-white/60 hover:text-white">
+                              <X size={16} />
+                           </button>
+                        </div>
+                        <div className="absolute -top-2 right-6 w-0 h-0 border-l-8 border-r-8 border-b-8 border-transparent border-b-green-600"></div>
                      </div>
                   )}
                </div>
