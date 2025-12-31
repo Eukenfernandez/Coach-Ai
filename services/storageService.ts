@@ -423,8 +423,14 @@ export const StorageService = {
 
   removeAthleteFromCoach: async (coachId: string, athleteId: string) => {
     if (isFirebaseConfigured) {
-      await db.collection("users").doc(coachId).update({ "profile.managedAthletes": firebase.firestore.FieldValue.arrayRemove(athleteId) });
-      await db.collection("users").doc(athleteId).update({ "profile.coaches": firebase.firestore.FieldValue.arrayRemove(coachId) });
+      try {
+        await db.collection("users").doc(coachId).update({ "profile.managedAthletes": firebase.firestore.FieldValue.arrayRemove(athleteId) });
+        await db.collection("users").doc(athleteId).update({ "profile.coaches": firebase.firestore.FieldValue.arrayRemove(coachId) });
+        console.log("Successfully removed athlete from coach:", { coachId, athleteId });
+      } catch (e) {
+        console.error("Error removing athlete from coach:", e);
+        throw e; // Re-throw so the caller can handle it
+      }
     }
   },
 
