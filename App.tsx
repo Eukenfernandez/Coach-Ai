@@ -810,10 +810,6 @@ export default function App() {
           {currentScreen === "pricing" && <PricingSection currentUser={currentUser} language={language} />}
           {currentScreen === "profile" && <Profile currentUser={currentUser} onUpdateUser={setCurrentUser} onLogout={handleLogout} language={language} onRefreshData={() => loadDataForUser(viewedUserId!)} />}
         </div>
-
-        <div className="py-2 text-center text-[10px] text-neutral-600 border-t border-neutral-800 bg-neutral-950 flex-none z-10">
-          Copy Right CoachAi
-        </div>
       </main>
     </div>
   );

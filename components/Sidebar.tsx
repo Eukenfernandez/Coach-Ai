@@ -1,8 +1,9 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Screen, User, Language, TEAM_SPORTS, NON_COMPETITIVE_SPORTS, GYM_RELATED_SPORTS } from '../types';
 import { LayoutDashboard, Video, Dumbbell, Target, MessageSquareQuote, LogOut, Trophy, FileText, X, Calculator, Users, ChevronDown, User as UserIcon, Settings, Sun, Moon, Trash2, AlertTriangle, Star, Pill, PanelLeft, Dribbble } from 'lucide-react';
 import { StorageService } from '../services/storageService';
+import { useTheme } from '../hooks/useTheme';
 
 interface SidebarProps {
    currentScreen: Screen;
@@ -17,7 +18,7 @@ interface SidebarProps {
    onLanguageChange: (lang: Language) => void;
 }
 
-type Theme = 'dark' | 'light';
+
 
 const SIDEBAR_TEXTS = {
    es: {
@@ -111,31 +112,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
    const isCoach = currentUser?.profile?.role === 'coach';
    const [showSettings, setShowSettings] = useState(false);
-   const [theme, setTheme] = useState<Theme>('dark');
+   const { theme, toggleTheme } = useTheme();
    const t = SIDEBAR_TEXTS[language as keyof typeof SIDEBAR_TEXTS] || SIDEBAR_TEXTS.es;
-
-   useEffect(() => {
-      const savedTheme = localStorage.getItem('coachai_theme') as Theme;
-      if (savedTheme) {
-         setTheme(savedTheme);
-         updateHtmlClass(savedTheme);
-      }
-   }, []);
-
-   const updateHtmlClass = (newTheme: Theme) => {
-      if (newTheme === 'dark') {
-         document.documentElement.classList.add('dark');
-      } else {
-         document.documentElement.classList.remove('dark');
-      }
-   };
-
-   const toggleTheme = () => {
-      const newTheme = theme === 'dark' ? 'light' : 'dark';
-      setTheme(newTheme);
-      localStorage.setItem('coachai_theme', newTheme);
-      updateHtmlClass(newTheme);
-   };
 
    const isViewingSelf = viewedUserId === currentUser?.id;
    const viewedAthlete = managedAthletes.find(a => a.id === viewedUserId);
