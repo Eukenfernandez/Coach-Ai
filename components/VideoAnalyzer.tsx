@@ -180,6 +180,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
    const [playbackRate, setPlaybackRate] = useState(1);
    const [isPlaying, setIsPlaying] = useState(false);
    const [isScrubbing, setIsScrubbing] = useState(false); // Track dragging state
+   const lastSeekTimeRef = useRef<number>(0); // Throttle video seeks during scrubbing
 
    // Zoom & Pan State
    const [zoom, setZoom] = useState(1);
@@ -455,15 +456,40 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
    };
 
    const seek = (time: number) => {
-      if (videoRef.current) {
+      // Update UI state immediately for responsiveness
+      setCurrentTime(time);
+
+      if (!videoRef.current) return;
+
+      const now = performance.now();
+      // Throttle video seeks to ~15fps (66ms) during scrubbing to prevent lag
+      // While still providing visual feedback of video movement
+      const THROTTLE_MS = 66;
+
+      if (isScrubbing) {
+         if (now - lastSeekTimeRef.current >= THROTTLE_MS) {
+            lastSeekTimeRef.current = now;
+            videoRef.current.currentTime = time;
+            if (compareVideo && isSynced && videoRef2.current) {
+               videoRef2.current.currentTime = time + syncOffset;
+            }
+         }
+      } else {
+         // Direct seek when not scrubbing (e.g., frame step buttons)
          videoRef.current.currentTime = time;
-         // Update state directly for UI responsiveness during drag
-         setCurrentTime(time);
          if (compareVideo && isSynced && videoRef2.current) {
             videoRef2.current.currentTime = time + syncOffset;
          }
       }
    };
+
+   // Final seek when scrubbing ends to ensure we land exactly on the target time
+   const flushPendingSeek = useCallback(() => {
+      // Perform one final seek to ensure video is at the exact position the user wanted
+      if (videoRef.current) {
+         videoRef.current.currentTime = videoRef.current.currentTime; // Force refresh
+      }
+   }, []);
 
    const seek2 = (time: number) => {
       if (videoRef2.current) {
@@ -787,7 +813,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
                      dur={duration}
                      setTime={seek}
                      onScrubStart={() => setIsScrubbing(true)}
-                     onScrubEnd={() => setIsScrubbing(false)}
+                     onScrubEnd={() => { setIsScrubbing(false); flushPendingSeek(); }}
                      label="CAM A"
                   />
                   {compareVideo && !isSynced && (
@@ -796,7 +822,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
                         dur={compareDuration}
                         setTime={seek2}
                         onScrubStart={() => setIsScrubbing(true)}
-                        onScrubEnd={() => setIsScrubbing(false)}
+                        onScrubEnd={() => { setIsScrubbing(false); flushPendingSeek(); }}
                         isSecondary
                         label="CAM B"
                      />

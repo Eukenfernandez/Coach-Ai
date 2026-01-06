@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import { Login } from "./components/Login";
 import { Onboarding } from "./components/Onboarding";
 import { Sidebar } from "./components/Sidebar";
@@ -83,6 +83,9 @@ export default function App() {
   const [matchRecords, setMatchRecords] = useState<MatchRecord[]>([]);
   const [customExercises, setCustomExercises] = useState<ExerciseDef[]>([]);
   const [supplements, setSupplements] = useState<SupplementItem[]>([]);
+
+  // Track videos that are currently uploading - used to prevent counter increment if deleted during upload
+  const uploadingVideosRef = useRef<Set<string>>(new Set());
 
   // `usage` tracks the stats of the person being VIEWED (e.g., an athlete's stats)
   const [usage, setUsage] = useState<UserUsage | null>(null);
@@ -503,6 +506,8 @@ export default function App() {
       duration: "00:00", isLocal: true, isUploading: true
     };
 
+    // Track this video as uploading
+    uploadingVideosRef.current.add(newId);
     setVideos((prev) => [videoForState, ...prev]);
 
     try {
@@ -520,20 +525,26 @@ export default function App() {
 
       await StorageService.updateVideos(viewedUserId, newDbList);
 
-      // Increment logic: Coach pays for coach's uploads, Athlete pays for athlete's uploads
-      const payerId = isCoach ? currentUser.id : viewedUserId;
-      await StorageService.incrementUsage(payerId, 'analysis');
+      // Only increment counter if video wasn't deleted during upload
+      if (uploadingVideosRef.current.has(newId)) {
+        // Increment logic: Coach pays for coach's uploads, Athlete pays for athlete's uploads
+        const payerId = isCoach ? currentUser.id : viewedUserId;
+        await StorageService.incrementUsage(payerId, 'analysis');
 
-      // Refresh local usage states
-      if (isCoach) {
-        // Update coach's tracked usage
-        const freshCoachData = await StorageService.getUserData(currentUser.id);
-        setMyUsage(freshCoachData.usage);
-      } else {
-        // Update displayed athlete usage
-        const freshAthleteData = await StorageService.getUserData(viewedUserId);
-        setUsage(freshAthleteData.usage);
+        // Refresh local usage states
+        if (isCoach) {
+          // Update coach's tracked usage
+          const freshCoachData = await StorageService.getUserData(currentUser.id);
+          setMyUsage(freshCoachData.usage);
+        } else {
+          // Update displayed athlete usage
+          const freshAthleteData = await StorageService.getUserData(viewedUserId);
+          setUsage(freshAthleteData.usage);
+        }
       }
+
+      // Remove from tracking
+      uploadingVideosRef.current.delete(newId);
 
       setVideos((prev) => prev.map((v) => v.id !== newId ? v : {
         ...v,
@@ -543,6 +554,7 @@ export default function App() {
         url: localDisplayUrl
       }));
     } catch (e) {
+      uploadingVideosRef.current.delete(newId);
       setVideos((prev) => prev.map((v) => (v.id === newId ? { ...v, isUploading: false } : v)));
     }
   };
@@ -550,6 +562,13 @@ export default function App() {
   const handleDeleteVideo = async (id: string) => {
     if (!currentUser || !viewedUserId) return;
     const video = videos.find((v) => v.id === id);
+
+    // If video is still uploading, remove from tracking to prevent counter increment
+    // The upload will complete but won't count towards usage
+    if (uploadingVideosRef.current.has(id)) {
+      uploadingVideosRef.current.delete(id);
+    }
+
     if (video?.remoteUrl) await StorageService.deleteFileFromCloud(video.remoteUrl);
     await VideoStorage.deleteVideo(id);
     revokeObjectUrlMaybe(video?.url);
@@ -572,7 +591,7 @@ export default function App() {
     const id = Date.now().toString();
     // Sanitize filename to avoid URL issues
     const sanitizedName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const storagePath = `plans/${viewedUserId}/${id}_${sanitizedName}`;
+    const storagePath = `plans / ${viewedUserId}/${id}_${sanitizedName}`;
 
     // Optimistic update
     const planForState: PlanFile = {
