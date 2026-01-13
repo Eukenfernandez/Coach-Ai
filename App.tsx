@@ -511,17 +511,22 @@ export default function App() {
     setVideos((prev) => [videoForState, ...prev]);
 
     try {
-      await VideoStorage.saveVideo(newId, file);
+      // OPTIMIZATION 1: Parallelize local save and cloud upload (independent operations)
       let cloudUrl = "";
       if (StorageService.isCloudMode() && viewedUserId !== 'MASTER_GOD_EUKEN') {
-        cloudUrl = (await StorageService.uploadFile(viewedUserId, file)) || "";
+        [, cloudUrl] = await Promise.all([
+          VideoStorage.saveVideo(newId, file),
+          StorageService.uploadFile(viewedUserId, file).then(url => url || "")
+        ]);
+      } else {
+        await VideoStorage.saveVideo(newId, file);
       }
 
       const videoForDb: VideoFile = { ...videoForState, isLocal: !cloudUrl, isUploading: false, url: "" };
       if (cloudUrl) videoForDb.remoteUrl = cloudUrl;
 
-      const currentData = await StorageService.getUserData(viewedUserId);
-      const newDbList = [videoForDb, ...currentData.videos.map(v => ({ ...v, url: "" }))];
+      // OPTIMIZATION 2: Use current state instead of fetching from DB (eliminates 1 query)
+      const newDbList = [videoForDb, ...videos.map(v => ({ ...v, url: "" }))];
 
       await StorageService.updateVideos(viewedUserId, newDbList);
 
@@ -531,15 +536,11 @@ export default function App() {
         const payerId = isCoach ? currentUser.id : viewedUserId;
         await StorageService.incrementUsage(payerId, 'analysis');
 
-        // Refresh local usage states
+        // OPTIMIZATION 3: Update usage state locally instead of re-fetching (eliminates 1 query)
         if (isCoach) {
-          // Update coach's tracked usage
-          const freshCoachData = await StorageService.getUserData(currentUser.id);
-          setMyUsage(freshCoachData.usage);
+          setMyUsage(prev => prev ? { ...prev, analysisCount: prev.analysisCount + 1 } : prev);
         } else {
-          // Update displayed athlete usage
-          const freshAthleteData = await StorageService.getUserData(viewedUserId);
-          setUsage(freshAthleteData.usage);
+          setUsage(prev => prev ? { ...prev, analysisCount: prev.analysisCount + 1 } : prev);
         }
       }
 
