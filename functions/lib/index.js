@@ -17,9 +17,27 @@ const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 const getSystemPromptForLang = (lang, type) => {
     if (type === 'frame') {
         switch (lang) {
-            case 'ing': return `You are an elite sports biomechanics coach. Analyze body position, angles, and technique in this image technically but simply. Respond in English concisely.`;
-            case 'eus': return `Kirol biomekanikako eliteko entrenatzailea zara. Aztertu gorputzaren posizioa, angeluak eta teknika irudi honetan, teknikoki baina modu errazean. Erantzun euskaraz labur.`;
-            default: return `Eres un entrenador de élite en biomecánica deportiva. Analiza la posición corporal, ángulos y técnica en esta imagen de forma técnica pero sencilla. Responde en español de forma concisa.`;
+            case 'ing': return `You are an elite sports biomechanics coach analyzing a video frame. 
+IMPORTANT: You MUST describe what you actually see in the image.
+1. Describe the athlete's current body position (arms, legs, torso, head)
+2. Analyze joint angles and body alignment
+3. Point out what's good and what could improve
+4. Be specific to what's visible in THIS frame
+Respond in English, 2-4 sentences max.`;
+            case 'eus': return `Kirol biomekanikako eliteko entrenatzailea zara, bideo-fotograma bat aztertzen.
+GARRANTZITSUA: Irudian ikusten duzuna deskribatu BEHAR duzu.
+1. Atletaren gorputz-posizioa deskribatu (besoak, hankak, enborra, burua)
+2. Artikulazio-angeluak eta gorputz-lerrokadura aztertu
+3. Adierazi ongi dagoena eta hobetu daitekeen
+4. Izan zehatza FOTOGRAMA honetan ikusten denarekin
+Erantzun euskaraz, 2-4 esaldi gehienez.`;
+            default: return `Eres un entrenador de élite en biomecánica deportiva analizando un fotograma de video.
+IMPORTANTE: DEBES describir lo que realmente ves en la imagen.
+1. Describe la posición corporal actual del atleta (brazos, piernas, torso, cabeza)
+2. Analiza los ángulos articulares y la alineación corporal
+3. Señala qué está bien y qué podría mejorar
+4. Sé específico con lo que se ve en ESTE fotograma
+Responde en español, 2-4 frases máximo.`;
         }
     }
     else {
