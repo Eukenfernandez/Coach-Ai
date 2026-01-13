@@ -1,7 +1,7 @@
 
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { VideoFile, ChatMessage, UserUsage, UserLimits, Language } from '../types';
-import { chatWithCoach } from '../services/geminiService';
+import { chatWithCoach, analyzeFrame } from '../services/geminiService';
 import { usePoseDetection, drawPoseOnCanvas, drawPoseOnCanvasWithOffset, POSE_CONNECTIONS, BODY_KEYPOINTS } from '../hooks/usePoseDetection';
 import {
    Play, Pause, ChevronLeft, ChevronRight, X,
@@ -633,7 +633,29 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
       setChatInput('');
       setIsChatLoading(true);
       try {
-         const response = await chatWithCoach(newMsg.text, chatMessages, canDeepAnalysis && useDeepAnalysis ? 'premium' : 'standard', language);
+         // Capture current video frame to send with the message
+         let frameBase64 = '';
+         if (videoRef.current) {
+            const canvas = document.createElement('canvas');
+            canvas.width = videoRef.current.videoWidth;
+            canvas.height = videoRef.current.videoHeight;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+               ctx.drawImage(videoRef.current, 0, 0);
+               frameBase64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+            }
+         }
+
+         let response: string;
+         if (frameBase64) {
+            // Use analyzeFrame to let AI see the video
+            const chatHistory = chatMessages.map(m => m.text);
+            response = await analyzeFrame(frameBase64, newMsg.text, chatHistory, canDeepAnalysis && useDeepAnalysis ? 'premium' : 'standard', language);
+         } else {
+            // Fallback to text-only chat if no video
+            response = await chatWithCoach(newMsg.text, chatMessages, canDeepAnalysis && useDeepAnalysis ? 'premium' : 'standard', language);
+         }
+
          setChatMessages(prev => [...prev, { id: Date.now().toString(), role: 'model', text: response, timestamp: new Date() }]);
          onIncrementUsage?.();
       } catch {

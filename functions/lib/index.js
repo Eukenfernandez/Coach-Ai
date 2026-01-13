@@ -71,36 +71,32 @@ export const analizarFrame = onCall({
     }
     const genAI = new GoogleGenerativeAI(geminiApiKey.value());
     const systemContext = getSystemPromptForLang(language || 'es', 'frame');
-    const fullPrompt = `Contexto previo: ${(chatHistory || []).slice(-2).join('\n')}\n\nPregunta: ${promptText || 'Analiza esta imagen'}`;
-    let modelName = 'gemini-1.5-flash';
-    if (modelTier === 'advanced') {
-        modelName = 'gemini-1.5-flash';
-    }
-    else if (modelTier === 'premium') {
-        modelName = 'gemini-1.5-pro';
-    }
+    const fullPrompt = `${systemContext}\n\nContexto previo: ${(chatHistory || []).slice(-2).join('\n')}\n\nPregunta del usuario: ${promptText || 'Analiza esta imagen'}`;
+    // Use gemini-2.0-flash which is stable and working
+    const modelName = 'gemini-2.0-flash';
+    console.log('[analizarFrame] Processing request with model:', modelName);
+    console.log('[analizarFrame] Image size (chars):', base64Image?.length || 0);
     try {
-        const contents = [
-            { inlineData: { mimeType: 'image/jpeg', data: base64Image } },
+        const model = genAI.getGenerativeModel({ model: modelName });
+        // Format for multimodal content with image
+        const result = await model.generateContent([
+            {
+                inlineData: {
+                    mimeType: 'image/jpeg',
+                    data: base64Image
+                }
+            },
             { text: fullPrompt }
-        ];
-        const response = await generateWithRetry(genAI, modelName, contents, systemContext, 2);
-        return { result: response || "No pude analizar el frame." };
+        ]);
+        const response = result.response?.text?.() || "No pude analizar el frame.";
+        console.log('[analizarFrame] Success, response length:', response.length);
+        return { result: response };
     }
     catch (error) {
-        console.error("Error en analizarFrame:", error);
-        // Fallback al modelo básico
-        try {
-            const contents = [
-                { inlineData: { mimeType: 'image/jpeg', data: base64Image } },
-                { text: fullPrompt }
-            ];
-            const response = await generateWithRetry(genAI, 'gemini-1.5-flash', contents, systemContext, 1);
-            return { result: response || "Error en el análisis." };
-        }
-        catch {
-            throw new HttpsError("internal", "Error al analizar la imagen.");
-        }
+        console.error("[analizarFrame] Error completo:", JSON.stringify(error, null, 2));
+        console.error("[analizarFrame] Error message:", error?.message);
+        console.error("[analizarFrame] Error status:", error?.status);
+        throw new HttpsError("internal", "Error al analizar la imagen.");
     }
 });
 // ========== FUNCIÓN: CHAT CON ENTRENADOR ==========
