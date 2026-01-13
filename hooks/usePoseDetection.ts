@@ -341,3 +341,74 @@ export function drawPoseOnCanvas(
         }
     }
 }
+
+// Helper function to draw pose on canvas with offset (for letterboxing/pillarboxing)
+export function drawPoseOnCanvasWithOffset(
+    ctx: CanvasRenderingContext2D,
+    landmarks: NormalizedLandmark[],
+    contentWidth: number,
+    contentHeight: number,
+    offsetX: number,
+    offsetY: number
+) {
+    // Colors matching the reference image
+    const POINT_COLOR = '#4F46E5'; // Indigo for points
+    const POINT_BORDER = '#22C55E'; // Green border
+    const LINE_COLOR = '#FACC15'; // Yellow for lines
+
+    // Responsive sizing based on content width
+    const scaleFactor = Math.max(0.6, Math.min(1.2, contentWidth / 800));
+
+    // Dynamic sizes
+    const lineWidth = Math.max(1, 2 * scaleFactor);
+    const outerRadius = Math.max(3, 5 * scaleFactor);
+    const innerRadius = Math.max(1.5, 3 * scaleFactor);
+
+    ctx.lineWidth = lineWidth;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    // Draw connections (lines)
+    ctx.strokeStyle = LINE_COLOR;
+    ctx.beginPath();
+
+    for (const [startIdx, endIdx] of POSE_CONNECTIONS) {
+        const start = landmarks[startIdx];
+        const end = landmarks[endIdx];
+
+        if (start && end && start.visibility > 0.5 && end.visibility > 0.5) {
+            // Apply offset to coordinates
+            const x1 = start.x * contentWidth + offsetX;
+            const y1 = start.y * contentHeight + offsetY;
+            const x2 = end.x * contentWidth + offsetX;
+            const y2 = end.y * contentHeight + offsetY;
+
+            ctx.moveTo(x1, y1);
+            ctx.lineTo(x2, y2);
+        }
+    }
+    ctx.stroke();
+
+    // Draw keypoints (Responsive circles)
+    for (const idx of BODY_KEYPOINTS) {
+        const point = landmarks[idx];
+
+        if (point && point.visibility > 0.5) {
+            // Apply offset to coordinates
+            const x = point.x * contentWidth + offsetX;
+            const y = point.y * contentHeight + offsetY;
+
+            // Outer circle (border)
+            ctx.beginPath();
+            ctx.arc(x, y, outerRadius, 0, 2 * Math.PI);
+            ctx.fillStyle = POINT_BORDER;
+            ctx.fill();
+
+            // Inner circle
+            ctx.beginPath();
+            ctx.arc(x, y, innerRadius, 0, 2 * Math.PI);
+            ctx.fillStyle = POINT_COLOR;
+            ctx.fill();
+        }
+    }
+}

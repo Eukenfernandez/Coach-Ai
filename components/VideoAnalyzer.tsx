@@ -2,7 +2,7 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { VideoFile, ChatMessage, UserUsage, UserLimits, Language } from '../types';
 import { chatWithCoach } from '../services/geminiService';
-import { usePoseDetection, drawPoseOnCanvas, POSE_CONNECTIONS, BODY_KEYPOINTS } from '../hooks/usePoseDetection';
+import { usePoseDetection, drawPoseOnCanvas, drawPoseOnCanvasWithOffset, POSE_CONNECTIONS, BODY_KEYPOINTS } from '../hooks/usePoseDetection';
 import {
    Play, Pause, ChevronLeft, ChevronRight, X,
    ZoomIn, ZoomOut, PenTool, Eraser,
@@ -425,11 +425,14 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
       const video = videoRef.current;
       if (!poseCanvas || !video) return;
 
-      // Use stored dimensions for reliable sizing
-      if (videoDimensions.width > 0 && videoDimensions.height > 0) {
-         poseCanvas.width = videoDimensions.width;
-         poseCanvas.height = videoDimensions.height;
-      }
+      // Set canvas internal resolution to match video element size
+      const elementWidth = video.clientWidth;
+      const elementHeight = video.clientHeight;
+
+      if (elementWidth <= 0 || elementHeight <= 0) return;
+
+      poseCanvas.width = elementWidth;
+      poseCanvas.height = elementHeight;
 
       const ctx = poseCanvas.getContext('2d');
       if (!ctx) return;
@@ -438,10 +441,30 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
       ctx.clearRect(0, 0, poseCanvas.width, poseCanvas.height);
 
       // Draw pose if landmarks exist and pose is enabled
-      if (landmarks && isPoseEnabled) {
-         drawPoseOnCanvas(ctx, landmarks, poseCanvas.width, poseCanvas.height);
+      if (landmarks && isPoseEnabled && video.videoWidth > 0 && video.videoHeight > 0) {
+         // Calculate the actual video content area within the element (handling letterboxing)
+         const videoRatio = video.videoWidth / video.videoHeight;
+         const elementRatio = elementWidth / elementHeight;
+
+         let contentWidth = elementWidth;
+         let contentHeight = elementHeight;
+         let offsetX = 0;
+         let offsetY = 0;
+
+         if (elementRatio > videoRatio) {
+            // Pillarboxing (black bars on sides)
+            contentWidth = elementHeight * videoRatio;
+            offsetX = (elementWidth - contentWidth) / 2;
+         } else {
+            // Letterboxing (black bars top/bottom)
+            contentHeight = elementWidth / videoRatio;
+            offsetY = (elementHeight - contentHeight) / 2;
+         }
+
+         // Draw pose with offset - landmarks are 0-1 relative to video content
+         drawPoseOnCanvasWithOffset(ctx, landmarks, contentWidth, contentHeight, offsetX, offsetY);
       }
-   }, [landmarks, isPoseEnabled, isVideoLoaded, currentTime, zoom, pan, videoDimensions]);
+   }, [landmarks, isPoseEnabled, isVideoLoaded, currentTime, zoom, pan]);
 
    const getCanvasCoordinates = (e: React.MouseEvent | React.TouchEvent) => {
       const canvas = canvasRef.current;
@@ -869,14 +892,28 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
                   {/* Primary Video */}
                   <div className={`relative flex items-center justify-center ${compareVideo ? 'w-1/2 h-full' : 'w-full h-full'}`}>
                      {activeUrl && (
-                        <video
-                           ref={videoRef}
-                           src={activeUrl}
-                           className="max-h-full max-w-full object-contain pointer-events-none select-none"
-                           playsInline
-                           onLoadedData={handleLoadedData}
-                           onTimeUpdate={handleTimeUpdatePrimary}
-                        />
+                        <>
+                           <video
+                              ref={videoRef}
+                              src={activeUrl}
+                              className="max-h-full max-w-full object-contain pointer-events-none select-none"
+                              playsInline
+                              onLoadedData={handleLoadedData}
+                              onTimeUpdate={handleTimeUpdatePrimary}
+                           />
+                           {/* Pose Detection Canvas Overlay - Same size as video */}
+                           {isPoseEnabled && (
+                              <canvas
+                                 ref={poseCanvasRef}
+                                 className="absolute z-10 pointer-events-none max-h-full max-w-full"
+                                 style={{
+                                    // Match the video element's rendered size exactly
+                                    width: videoRef.current?.clientWidth || 'auto',
+                                    height: videoRef.current?.clientHeight || 'auto',
+                                 }}
+                              />
+                           )}
+                        </>
                      )}
                   </div>
 
@@ -899,21 +936,6 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
                      ref={canvasRef}
                      className="absolute inset-0 z-20 pointer-events-none"
                   />
-
-                  {/* Pose Detection Canvas Overlay */}
-                  {isPoseEnabled && videoDimensions.width > 0 && (
-                     <canvas
-                        ref={poseCanvasRef}
-                        className="absolute z-10 pointer-events-none"
-                        style={{
-                           // Position canvas to match the primary video element exactly
-                           width: videoDimensions.width,
-                           height: videoDimensions.height,
-                           left: videoDimensions.left,
-                           top: videoDimensions.top,
-                        }}
-                     />
-                  )}
                </div>
 
                {/* Zoom Controls (Floating) */}
