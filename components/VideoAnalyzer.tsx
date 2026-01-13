@@ -374,14 +374,38 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
          const wrapper = wrapperRef.current;
          if (!video || !wrapper) return;
 
-         const videoRect = video.getBoundingClientRect();
+         // Calculate actual video content dimensions handling object-fit: contain
+         const videoRatio = video.videoWidth / video.videoHeight;
+         const elementRatio = video.clientWidth / video.clientHeight;
+
+         let renderWidth = video.clientWidth;
+         let renderHeight = video.clientHeight;
+         let renderLeft = 0;
+         let renderTop = 0;
+
+         if (elementRatio > videoRatio) {
+            // Video is pillarboxed (black bars on sides)
+            renderWidth = video.clientHeight * videoRatio;
+            renderLeft = (video.clientWidth - renderWidth) / 2;
+         } else {
+            // Video is letterboxed (black bars top/bottom)
+            renderHeight = video.clientWidth / videoRatio;
+            renderTop = (video.clientHeight - renderHeight) / 2;
+         }
+
          const wrapperRect = wrapper.getBoundingClientRect();
+         const videoRect = video.getBoundingClientRect(); // Position relative to viewport
+
+         // Calculate position relative to wrapper
+         // We add the offset within the video element (renderLeft/Top) to the video element's position
+         const finalLeft = (videoRect.left - wrapperRect.left) + renderLeft;
+         const finalTop = (videoRect.top - wrapperRect.top) + renderTop;
 
          setVideoDimensions({
-            width: videoRect.width,
-            height: videoRect.height,
-            left: videoRect.left - wrapperRect.left,
-            top: videoRect.top - wrapperRect.top,
+            width: renderWidth,
+            height: renderHeight,
+            left: finalLeft,
+            top: finalTop,
          });
       };
 
@@ -681,10 +705,10 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
                   <button
                      onClick={() => setIsPoseEnabled(!isPoseEnabled)}
                      className={`p-3 rounded-full border transition-all relative ${poseError
-                           ? 'bg-red-600 border-red-500 text-white'
-                           : isPoseEnabled
-                              ? 'bg-green-600 border-green-500 text-white'
-                              : 'bg-black/40 border-white/10 text-white hover:bg-white/10'
+                        ? 'bg-red-600 border-red-500 text-white'
+                        : isPoseEnabled
+                           ? 'bg-green-600 border-green-500 text-white'
+                           : 'bg-black/40 border-white/10 text-white hover:bg-white/10'
                         }`}
                      title={poseError ? `Error: ${poseError}` : "Detección de Postura"}
                      disabled={isPoseLoading}

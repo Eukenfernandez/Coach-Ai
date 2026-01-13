@@ -61,12 +61,15 @@ export const chatWithCoach = async (
     const functions = getFunctionsInstance();
     const chatWithCoachFn = functions.httpsCallable('chatWithCoach');
 
-    const result = await chatWithCoachFn({
+    const payload = {
       message,
       history,
       modelTier,
       language
-    });
+    };
+
+    console.log('[GeminiService] Payload:', payload);
+    const result = await chatWithCoachFn(payload);
 
     return (result.data as any).result || "No tengo respuesta en este momento.";
   } catch (error: any) {
