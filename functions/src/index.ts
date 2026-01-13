@@ -144,9 +144,9 @@ export const chatWithCoach = onCall(
         const genAI = new GoogleGenerativeAI(geminiApiKey.value());
         const systemInstruction = getSystemPromptForLang(language || 'es', 'chat');
 
-        // Use the full model path - gemini-2.0-flash is the latest stable
+        // Standard users get gemini-2.0-flash, Premium users get gemini-2.5-pro
         let modelName = 'gemini-2.0-flash';
-        if (modelTier === 'premium') modelName = 'gemini-1.5-pro';
+        if (modelTier === 'premium') modelName = 'gemini-2.5-pro';
 
         console.log('[chatWithCoach] Sending message:', message, 'using model:', modelName);
 
