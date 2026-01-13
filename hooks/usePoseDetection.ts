@@ -116,7 +116,18 @@ export function usePoseDetection(
 
         // Only process when video time has changed (prevents jitter when paused)
         const currentVideoTime = video.currentTime;
-        const timeChanged = Math.abs(currentVideoTime - lastVideoTimeRef.current) > 0.001;
+        // Calculate time difference
+        const timeDiff = currentVideoTime - lastVideoTimeRef.current;
+        const timeChanged = Math.abs(timeDiff) > 0.001;
+
+        // Detect if the user is scrubbing/seeking (large time jump)
+        // If jumping > 100ms, reset the model's internal graph to avoid temporal smoothing artifacts (lag)
+        if (Math.abs(timeDiff) > 0.1) {
+            // reset() might not be in the type definition but exists in runtime
+            if (typeof (poseLandmarker as any).reset === 'function') {
+                (poseLandmarker as any).reset();
+            }
+        }
 
         if (video.readyState >= 2 && timeChanged) {
             lastVideoTimeRef.current = currentVideoTime;
@@ -203,8 +214,17 @@ export function drawPoseOnCanvas(
     const POINT_BORDER = '#22C55E'; // Green border
     const LINE_COLOR = '#FACC15'; // Yellow for lines
 
-    // SMALLER line width for cleaner look
-    ctx.lineWidth = 2;
+    // Responsive sizing based on canvas width
+    // Base scale: assuming ~1000px is standard desktop view
+    // Mobile (~350px) will differ from Desktop (~1200px)
+    const scaleFactor = Math.max(0.6, Math.min(1.2, canvasWidth / 800));
+
+    // Dynamic sizes
+    const lineWidth = Math.max(1, 2 * scaleFactor);
+    const outerRadius = Math.max(3, 5 * scaleFactor); // Was 6 fixed (approx)
+    const innerRadius = Math.max(1.5, 3 * scaleFactor); // Was 4 fixed (approx)
+
+    ctx.lineWidth = lineWidth;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 
@@ -228,7 +248,7 @@ export function drawPoseOnCanvas(
     }
     ctx.stroke();
 
-    // Draw keypoints (SMALLER circles with border)
+    // Draw keypoints (Responsive circles)
     for (const idx of BODY_KEYPOINTS) {
         const point = landmarks[idx];
 
@@ -236,15 +256,15 @@ export function drawPoseOnCanvas(
             const x = point.x * canvasWidth;
             const y = point.y * canvasHeight;
 
-            // Outer circle (border) - SMALLER: was 10, now 6
+            // Outer circle (border)
             ctx.beginPath();
-            ctx.arc(x, y, 6, 0, 2 * Math.PI);
+            ctx.arc(x, y, outerRadius, 0, 2 * Math.PI);
             ctx.fillStyle = POINT_BORDER;
             ctx.fill();
 
-            // Inner circle - SMALLER: was 6, now 4
+            // Inner circle
             ctx.beginPath();
-            ctx.arc(x, y, 4, 0, 2 * Math.PI);
+            ctx.arc(x, y, innerRadius, 0, 2 * Math.PI);
             ctx.fillStyle = POINT_COLOR;
             ctx.fill();
         }
