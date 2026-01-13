@@ -119,19 +119,26 @@ export const chatWithCoach = onCall({
     }
     const genAI = new GoogleGenerativeAI(geminiApiKey.value());
     const systemInstruction = getSystemPromptForLang(language || 'es', 'chat');
-    // Simplificado: solo enviar el mensaje actual sin historial
-    // Esto evita errores de formato con Gemini
-    const contents = [{ role: 'user', parts: [{ text: message }] }];
-    let modelName = 'gemini-1.5-flash';
+    // Use the full model path - gemini-2.0-flash is the latest stable
+    let modelName = 'gemini-2.0-flash';
     if (modelTier === 'premium')
         modelName = 'gemini-1.5-pro';
-    console.log('[chatWithCoach] Sending message:', message);
+    console.log('[chatWithCoach] Sending message:', message, 'using model:', modelName);
     try {
-        const response = await generateWithRetry(genAI, modelName, contents, systemInstruction, 3);
-        return { result: response || "No tengo respuesta en este momento." };
+        const model = genAI.getGenerativeModel({
+            model: modelName,
+            systemInstruction
+        });
+        // Simple text content - no need for complex role/parts structure
+        const result = await model.generateContent(message);
+        const responseText = result.response?.text?.() || "No tengo respuesta en este momento.";
+        console.log('[chatWithCoach] Response received:', responseText.substring(0, 100));
+        return { result: responseText };
     }
     catch (error) {
-        console.error("Error en chatWithCoach:", error);
+        console.error("[chatWithCoach] Error completo:", JSON.stringify(error, null, 2));
+        console.error("[chatWithCoach] Error message:", error?.message);
+        console.error("[chatWithCoach] Error status:", error?.status);
         throw new HttpsError("internal", "Error al conectar con el entrenador.");
     }
 });
