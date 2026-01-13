@@ -425,14 +425,18 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
       const video = videoRef.current;
       if (!poseCanvas || !video) return;
 
-      // Set canvas internal resolution to match video element size
-      const elementWidth = video.clientWidth;
-      const elementHeight = video.clientHeight;
+      // Get parent container dimensions (since canvas is inset-0)
+      const parent = poseCanvas.parentElement;
+      if (!parent) return;
 
-      if (elementWidth <= 0 || elementHeight <= 0) return;
+      const containerWidth = parent.clientWidth;
+      const containerHeight = parent.clientHeight;
 
-      poseCanvas.width = elementWidth;
-      poseCanvas.height = elementHeight;
+      if (containerWidth <= 0 || containerHeight <= 0) return;
+
+      // Set canvas internal resolution to match container
+      poseCanvas.width = containerWidth;
+      poseCanvas.height = containerHeight;
 
       const ctx = poseCanvas.getContext('2d');
       if (!ctx) return;
@@ -442,23 +446,23 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
 
       // Draw pose if landmarks exist and pose is enabled
       if (landmarks && isPoseEnabled && video.videoWidth > 0 && video.videoHeight > 0) {
-         // Calculate the actual video content area within the element (handling letterboxing)
+         // Calculate the actual video content area within the container (handling letterboxing)
          const videoRatio = video.videoWidth / video.videoHeight;
-         const elementRatio = elementWidth / elementHeight;
+         const containerRatio = containerWidth / containerHeight;
 
-         let contentWidth = elementWidth;
-         let contentHeight = elementHeight;
+         let contentWidth = containerWidth;
+         let contentHeight = containerHeight;
          let offsetX = 0;
          let offsetY = 0;
 
-         if (elementRatio > videoRatio) {
+         if (containerRatio > videoRatio) {
             // Pillarboxing (black bars on sides)
-            contentWidth = elementHeight * videoRatio;
-            offsetX = (elementWidth - contentWidth) / 2;
+            contentWidth = containerHeight * videoRatio;
+            offsetX = (containerWidth - contentWidth) / 2;
          } else {
             // Letterboxing (black bars top/bottom)
-            contentHeight = elementWidth / videoRatio;
-            offsetY = (elementHeight - contentHeight) / 2;
+            contentHeight = containerWidth / videoRatio;
+            offsetY = (containerHeight - contentHeight) / 2;
          }
 
          // Draw pose with offset - landmarks are 0-1 relative to video content
@@ -901,16 +905,11 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
                               onLoadedData={handleLoadedData}
                               onTimeUpdate={handleTimeUpdatePrimary}
                            />
-                           {/* Pose Detection Canvas Overlay - Same size as video */}
+                           {/* Pose Detection Canvas Overlay */}
                            {isPoseEnabled && (
                               <canvas
                                  ref={poseCanvasRef}
-                                 className="absolute z-10 pointer-events-none max-h-full max-w-full"
-                                 style={{
-                                    // Match the video element's rendered size exactly
-                                    width: videoRef.current?.clientWidth || 'auto',
-                                    height: videoRef.current?.clientHeight || 'auto',
-                                 }}
+                                 className="absolute inset-0 z-10 pointer-events-none"
                               />
                            )}
                         </>

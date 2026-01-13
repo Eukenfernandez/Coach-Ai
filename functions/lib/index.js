@@ -119,35 +119,15 @@ export const chatWithCoach = onCall({
     }
     const genAI = new GoogleGenerativeAI(geminiApiKey.value());
     const systemInstruction = getSystemPromptForLang(language || 'es', 'chat');
-    // Formatear historial para Gemini
-    // Filtrar mensajes vacíos y el mensaje intro del modelo
-    const validHistory = (history || []).filter((h) => {
-        // Excluir mensajes vacíos
-        if (!h.text || h.text.trim() === '')
-            return false;
-        // Excluir el mensaje de introducción automático (detectar por contenido)
-        if (h.role === 'model' && (h.text.includes('Hola, soy tu entrenador IA') ||
-            h.text.includes('¿Qué quieres analizar')))
-            return false;
-        return true;
-    });
-    // Gemini requiere que el historial empiece con un mensaje de usuario
-    // Si el primer mensaje es del modelo, lo eliminamos
-    while (validHistory.length > 0 && validHistory[0].role === 'model') {
-        validHistory.shift();
-    }
-    const formattedHistory = validHistory.map((h) => ({
-        role: h.role === 'model' ? 'model' : 'user',
-        parts: [{ text: h.text }]
-    }));
-    formattedHistory.push({ role: 'user', parts: [{ text: message }] });
+    // Simplificado: solo enviar el mensaje actual sin historial
+    // Esto evita errores de formato con Gemini
+    const contents = [{ role: 'user', parts: [{ text: message }] }];
     let modelName = 'gemini-1.5-flash';
     if (modelTier === 'premium')
         modelName = 'gemini-1.5-pro';
-    console.log('[chatWithCoach] formattedHistory length:', formattedHistory.length);
-    console.log('[chatWithCoach] formattedHistory:', JSON.stringify(formattedHistory, null, 2));
+    console.log('[chatWithCoach] Sending message:', message);
     try {
-        const response = await generateWithRetry(genAI, modelName, formattedHistory, systemInstruction, 3);
+        const response = await generateWithRetry(genAI, modelName, contents, systemInstruction, 3);
         return { result: response || "No tengo respuesta en este momento." };
     }
     catch (error) {
