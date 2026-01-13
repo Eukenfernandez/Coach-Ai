@@ -680,12 +680,19 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
                   {/* Pose Detection Toggle */}
                   <button
                      onClick={() => setIsPoseEnabled(!isPoseEnabled)}
-                     className={`p-3 rounded-full border transition-all relative ${isPoseEnabled ? 'bg-green-600 border-green-500 text-white' : 'bg-black/40 border-white/10 text-white hover:bg-white/10'}`}
-                     title="Detección de Postura"
+                     className={`p-3 rounded-full border transition-all relative ${poseError
+                           ? 'bg-red-600 border-red-500 text-white'
+                           : isPoseEnabled
+                              ? 'bg-green-600 border-green-500 text-white'
+                              : 'bg-black/40 border-white/10 text-white hover:bg-white/10'
+                        }`}
+                     title={poseError ? `Error: ${poseError}` : "Detección de Postura"}
                      disabled={isPoseLoading}
                   >
                      {isPoseLoading ? (
                         <Loader2 size={20} className="animate-spin" />
+                     ) : poseError ? (
+                        <X size={20} />
                      ) : (
                         <User size={20} />
                      )}

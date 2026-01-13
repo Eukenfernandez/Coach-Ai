@@ -52,6 +52,15 @@ export interface PoseDetectionResult {
 let cachedPoseLandmarker: PoseLandmarker | null = null;
 let isModelLoading = false;
 let modelLoadPromise: Promise<PoseLandmarker | null> | null = null;
+let modelLoadError: string | null = null;
+
+// Detect iOS/Safari for compatibility
+function isIOSorSafari(): boolean {
+    const ua = navigator.userAgent;
+    const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const isSafari = /^((?!chrome|android).)*safari/i.test(ua);
+    return isIOS || isSafari;
+}
 
 // Preload the model on module load for instant activation
 async function preloadModel(): Promise<PoseLandmarker | null> {
@@ -59,37 +68,74 @@ async function preloadModel(): Promise<PoseLandmarker | null> {
     if (modelLoadPromise) return modelLoadPromise;
 
     isModelLoading = true;
+    modelLoadError = null;
+
+    console.log('[PoseDetection] Starting model preload...');
+    console.log('[PoseDetection] Device info:', {
+        userAgent: navigator.userAgent,
+        isIOSorSafari: isIOSorSafari(),
+    });
+
     modelLoadPromise = (async () => {
         try {
+            console.log('[PoseDetection] Loading vision WASM...');
             const vision = await FilesetResolver.forVisionTasks(
                 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm'
             );
+            console.log('[PoseDetection] Vision WASM loaded successfully');
 
-            // Try GPU first, fallback to CPU for mobile compatibility
-            try {
+            // Use CPU delegate for iOS/Safari as GPU has issues
+            // Also use float32 model for better compatibility
+            const useGPU = !isIOSorSafari();
+            const modelPath = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
+
+            console.log('[PoseDetection] Using delegate:', useGPU ? 'GPU' : 'CPU');
+
+            if (useGPU) {
+                // Try GPU first on non-iOS devices
+                try {
+                    console.log('[PoseDetection] Attempting GPU delegate...');
+                    cachedPoseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+                        baseOptions: {
+                            modelAssetPath: modelPath,
+                            delegate: 'GPU',
+                        },
+                        runningMode: 'VIDEO',
+                        numPoses: 1,
+                    });
+                    console.log('[PoseDetection] GPU delegate succeeded');
+                } catch (gpuError) {
+                    console.warn('[PoseDetection] GPU delegate failed, falling back to CPU:', gpuError);
+                    cachedPoseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+                        baseOptions: {
+                            modelAssetPath: modelPath,
+                            delegate: 'CPU',
+                        },
+                        runningMode: 'VIDEO',
+                        numPoses: 1,
+                    });
+                    console.log('[PoseDetection] CPU fallback succeeded');
+                }
+            } else {
+                // Force CPU for iOS/Safari
+                console.log('[PoseDetection] Using CPU delegate for iOS/Safari compatibility...');
                 cachedPoseLandmarker = await PoseLandmarker.createFromOptions(vision, {
                     baseOptions: {
-                        modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
-                        delegate: 'GPU',
-                    },
-                    runningMode: 'VIDEO',
-                    numPoses: 1,
-                });
-            } catch (gpuError) {
-                console.warn('GPU delegate failed, falling back to CPU:', gpuError);
-                cachedPoseLandmarker = await PoseLandmarker.createFromOptions(vision, {
-                    baseOptions: {
-                        modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
+                        modelAssetPath: modelPath,
                         delegate: 'CPU',
                     },
                     runningMode: 'VIDEO',
                     numPoses: 1,
                 });
+                console.log('[PoseDetection] CPU delegate succeeded for iOS/Safari');
             }
 
+            console.log('[PoseDetection] Model loaded successfully!');
             return cachedPoseLandmarker;
         } catch (err) {
-            console.error('Error preloading PoseLandmarker:', err);
+            const errorMessage = err instanceof Error ? err.message : String(err);
+            console.error('[PoseDetection] Error preloading PoseLandmarker:', err);
+            modelLoadError = errorMessage;
             return null;
         } finally {
             isModelLoading = false;
@@ -172,24 +218,31 @@ export function usePoseDetection(
     // Start/stop detection based on enabled state
     useEffect(() => {
         if (enabled) {
+            console.log('[PoseDetection] Pose detection enabled, starting...');
             // Reset time tracker to force immediate detection on first frame
             lastVideoTimeRef.current = -1;
 
             // Check if model is already loaded
             if (cachedPoseLandmarker) {
+                console.log('[PoseDetection] Model already cached, starting detection loop');
                 setIsReady(true);
                 setIsLoading(false);
                 animationFrameRef.current = requestAnimationFrame(detectPose);
             } else {
                 // Model still loading, wait for it
+                console.log('[PoseDetection] Model not cached, waiting for preload...');
                 setIsLoading(true);
                 preloadModel().then((model) => {
+                    console.log('[PoseDetection] Preload complete, model:', model ? 'loaded' : 'failed');
                     if (model && enabled) {
+                        console.log('[PoseDetection] Starting detection loop');
                         setIsReady(true);
                         setIsLoading(false);
                         animationFrameRef.current = requestAnimationFrame(detectPose);
                     } else if (!model) {
-                        setError('Error al cargar el modelo de detección');
+                        const errorMsg = modelLoadError || 'Error al cargar el modelo de detección';
+                        console.error('[PoseDetection] Model failed to load:', errorMsg);
+                        setError(errorMsg);
                         setIsLoading(false);
                     }
                 });
