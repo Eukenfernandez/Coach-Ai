@@ -222,6 +222,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
    // Pose Detection State
    const [isPoseEnabled, setIsPoseEnabled] = useState(false);
    const poseCanvasRef = useRef<HTMLCanvasElement>(null);
+   const [videoDimensions, setVideoDimensions] = useState({ width: 0, height: 0, left: 0, top: 0 });
    const { landmarks, isLoading: isPoseLoading, isReady: isPoseReady, error: poseError } = usePoseDetection(videoRef, isPoseEnabled);
 
    const activeUrl = video.url || video.remoteUrl || "";
@@ -366,17 +367,45 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
    }, [drawings, zoom, pan, isVideoLoaded]); // Redraw when these change
 
    // --- POSE CANVAS DRAWING LOGIC ---
+   // Update video dimensions for pose canvas positioning
+   useEffect(() => {
+      const updateVideoDimensions = () => {
+         const video = videoRef.current;
+         const wrapper = wrapperRef.current;
+         if (!video || !wrapper) return;
+
+         const videoRect = video.getBoundingClientRect();
+         const wrapperRect = wrapper.getBoundingClientRect();
+
+         setVideoDimensions({
+            width: videoRect.width,
+            height: videoRect.height,
+            left: videoRect.left - wrapperRect.left,
+            top: videoRect.top - wrapperRect.top,
+         });
+      };
+
+      updateVideoDimensions();
+      window.addEventListener('resize', updateVideoDimensions);
+      // Also update on orientation change for mobile
+      window.addEventListener('orientationchange', updateVideoDimensions);
+
+      return () => {
+         window.removeEventListener('resize', updateVideoDimensions);
+         window.removeEventListener('orientationchange', updateVideoDimensions);
+      };
+   }, [isVideoLoaded, compareVideo, zoom, pan]);
+
    useEffect(() => {
       const poseCanvas = poseCanvasRef.current;
       const video = videoRef.current;
       if (!poseCanvas || !video) return;
 
-      // Get the actual displayed size of the video element
-      const videoRect = video.getBoundingClientRect();
-
-      // Set canvas internal resolution to match video display size
-      poseCanvas.width = videoRect.width;
-      poseCanvas.height = videoRect.height;
+      // Use stored dimensions for reliable sizing
+      if (videoDimensions.width > 0 && videoDimensions.height > 0) {
+         poseCanvas.width = videoDimensions.width;
+         poseCanvas.height = videoDimensions.height;
+      }
 
       const ctx = poseCanvas.getContext('2d');
       if (!ctx) return;
@@ -388,7 +417,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
       if (landmarks && isPoseEnabled) {
          drawPoseOnCanvas(ctx, landmarks, poseCanvas.width, poseCanvas.height);
       }
-   }, [landmarks, isPoseEnabled, isVideoLoaded, currentTime, zoom, pan]);
+   }, [landmarks, isPoseEnabled, isVideoLoaded, currentTime, zoom, pan, videoDimensions]);
 
    const getCanvasCoordinates = (e: React.MouseEvent | React.TouchEvent) => {
       const canvas = canvasRef.current;
@@ -841,17 +870,16 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
                   />
 
                   {/* Pose Detection Canvas Overlay */}
-                  {isPoseEnabled && (
+                  {isPoseEnabled && videoDimensions.width > 0 && (
                      <canvas
                         ref={poseCanvasRef}
                         className="absolute z-10 pointer-events-none"
                         style={{
-                           // Position canvas to match the primary video element
-                           width: videoRef.current?.getBoundingClientRect().width || 'auto',
-                           height: videoRef.current?.getBoundingClientRect().height || 'auto',
-                           left: '50%',
-                           top: '50%',
-                           transform: 'translate(-50%, -50%)',
+                           // Position canvas to match the primary video element exactly
+                           width: videoDimensions.width,
+                           height: videoDimensions.height,
+                           left: videoDimensions.left,
+                           top: videoDimensions.top,
                         }}
                      />
                   )}
