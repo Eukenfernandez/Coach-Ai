@@ -146,11 +146,14 @@ export const chatWithCoach = onCall(
 
         // Formatear historial para Gemini
         // Filtrar mensajes vacíos y el mensaje intro del modelo
-        const validHistory = (history || []).filter((h: { role: string; text: string; id?: string }) => {
-            // Excluir el mensaje de introducción automático
-            if (h.id === 'intro') return false;
+        const validHistory = (history || []).filter((h: { role: string; text: string }) => {
             // Excluir mensajes vacíos
             if (!h.text || h.text.trim() === '') return false;
+            // Excluir el mensaje de introducción automático (detectar por contenido)
+            if (h.role === 'model' && (
+                h.text.includes('Hola, soy tu entrenador IA') ||
+                h.text.includes('¿Qué quieres analizar')
+            )) return false;
             return true;
         });
 
