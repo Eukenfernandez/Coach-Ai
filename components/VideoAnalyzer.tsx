@@ -2,11 +2,12 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { VideoFile, ChatMessage, UserUsage, UserLimits, Language } from '../types';
 import { chatWithCoach } from '../services/geminiService';
+import { usePoseDetection, drawPoseOnCanvas, POSE_CONNECTIONS, BODY_KEYPOINTS } from '../hooks/usePoseDetection';
 import {
    Play, Pause, ChevronLeft, ChevronRight, X,
    ZoomIn, ZoomOut, PenTool, Eraser,
    Sparkles, Split, Send, RotateCcw,
-   Loader2, Move, Trash2, Palette, MousePointer2, Minus, Circle, Link2, Unlink, Lock
+   Loader2, Move, Trash2, Palette, MousePointer2, Minus, Circle, Link2, Unlink, Lock, User
 } from 'lucide-react';
 
 interface VideoAnalyzerProps {
@@ -218,6 +219,11 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
    const [selectedColor, setSelectedColor] = useState(DRAWING_COLORS[0].hex);
    const [drawings, setDrawings] = useState<Line[]>([]);
 
+   // Pose Detection State
+   const [isPoseEnabled, setIsPoseEnabled] = useState(false);
+   const poseCanvasRef = useRef<HTMLCanvasElement>(null);
+   const { landmarks, isLoading: isPoseLoading, isReady: isPoseReady, error: poseError } = usePoseDetection(videoRef, isPoseEnabled);
+
    const activeUrl = video.url || video.remoteUrl || "";
    const canDeepAnalysis = limits?.canUseDeepAnalysis ?? false;
    const messagesUsed = usage?.chatCount || 0;
@@ -358,6 +364,31 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
          ctx.stroke();
       });
    }, [drawings, zoom, pan, isVideoLoaded]); // Redraw when these change
+
+   // --- POSE CANVAS DRAWING LOGIC ---
+   useEffect(() => {
+      const poseCanvas = poseCanvasRef.current;
+      const video = videoRef.current;
+      if (!poseCanvas || !video) return;
+
+      // Get the actual displayed size of the video element
+      const videoRect = video.getBoundingClientRect();
+
+      // Set canvas internal resolution to match video display size
+      poseCanvas.width = videoRect.width;
+      poseCanvas.height = videoRect.height;
+
+      const ctx = poseCanvas.getContext('2d');
+      if (!ctx) return;
+
+      // Clear previous frame
+      ctx.clearRect(0, 0, poseCanvas.width, poseCanvas.height);
+
+      // Draw pose if landmarks exist and pose is enabled
+      if (landmarks && isPoseEnabled) {
+         drawPoseOnCanvas(ctx, landmarks, poseCanvas.width, poseCanvas.height);
+      }
+   }, [landmarks, isPoseEnabled, isVideoLoaded, currentTime, zoom, pan]);
 
    const getCanvasCoordinates = (e: React.MouseEvent | React.TouchEvent) => {
       const canvas = canvasRef.current;
@@ -609,13 +640,26 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
                      </div>
                   )}
 
-                  {/* Drawing Mode Toggle */}
                   <button
                      onClick={() => setIsDrawingMode(!isDrawingMode)}
                      className={`p-3 rounded-full border transition-all ${isDrawingMode ? 'bg-orange-600 border-orange-500 text-white' : 'bg-black/40 border-white/10 text-white hover:bg-white/10'}`}
                      title="Modo Lápiz"
                   >
                      <PenTool size={20} />
+                  </button>
+
+                  {/* Pose Detection Toggle */}
+                  <button
+                     onClick={() => setIsPoseEnabled(!isPoseEnabled)}
+                     className={`p-3 rounded-full border transition-all relative ${isPoseEnabled ? 'bg-green-600 border-green-500 text-white' : 'bg-black/40 border-white/10 text-white hover:bg-white/10'}`}
+                     title="Detección de Postura"
+                     disabled={isPoseLoading}
+                  >
+                     {isPoseLoading ? (
+                        <Loader2 size={20} className="animate-spin" />
+                     ) : (
+                        <User size={20} />
+                     )}
                   </button>
 
                   <div className="h-8 w-px bg-white/10 mx-1"></div>
@@ -795,6 +839,22 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
                      ref={canvasRef}
                      className="absolute inset-0 z-20 pointer-events-none"
                   />
+
+                  {/* Pose Detection Canvas Overlay */}
+                  {isPoseEnabled && (
+                     <canvas
+                        ref={poseCanvasRef}
+                        className="absolute z-10 pointer-events-none"
+                        style={{
+                           // Position canvas to match the primary video element
+                           width: videoRef.current?.getBoundingClientRect().width || 'auto',
+                           height: videoRef.current?.getBoundingClientRect().height || 'auto',
+                           left: '50%',
+                           top: '50%',
+                           transform: 'translate(-50%, -50%)',
+                        }}
+                     />
+                  )}
                </div>
 
                {/* Zoom Controls (Floating) */}
