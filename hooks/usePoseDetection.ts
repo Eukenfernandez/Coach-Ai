@@ -89,6 +89,11 @@ async function preloadModel(): Promise<PoseLandmarker | null> {
 // Start preloading immediately when module is imported
 preloadModel();
 
+// Export for explicit preload call from App.tsx if needed
+export function preloadPoseModel() {
+    return preloadModel();
+}
+
 export function usePoseDetection(
     videoRef: React.RefObject<HTMLVideoElement>,
     enabled: boolean

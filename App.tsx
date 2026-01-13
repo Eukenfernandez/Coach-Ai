@@ -38,6 +38,10 @@ import { StorageService, VideoStorage, PlanStorage, db } from "./services/storag
 import { getSubscriptionTier, getUserLimits, waitForSubscriptionActive } from "./services/subscriptionService";
 import { Menu, PanelLeft, Loader2, CheckCircle, XCircle, AlertTriangle, Clock } from "lucide-react";
 
+// Preload pose detection model as early as possible for instant activation
+import { preloadPoseModel } from "./hooks/usePoseDetection";
+preloadPoseModel();
+
 function toErrorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   try {
