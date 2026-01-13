@@ -179,14 +179,16 @@ export function usePoseDetection(
         }
 
         // Only process when video time has changed (prevents jitter when paused)
+        // OR if this is the first detection (lastVideoTimeRef.current === -1)
         const currentVideoTime = video.currentTime;
         // Calculate time difference
         const timeDiff = currentVideoTime - lastVideoTimeRef.current;
-        const timeChanged = Math.abs(timeDiff) > 0.001;
+        const isFirstDetection = lastVideoTimeRef.current === -1;
+        const timeChanged = Math.abs(timeDiff) > 0.001 || isFirstDetection;
 
         // Detect if the user is scrubbing/seeking (large time jump)
         // If jumping > 100ms, reset the model's internal graph to avoid temporal smoothing artifacts (lag)
-        if (Math.abs(timeDiff) > 0.1) {
+        if (Math.abs(timeDiff) > 0.1 && !isFirstDetection) {
             // reset() might not be in the type definition but exists in runtime
             if (typeof (poseLandmarker as any).reset === 'function') {
                 (poseLandmarker as any).reset();
@@ -200,14 +202,16 @@ export function usePoseDetection(
                 const results = poseLandmarker.detectForVideo(video, performance.now());
 
                 if (results.landmarks && results.landmarks.length > 0) {
+                    console.log('[PoseDetection] Landmarks detected:', results.landmarks[0].length, 'points');
                     landmarksRef.current = results.landmarks[0];
                     setLandmarks(results.landmarks[0]);
                 } else {
+                    console.log('[PoseDetection] No landmarks in this frame');
                     landmarksRef.current = null;
                     setLandmarks(null);
                 }
             } catch (err) {
-                // Silently handle detection errors to avoid console spam
+                console.error('[PoseDetection] Detection error:', err);
             }
         }
 

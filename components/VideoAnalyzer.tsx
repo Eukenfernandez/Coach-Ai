@@ -900,6 +900,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
                            <video
                               ref={videoRef}
                               src={activeUrl}
+                              crossOrigin="anonymous"
                               className="max-h-full max-w-full object-contain pointer-events-none select-none"
                               playsInline
                               onLoadedData={handleLoadedData}
@@ -922,6 +923,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
                         <video
                            ref={videoRef2}
                            src={compareVideo.url}
+                           crossOrigin="anonymous"
                            className="max-h-full max-w-full object-contain pointer-events-none select-none"
                            playsInline
                            onLoadedData={(e) => setCompareDuration(e.currentTarget.duration)}
