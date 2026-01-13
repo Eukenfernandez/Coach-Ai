@@ -172,6 +172,9 @@ export const chatWithCoach = onCall(
         let modelName = 'gemini-1.5-flash';
         if (modelTier === 'premium') modelName = 'gemini-1.5-pro';
 
+        console.log('[chatWithCoach] formattedHistory length:', formattedHistory.length);
+        console.log('[chatWithCoach] formattedHistory:', JSON.stringify(formattedHistory, null, 2));
+
         try {
             const response = await generateWithRetry(genAI, modelName, formattedHistory, systemInstruction, 3);
             return { result: response || "No tengo respuesta en este momento." };
