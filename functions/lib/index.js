@@ -120,7 +120,22 @@ export const chatWithCoach = onCall({
     const genAI = new GoogleGenerativeAI(geminiApiKey.value());
     const systemInstruction = getSystemPromptForLang(language || 'es', 'chat');
     // Formatear historial para Gemini
-    const formattedHistory = (history || []).map((h) => ({
+    // Filtrar mensajes vacíos y el mensaje intro del modelo
+    const validHistory = (history || []).filter((h) => {
+        // Excluir el mensaje de introducción automático
+        if (h.id === 'intro')
+            return false;
+        // Excluir mensajes vacíos
+        if (!h.text || h.text.trim() === '')
+            return false;
+        return true;
+    });
+    // Gemini requiere que el historial empiece con un mensaje de usuario
+    // Si el primer mensaje es del modelo, lo eliminamos
+    while (validHistory.length > 0 && validHistory[0].role === 'model') {
+        validHistory.shift();
+    }
+    const formattedHistory = validHistory.map((h) => ({
         role: h.role === 'model' ? 'model' : 'user',
         parts: [{ text: h.text }]
     }));
