@@ -119,10 +119,15 @@ export const chatWithCoach = onCall({
     }
     const genAI = new GoogleGenerativeAI(geminiApiKey.value());
     const systemInstruction = getSystemPromptForLang(language || 'es', 'chat');
-    // Standard users get gemini-2.0-flash, Premium users get gemini-2.5-pro
-    let modelName = 'gemini-2.0-flash';
-    if (modelTier === 'premium')
+    // Subscription tiers:
+    // - free/standard: gemini-1.5-flash (fast, efficient)
+    // - pro: gemini-2.5-pro (advanced reasoning)
+    // - premium: gemini-3-pro-preview (most powerful)
+    let modelName = 'gemini-1.5-flash';
+    if (modelTier === 'pro')
         modelName = 'gemini-2.5-pro';
+    if (modelTier === 'premium')
+        modelName = 'gemini-3-pro-preview';
     console.log('[chatWithCoach] Sending message:', message, 'using model:', modelName);
     try {
         const model = genAI.getGenerativeModel({
