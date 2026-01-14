@@ -1,24 +1,15 @@
 
 import React, { useRef, useState, useEffect, useCallback } from 'react';
-import { VideoFile, ChatMessage, UserUsage, UserLimits, Language } from '../types';
+import { VideoFile, ChatMessage, UserUsage, UserLimits, Language, UserProfile, Screen } from '../types';
 import { chatWithCoach, analyzeFrame } from '../services/geminiService';
 import { usePoseDetection, drawPoseOnCanvas, drawPoseOnCanvasWithOffset, POSE_CONNECTIONS, BODY_KEYPOINTS } from '../hooks/usePoseDetection';
+import { getBiomechanicalContext } from '../utils/biomechanics';
 import {
    Play, Pause, ChevronLeft, ChevronRight, X,
    ZoomIn, ZoomOut, PenTool, Eraser,
    Sparkles, Split, Send, RotateCcw,
    Loader2, Move, Trash2, Palette, MousePointer2, Minus, Circle, Link2, Unlink, Lock, User
 } from 'lucide-react';
-
-interface VideoAnalyzerProps {
-   video: VideoFile;
-   onBack: () => void;
-   usage?: UserUsage | null;
-   limits?: UserLimits;
-   onIncrementUsage?: () => void;
-   language: Language;
-   onNavigate?: (screen: 'pricing') => void;
-}
 
 interface Line {
    id: string; // Add ID for easier deletion
@@ -34,6 +25,17 @@ const DRAWING_COLORS = [
    { id: 'blue', hex: '#3b82f6' },
    { id: 'white', hex: '#ffffff' },
 ];
+
+interface VideoAnalyzerProps {
+   video: VideoFile;
+   onBack: () => void;
+   usage: UserUsage | null;
+   limits: UserLimits;
+   onIncrementUsage?: () => Promise<void>;
+   language: Language;
+   onNavigate: (screen: Screen) => void;
+   userProfile?: UserProfile;
+}
 
 interface DualScrubberProps {
    curr: number;
@@ -175,7 +177,20 @@ const DualScrubber: React.FC<DualScrubberProps> = ({
    );
 };
 
-export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usage, limits, onIncrementUsage, language, onNavigate }) => {
+
+
+interface VideoAnalyzerProps {
+   video: VideoFile;
+   onBack: () => void;
+   usage: UserUsage | null;
+   limits: UserLimits;
+   onIncrementUsage?: () => Promise<void>;
+   language: Language;
+   onNavigate: (screen: Screen) => void;
+   userProfile?: UserProfile;
+}
+
+export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usage, limits, onIncrementUsage, language, onNavigate, userProfile }) => {
    const [currentTime, setCurrentTime] = useState(0);
    const [duration, setDuration] = useState(0);
    const [playbackRate, setPlaybackRate] = useState(1);
@@ -716,6 +731,12 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
       setChatInput('');
       setIsChatLoading(true);
       try {
+         // Biomechanical Context Injection
+         const biomechanicalRules = getBiomechanicalContext(userProfile?.sport, userProfile?.discipline);
+         const augmentedPrompt = biomechanicalRules
+            ? `${biomechanicalRules}\n\n[USER QUESTION]: ${newMsg.text}`
+            : newMsg.text;
+
          // Capture current video frame to send with the message
          let frameBase64 = '';
          if (videoRef.current) {
@@ -733,10 +754,10 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
          if (frameBase64) {
             // Use analyzeFrame to let AI see the video
             const chatHistory = chatMessages.map(m => m.text);
-            response = await analyzeFrame(frameBase64, newMsg.text, chatHistory, canDeepAnalysis && useDeepAnalysis ? 'premium' : 'standard', language);
+            response = await analyzeFrame(frameBase64, augmentedPrompt, chatHistory, canDeepAnalysis && useDeepAnalysis ? 'premium' : 'standard', language);
          } else {
             // Fallback to text-only chat if no video
-            response = await chatWithCoach(newMsg.text, chatMessages, canDeepAnalysis && useDeepAnalysis ? 'premium' : 'standard', language);
+            response = await chatWithCoach(augmentedPrompt, chatMessages, canDeepAnalysis && useDeepAnalysis ? 'premium' : 'standard', language);
          }
 
          setChatMessages(prev => [...prev, { id: Date.now().toString(), role: 'model', text: response, timestamp: new Date() }]);
