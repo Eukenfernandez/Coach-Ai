@@ -1,7 +1,8 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ArrowRight, Play, Activity, BarChart3, MessageSquare, Video, Zap, Target, Users, TrendingUp, Shield, Clock, CheckCircle, Star, ChevronDown, Settings, Globe } from 'lucide-react';
 import { Language } from '../types';
+import { StorageService } from '../services/storageService';
 
 interface LandingPageProps {
     onContinue: () => void;
@@ -198,6 +199,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onContinue, language, 
         { code: 'eus', label: 'Euskara', flag: '🟢' },
     ];
 
+    // Fetch landing video from cloud storage with local fallback
+    const [videoUrl, setVideoUrl] = useState('/video/coach.mp4');
+    useEffect(() => {
+        StorageService.getLandingVideoUrl().then(url => {
+            if (url) setVideoUrl(url);
+        });
+    }, []);
+
     const features = [
         { icon: Video, title: t.f1Title, desc: t.f1Desc, color: 'orange' },
         { icon: Activity, title: t.f2Title, desc: t.f2Desc, color: 'blue' },
@@ -303,7 +312,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onContinue, language, 
                         </p>
                         <div className="relative rounded-2xl overflow-hidden border border-neutral-200 dark:border-neutral-800 shadow-2xl bg-black">
                             <video
-                                src="/video/coach.mp4"
+                                src={videoUrl}
                                 autoPlay
                                 loop
                                 muted

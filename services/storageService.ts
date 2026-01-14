@@ -326,6 +326,31 @@ export const StorageService = {
     }
   },
 
+  // Upload landing page video to public folder (admin only)
+  uploadLandingVideo: async (file: File): Promise<string | null> => {
+    if (!isFirebaseConfigured) return null;
+    try {
+      const path = `public/landing-video.mp4`;
+      const ref = storage.ref(path);
+      const snap = await ref.put(file);
+      return await snap.ref.getDownloadURL();
+    } catch (e) {
+      console.error("Landing video upload failed:", e);
+      return null;
+    }
+  },
+
+  // Get landing video URL from Firebase Storage
+  getLandingVideoUrl: async (): Promise<string | null> => {
+    if (!isFirebaseConfigured) return null;
+    try {
+      const ref = storage.ref('public/landing-video.mp4');
+      return await ref.getDownloadURL();
+    } catch {
+      return null;
+    }
+  },
+
   getDownloadUrlFromPath: async (path: string): Promise<string | null> => {
     if (!isFirebaseConfigured) return null;
     try {
