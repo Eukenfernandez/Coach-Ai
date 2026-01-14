@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { User, UserProfile, Language } from '../types';
 import { StorageService } from '../services/storageService';
-import { User as UserIcon, Save, Trash2, Activity, AlertTriangle, ChevronRight, Check, Search, Dumbbell, Target, Waves, Swords, Bike, Users, Trophy } from 'lucide-react';
+import { User as UserIcon, Save, Trash2, Activity, AlertTriangle, ChevronRight, Check, Search, Dumbbell, Target, Waves, Swords, Bike, Users, Trophy, Settings } from 'lucide-react';
 
 interface ProfileProps {
    currentUser: User;
@@ -45,6 +45,9 @@ const TEXTS = {
       // Category selection
       selectCategory: 'Elige tu Deporte',
       selectCategoryDesc: 'Selecciona la categoría principal de tu deporte.',
+      showSupplements: 'Mostrar Suplementación',
+      showSupplementsDesc: 'Activa esta opción para ver el apartado de seguimiento de suplementos en el menú.',
+      settings: 'Ajustes y Preferencias',
    },
    ing: {
       title: 'My Profile',
@@ -77,6 +80,9 @@ const TEXTS = {
       continue: 'Continue',
       selectCategory: 'Choose Your Sport',
       selectCategoryDesc: 'Select the main category of your sport.',
+      showSupplements: 'Show Supplements',
+      showSupplementsDesc: 'Enable this option to see the supplement tracking section in the menu.',
+      settings: 'Settings & Preferences',
    },
    eus: {
       title: 'Nire Profila',
@@ -109,6 +115,9 @@ const TEXTS = {
       continue: 'Jarraitu',
       selectCategory: 'Aukeratu Zure Kirola',
       selectCategoryDesc: 'Hautatu zure kirolaren kategoria nagusia.',
+      showSupplements: 'Erakutsi Osagarriak',
+      showSupplementsDesc: 'Aktibatu aukera hau menu nagusian osagarrien atala ikusteko.',
+      settings: 'Ezarpenak eta Hobespenak',
    },
 };
 
@@ -334,6 +343,45 @@ export const Profile: React.FC<ProfileProps> = ({ currentUser, onUpdateUser, onL
                   </div>
                </div>
 
+               {/* PREFERENCES */}
+               <div className="bg-white dark:bg-neutral-900 rounded-2xl border border-neutral-200 dark:border-neutral-800 p-6 shadow-sm">
+                  <h2 className="text-lg font-bold text-neutral-900 dark:text-white mb-4 flex items-center gap-2">
+                     <Settings size={20} className="text-purple-500" />
+                     {t.settings}
+                  </h2>
+
+                  <div className="flex items-center justify-between p-4 bg-neutral-50 dark:bg-neutral-800/50 rounded-xl border border-neutral-100 dark:border-neutral-800">
+                     <div>
+                        <span className="block font-bold text-neutral-900 dark:text-white mb-1">{t.showSupplements}</span>
+                        <p className="text-xs text-neutral-500 dark:text-neutral-400 max-w-sm">{t.showSupplementsDesc}</p>
+                     </div>
+
+                     <button
+                        type="button"
+                        onClick={async () => {
+                           const newValue = !formData.takesSupplements;
+                           const updatedProfile = { ...formData, takesSupplements: newValue } as UserProfile;
+                           setFormData(updatedProfile);
+
+                           try {
+                              const updatedUser = await StorageService.updateUserProfile(currentUser.id, updatedProfile);
+                              onUpdateUser(updatedUser);
+                           } catch (error) {
+                              console.error(error);
+                              setFormData({ ...formData, takesSupplements: !newValue });
+                           }
+                        }}
+                        className={`w-12 h-6 rounded-full transition-colors relative ${formData.takesSupplements
+                           ? 'bg-orange-600'
+                           : 'bg-neutral-300 dark:bg-neutral-700'
+                           }`}
+                     >
+                        <div className={`w-4 h-4 rounded-full bg-white absolute top-1 transition-transform ${formData.takesSupplements ? 'left-7' : 'left-1'
+                           }`} />
+                     </button>
+                  </div>
+               </div>
+
                {/* SPORT SETTINGS */}
                <div className="bg-white dark:bg-neutral-900 rounded-2xl border border-neutral-200 dark:border-neutral-800 p-6 shadow-sm">
                   <h2 className="text-lg font-bold text-neutral-900 dark:text-white mb-4 flex items-center gap-2">
@@ -429,8 +477,8 @@ export const Profile: React.FC<ProfileProps> = ({ currentUser, onUpdateUser, onL
                                  key={key}
                                  onClick={() => initiateSportChange(key)}
                                  className={`p-4 rounded-xl border text-left transition-all relative flex flex-col items-start gap-2 ${isSelected
-                                       ? 'bg-orange-600 border-orange-500 text-white shadow-lg'
-                                       : 'bg-white dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-700'
+                                    ? 'bg-orange-600 border-orange-500 text-white shadow-lg'
+                                    : 'bg-white dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-700'
                                     }`}
                               >
                                  <Icon size={24} className={isSelected ? "text-white" : "text-neutral-500 dark:text-neutral-400"} />

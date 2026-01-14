@@ -222,8 +222,14 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
    // Pose Detection State
    const [isPoseEnabled, setIsPoseEnabled] = useState(false);
    const poseCanvasRef = useRef<HTMLCanvasElement>(null);
+   const poseCanvasRef2 = useRef<HTMLCanvasElement>(null); // For comparison video
    const [videoDimensions, setVideoDimensions] = useState({ width: 0, height: 0, left: 0, top: 0 });
-   const { landmarks, isLoading: isPoseLoading, isReady: isPoseReady, error: poseError } = usePoseDetection(videoRef, isPoseEnabled);
+   // Single pose detection hook that handles both videos sequentially
+   const { landmarks, landmarks2, isLoading: isPoseLoading, isReady: isPoseReady, error: poseError } = usePoseDetection(
+      videoRef,
+      isPoseEnabled,
+      compareVideo ? videoRef2 : null
+   );
 
    const activeUrl = video.url || video.remoteUrl || "";
    const canDeepAnalysis = limits?.canUseDeepAnalysis ?? false;
@@ -446,29 +452,105 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
 
       // Draw pose if landmarks exist and pose is enabled
       if (landmarks && isPoseEnabled && video.videoWidth > 0 && video.videoHeight > 0) {
-         // Calculate the actual video content area within the container (handling letterboxing)
+         // Get the actual rendered size of the video element (not the container)
+         // The video uses object-contain, so the rendered content may be smaller than clientWidth/Height
+         const videoElementWidth = video.clientWidth;
+         const videoElementHeight = video.clientHeight;
+
+         // Calculate where the video content actually sits within the video element
          const videoRatio = video.videoWidth / video.videoHeight;
-         const containerRatio = containerWidth / containerHeight;
+         const elementRatio = videoElementWidth / videoElementHeight;
 
-         let contentWidth = containerWidth;
-         let contentHeight = containerHeight;
-         let offsetX = 0;
-         let offsetY = 0;
+         let contentWidth = videoElementWidth;
+         let contentHeight = videoElementHeight;
+         let videoContentOffsetX = 0;
+         let videoContentOffsetY = 0;
 
-         if (containerRatio > videoRatio) {
-            // Pillarboxing (black bars on sides)
-            contentWidth = containerHeight * videoRatio;
-            offsetX = (containerWidth - contentWidth) / 2;
+         if (elementRatio > videoRatio) {
+            // Pillarboxing (black bars on sides of video element)
+            contentWidth = videoElementHeight * videoRatio;
+            videoContentOffsetX = (videoElementWidth - contentWidth) / 2;
          } else {
-            // Letterboxing (black bars top/bottom)
-            contentHeight = containerWidth / videoRatio;
-            offsetY = (containerHeight - contentHeight) / 2;
+            // Letterboxing (black bars top/bottom of video element)
+            contentHeight = videoElementWidth / videoRatio;
+            videoContentOffsetY = (videoElementHeight - contentHeight) / 2;
          }
 
-         // Draw pose with offset - landmarks are 0-1 relative to video content
-         drawPoseOnCanvasWithOffset(ctx, landmarks, contentWidth, contentHeight, offsetX, offsetY);
+         // Now calculate where the video element itself is positioned within the canvas
+         // The canvas covers the full parent container (inset-0)
+         // But the video element is centered within the parent via flexbox
+         const videoRect = video.getBoundingClientRect();
+         const canvasRect = poseCanvas.getBoundingClientRect();
+
+         // Offset from canvas to video element
+         const videoElementOffsetX = videoRect.left - canvasRect.left;
+         const videoElementOffsetY = videoRect.top - canvasRect.top;
+
+         // Total offset from canvas origin to video content
+         const totalOffsetX = videoElementOffsetX + videoContentOffsetX;
+         const totalOffsetY = videoElementOffsetY + videoContentOffsetY;
+
+         // Draw pose with correct offset
+         drawPoseOnCanvasWithOffset(ctx, landmarks, contentWidth, contentHeight, totalOffsetX, totalOffsetY);
       }
    }, [landmarks, isPoseEnabled, isVideoLoaded, currentTime, zoom, pan]);
+
+   // --- POSE CANVAS DRAWING LOGIC FOR COMPARISON VIDEO ---
+   useEffect(() => {
+      const poseCanvas = poseCanvasRef2.current;
+      const video = videoRef2.current;
+      if (!poseCanvas || !video || !compareVideo) return;
+
+      // Get parent container dimensions
+      const parent = poseCanvas.parentElement;
+      if (!parent) return;
+
+      const containerWidth = parent.clientWidth;
+      const containerHeight = parent.clientHeight;
+
+      if (containerWidth <= 0 || containerHeight <= 0) return;
+
+      // Set canvas internal resolution
+      poseCanvas.width = containerWidth;
+      poseCanvas.height = containerHeight;
+
+      const ctx = poseCanvas.getContext('2d');
+      if (!ctx) return;
+
+      ctx.clearRect(0, 0, poseCanvas.width, poseCanvas.height);
+
+      if (landmarks2 && isPoseEnabled && video.videoWidth > 0 && video.videoHeight > 0) {
+         const videoElementWidth = video.clientWidth;
+         const videoElementHeight = video.clientHeight;
+
+         const videoRatio = video.videoWidth / video.videoHeight;
+         const elementRatio = videoElementWidth / videoElementHeight;
+
+         let contentWidth = videoElementWidth;
+         let contentHeight = videoElementHeight;
+         let videoContentOffsetX = 0;
+         let videoContentOffsetY = 0;
+
+         if (elementRatio > videoRatio) {
+            contentWidth = videoElementHeight * videoRatio;
+            videoContentOffsetX = (videoElementWidth - contentWidth) / 2;
+         } else {
+            contentHeight = videoElementWidth / videoRatio;
+            videoContentOffsetY = (videoElementHeight - contentHeight) / 2;
+         }
+
+         const videoRect = video.getBoundingClientRect();
+         const canvasRect = poseCanvas.getBoundingClientRect();
+
+         const videoElementOffsetX = videoRect.left - canvasRect.left;
+         const videoElementOffsetY = videoRect.top - canvasRect.top;
+
+         const totalOffsetX = videoElementOffsetX + videoContentOffsetX;
+         const totalOffsetY = videoElementOffsetY + videoContentOffsetY;
+
+         drawPoseOnCanvasWithOffset(ctx, landmarks2, contentWidth, contentHeight, totalOffsetX, totalOffsetY);
+      }
+   }, [landmarks2, isPoseEnabled, compareVideo, compareTime, zoom, pan]);
 
    const getCanvasCoordinates = (e: React.MouseEvent | React.TouchEvent) => {
       const canvas = canvasRef.current;
@@ -561,7 +643,8 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
          videoRef2.current?.pause();
       } else {
          videoRef.current?.play();
-         if (isSynced) videoRef2.current?.play();
+         // Play both videos when comparing, regardless of sync state
+         if (compareVideo) videoRef2.current?.play();
       }
       setIsPlaying(!isPlaying);
    };
@@ -951,6 +1034,13 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
                            onLoadedData={(e) => setCompareDuration(e.currentTarget.duration)}
                            onTimeUpdate={handleTimeUpdateSecondary}
                         />
+                        {/* Pose Detection Canvas Overlay for Comparison Video */}
+                        {isPoseEnabled && (
+                           <canvas
+                              ref={poseCanvasRef2}
+                              className="absolute inset-0 z-10 pointer-events-none"
+                           />
+                        )}
                      </div>
                   )}
 

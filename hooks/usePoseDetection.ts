@@ -48,11 +48,16 @@ export interface PoseDetectionResult {
     error: string | null;
 }
 
-// Global model cache for faster activation
+// Global cache for PRIMARY model instance
 let cachedPoseLandmarker: PoseLandmarker | null = null;
 let isModelLoading = false;
 let modelLoadPromise: Promise<PoseLandmarker | null> | null = null;
 let modelLoadError: string | null = null;
+
+// Global cache for SECONDARY model instance (for dual video mode)
+let cachedPoseLandmarker2: PoseLandmarker | null = null;
+let isModel2Loading = false;
+let model2LoadPromise: Promise<PoseLandmarker | null> | null = null;
 
 // Detect iOS/Safari for compatibility
 function isIOSorSafari(): boolean {
@@ -62,64 +67,29 @@ function isIOSorSafari(): boolean {
     return isIOS || isSafari;
 }
 
-// Preload the model on module load for instant activation
-async function preloadModel(): Promise<PoseLandmarker | null> {
-    if (cachedPoseLandmarker) return cachedPoseLandmarker;
-    if (modelLoadPromise) return modelLoadPromise;
+// Create a new PoseLandmarker instance
+async function createPoseLandmarkerInstance(): Promise<PoseLandmarker | null> {
+    try {
+        const vision = await FilesetResolver.forVisionTasks(
+            'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm'
+        );
 
-    isModelLoading = true;
-    modelLoadError = null;
+        const useGPU = !isIOSorSafari();
+        const modelPath = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
 
-    console.log('[PoseDetection] Starting model preload...');
-    console.log('[PoseDetection] Device info:', {
-        userAgent: navigator.userAgent,
-        isIOSorSafari: isIOSorSafari(),
-    });
-
-    modelLoadPromise = (async () => {
-        try {
-            console.log('[PoseDetection] Loading vision WASM...');
-            const vision = await FilesetResolver.forVisionTasks(
-                'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm'
-            );
-            console.log('[PoseDetection] Vision WASM loaded successfully');
-
-            // Use CPU delegate for iOS/Safari as GPU has issues
-            // Also use float32 model for better compatibility
-            const useGPU = !isIOSorSafari();
-            const modelPath = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
-
-            console.log('[PoseDetection] Using delegate:', useGPU ? 'GPU' : 'CPU');
-
-            if (useGPU) {
-                // Try GPU first on non-iOS devices
-                try {
-                    console.log('[PoseDetection] Attempting GPU delegate...');
-                    cachedPoseLandmarker = await PoseLandmarker.createFromOptions(vision, {
-                        baseOptions: {
-                            modelAssetPath: modelPath,
-                            delegate: 'GPU',
-                        },
-                        runningMode: 'VIDEO',
-                        numPoses: 1,
-                    });
-                    console.log('[PoseDetection] GPU delegate succeeded');
-                } catch (gpuError) {
-                    console.warn('[PoseDetection] GPU delegate failed, falling back to CPU:', gpuError);
-                    cachedPoseLandmarker = await PoseLandmarker.createFromOptions(vision, {
-                        baseOptions: {
-                            modelAssetPath: modelPath,
-                            delegate: 'CPU',
-                        },
-                        runningMode: 'VIDEO',
-                        numPoses: 1,
-                    });
-                    console.log('[PoseDetection] CPU fallback succeeded');
-                }
-            } else {
-                // Force CPU for iOS/Safari
-                console.log('[PoseDetection] Using CPU delegate for iOS/Safari compatibility...');
-                cachedPoseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+        if (useGPU) {
+            try {
+                return await PoseLandmarker.createFromOptions(vision, {
+                    baseOptions: {
+                        modelAssetPath: modelPath,
+                        delegate: 'GPU',
+                    },
+                    runningMode: 'VIDEO',
+                    numPoses: 1,
+                });
+            } catch (gpuError) {
+                console.warn('[PoseDetection] GPU delegate failed, falling back to CPU:', gpuError);
+                return await PoseLandmarker.createFromOptions(vision, {
                     baseOptions: {
                         modelAssetPath: modelPath,
                         delegate: 'CPU',
@@ -127,10 +97,41 @@ async function preloadModel(): Promise<PoseLandmarker | null> {
                     runningMode: 'VIDEO',
                     numPoses: 1,
                 });
-                console.log('[PoseDetection] CPU delegate succeeded for iOS/Safari');
             }
+        } else {
+            return await PoseLandmarker.createFromOptions(vision, {
+                baseOptions: {
+                    modelAssetPath: modelPath,
+                    delegate: 'CPU',
+                },
+                runningMode: 'VIDEO',
+                numPoses: 1,
+            });
+        }
+    } catch (err) {
+        console.error('[PoseDetection] Error creating PoseLandmarker instance:', err);
+        return null;
+    }
+}
 
-            console.log('[PoseDetection] Model loaded successfully!');
+// Preload the PRIMARY model on module load
+async function preloadModel(): Promise<PoseLandmarker | null> {
+    if (cachedPoseLandmarker) return cachedPoseLandmarker;
+    if (modelLoadPromise) return modelLoadPromise;
+
+    isModelLoading = true;
+    modelLoadError = null;
+
+    console.log('[PoseDetection] Starting PRIMARY model preload...');
+
+    modelLoadPromise = (async () => {
+        try {
+            cachedPoseLandmarker = await createPoseLandmarkerInstance();
+            if (cachedPoseLandmarker) {
+                console.log('[PoseDetection] PRIMARY model loaded successfully!');
+            } else {
+                modelLoadError = 'Error al cargar el modelo de detección';
+            }
             return cachedPoseLandmarker;
         } catch (err) {
             const errorMessage = err instanceof Error ? err.message : String(err);
@@ -145,6 +146,32 @@ async function preloadModel(): Promise<PoseLandmarker | null> {
     return modelLoadPromise;
 }
 
+// Load SECONDARY model for dual video mode
+async function loadSecondaryModel(): Promise<PoseLandmarker | null> {
+    if (cachedPoseLandmarker2) return cachedPoseLandmarker2;
+    if (model2LoadPromise) return model2LoadPromise;
+
+    isModel2Loading = true;
+    console.log('[PoseDetection] Starting SECONDARY model load for dual video...');
+
+    model2LoadPromise = (async () => {
+        try {
+            cachedPoseLandmarker2 = await createPoseLandmarkerInstance();
+            if (cachedPoseLandmarker2) {
+                console.log('[PoseDetection] SECONDARY model loaded successfully!');
+            }
+            return cachedPoseLandmarker2;
+        } catch (err) {
+            console.error('[PoseDetection] Error loading secondary model:', err);
+            return null;
+        } finally {
+            isModel2Loading = false;
+        }
+    })();
+
+    return model2LoadPromise;
+}
+
 // Start preloading immediately when module is imported
 preloadModel();
 
@@ -155,91 +182,124 @@ export function preloadPoseModel() {
 
 export function usePoseDetection(
     videoRef: React.RefObject<HTMLVideoElement>,
-    enabled: boolean
+    enabled: boolean,
+    secondVideoRef?: React.RefObject<HTMLVideoElement> | null
 ) {
     const animationFrameRef = useRef<number | null>(null);
-    // Track last processed video time to avoid jitter when paused
-    const lastVideoTimeRef = useRef<number>(-1);
-    // Use ref for landmarks to avoid re-render delays
     const landmarksRef = useRef<NormalizedLandmark[] | null>(null);
+    const landmarks2Ref = useRef<NormalizedLandmark[] | null>(null);
+    // Track timestamps to avoid processing same frame twice
+    const lastTime1 = useRef<number>(-1);
+    const lastTime2 = useRef<number>(-1);
 
     const [landmarks, setLandmarks] = useState<NormalizedLandmark[] | null>(null);
+    const [landmarks2, setLandmarks2] = useState<NormalizedLandmark[] | null>(null);
     const [isLoading, setIsLoading] = useState(isModelLoading);
     const [isReady, setIsReady] = useState(!!cachedPoseLandmarker);
     const [error, setError] = useState<string | null>(null);
 
-    // Detection loop - only processes when video time changes to prevent jitter
+    // Track if we have the secondary model loaded
+    const [hasSecondaryModel, setHasSecondaryModel] = useState(!!cachedPoseLandmarker2);
+
+    // Detection loop using SEPARATE model instances for each video
     const detectPose = useCallback(() => {
         const video = videoRef.current;
-        const poseLandmarker = cachedPoseLandmarker;
+        const video2 = secondVideoRef?.current;
+        const model1 = cachedPoseLandmarker;
+        const model2 = cachedPoseLandmarker2;
 
-        if (!video || !poseLandmarker || !enabled) {
+        if (!model1 || !enabled) {
             animationFrameRef.current = null;
             return;
         }
 
-        // Only process when video time has changed (prevents jitter when paused)
-        // OR if this is the first detection (lastVideoTimeRef.current === -1)
-        const currentVideoTime = video.currentTime;
-        // Calculate time difference
-        const timeDiff = currentVideoTime - lastVideoTimeRef.current;
-        const isFirstDetection = lastVideoTimeRef.current === -1;
-        const timeChanged = Math.abs(timeDiff) > 0.001 || isFirstDetection;
-
-        // Detect if the user is scrubbing/seeking (large time jump)
-        // If jumping > 100ms, reset the model's internal graph to avoid temporal smoothing artifacts (lag)
-        if (Math.abs(timeDiff) > 0.1 && !isFirstDetection) {
-            // reset() might not be in the type definition but exists in runtime
-            if (typeof (poseLandmarker as any).reset === 'function') {
-                (poseLandmarker as any).reset();
+        // Process PRIMARY video with model1
+        if (video && video.readyState >= 2 && video.videoWidth > 0) {
+            const currentTime = video.currentTime;
+            // Only process if time changed (avoid processing paused frame repeatedly)
+            if (Math.abs(currentTime - lastTime1.current) > 0.001 || lastTime1.current === -1) {
+                lastTime1.current = currentTime;
+                try {
+                    const timestamp1 = performance.now();
+                    const results = model1.detectForVideo(video, timestamp1);
+                    if (results.landmarks && results.landmarks.length > 0) {
+                        landmarksRef.current = results.landmarks[0];
+                        setLandmarks(results.landmarks[0]);
+                    } else {
+                        landmarksRef.current = null;
+                        setLandmarks(null);
+                    }
+                } catch (err) {
+                    console.error('[PoseDetection] Detection error (video 1):', err);
+                }
             }
         }
 
-        if (video.readyState >= 2 && timeChanged) {
-            lastVideoTimeRef.current = currentVideoTime;
-
-            try {
-                const results = poseLandmarker.detectForVideo(video, performance.now());
-
-                if (results.landmarks && results.landmarks.length > 0) {
-                    console.log('[PoseDetection] Landmarks detected:', results.landmarks[0].length, 'points');
-                    landmarksRef.current = results.landmarks[0];
-                    setLandmarks(results.landmarks[0]);
-                } else {
-                    console.log('[PoseDetection] No landmarks in this frame');
-                    landmarksRef.current = null;
-                    setLandmarks(null);
+        // Process SECONDARY video with model2 (SEPARATE instance!)
+        if (video2 && video2.readyState >= 2 && video2.videoWidth > 0 && model2) {
+            const currentTime2 = video2.currentTime;
+            if (Math.abs(currentTime2 - lastTime2.current) > 0.001 || lastTime2.current === -1) {
+                lastTime2.current = currentTime2;
+                try {
+                    const timestamp2 = performance.now();
+                    const results2 = model2.detectForVideo(video2, timestamp2);
+                    if (results2.landmarks && results2.landmarks.length > 0) {
+                        landmarks2Ref.current = results2.landmarks[0];
+                        setLandmarks2(results2.landmarks[0]);
+                    } else {
+                        landmarks2Ref.current = null;
+                        setLandmarks2(null);
+                    }
+                } catch (err) {
+                    console.error('[PoseDetection] Detection error (video 2):', err);
                 }
-            } catch (err) {
-                console.error('[PoseDetection] Detection error:', err);
+            }
+        } else if (!video2 || !secondVideoRef) {
+            // No second video, clear landmarks2
+            if (landmarks2Ref.current !== null) {
+                landmarks2Ref.current = null;
+                setLandmarks2(null);
             }
         }
 
         // Continue detection loop
         animationFrameRef.current = requestAnimationFrame(detectPose);
-    }, [videoRef, enabled]);
+    }, [videoRef, secondVideoRef, enabled]);
+
+    // Load secondary model when dual video mode is detected
+    useEffect(() => {
+        if (enabled && secondVideoRef?.current && !cachedPoseLandmarker2 && !isModel2Loading) {
+            console.log('[PoseDetection] Dual video mode detected, loading secondary model...');
+            loadSecondaryModel().then((model) => {
+                if (model) {
+                    setHasSecondaryModel(true);
+                    console.log('[PoseDetection] Secondary model ready');
+                }
+            });
+        }
+    }, [enabled, secondVideoRef]);
 
     // Start/stop detection based on enabled state
     useEffect(() => {
         if (enabled) {
             console.log('[PoseDetection] Pose detection enabled, starting...');
-            // Reset time tracker to force immediate detection on first frame
-            lastVideoTimeRef.current = -1;
+            // Reset time trackers
+            lastTime1.current = -1;
+            lastTime2.current = -1;
 
-            // Check if model is already loaded
+            // Check if primary model is already loaded
             if (cachedPoseLandmarker) {
-                console.log('[PoseDetection] Model already cached, starting detection loop');
+                console.log('[PoseDetection] Primary model ready, starting detection loop');
                 setIsReady(true);
                 setIsLoading(false);
                 animationFrameRef.current = requestAnimationFrame(detectPose);
             } else {
                 // Model still loading, wait for it
-                console.log('[PoseDetection] Model not cached, waiting for preload...');
+                console.log('[PoseDetection] Waiting for primary model...');
                 setIsLoading(true);
                 preloadModel().then((model) => {
-                    console.log('[PoseDetection] Preload complete, model:', model ? 'loaded' : 'failed');
                     if (model && enabled) {
-                        console.log('[PoseDetection] Starting detection loop');
+                        console.log('[PoseDetection] Primary model loaded, starting detection');
                         setIsReady(true);
                         setIsLoading(false);
                         animationFrameRef.current = requestAnimationFrame(detectPose);
@@ -258,7 +318,9 @@ export function usePoseDetection(
                 animationFrameRef.current = null;
             }
             landmarksRef.current = null;
+            landmarks2Ref.current = null;
             setLandmarks(null);
+            setLandmarks2(null);
         }
 
         return () => {
@@ -271,6 +333,7 @@ export function usePoseDetection(
 
     return {
         landmarks,
+        landmarks2,
         isLoading,
         isReady,
         error,
@@ -337,7 +400,7 @@ export function drawPoseOnCanvas(
             ctx.fillStyle = POINT_BORDER;
             ctx.fill();
 
-            // Inner circle
+            // Inner circle (point)
             ctx.beginPath();
             ctx.arc(x, y, innerRadius, 0, 2 * Math.PI);
             ctx.fillStyle = POINT_COLOR;
@@ -346,12 +409,12 @@ export function drawPoseOnCanvas(
     }
 }
 
-// Helper function to draw pose on canvas with offset (for letterboxing/pillarboxing)
+// Helper function to draw pose on canvas with offset correction
 export function drawPoseOnCanvasWithOffset(
     ctx: CanvasRenderingContext2D,
     landmarks: NormalizedLandmark[],
-    contentWidth: number,
-    contentHeight: number,
+    canvasWidth: number,
+    canvasHeight: number,
     offsetX: number,
     offsetY: number
 ) {
@@ -360,8 +423,8 @@ export function drawPoseOnCanvasWithOffset(
     const POINT_BORDER = '#22C55E'; // Green border
     const LINE_COLOR = '#FACC15'; // Yellow for lines
 
-    // Responsive sizing based on content width
-    const scaleFactor = Math.max(0.6, Math.min(1.2, contentWidth / 800));
+    // Responsive sizing based on canvas width
+    const scaleFactor = Math.max(0.6, Math.min(1.2, canvasWidth / 800));
 
     // Dynamic sizes
     const lineWidth = Math.max(1, 2 * scaleFactor);
@@ -381,11 +444,10 @@ export function drawPoseOnCanvasWithOffset(
         const end = landmarks[endIdx];
 
         if (start && end && start.visibility > 0.5 && end.visibility > 0.5) {
-            // Apply offset to coordinates
-            const x1 = start.x * contentWidth + offsetX;
-            const y1 = start.y * contentHeight + offsetY;
-            const x2 = end.x * contentWidth + offsetX;
-            const y2 = end.y * contentHeight + offsetY;
+            const x1 = start.x * canvasWidth + offsetX;
+            const y1 = start.y * canvasHeight + offsetY;
+            const x2 = end.x * canvasWidth + offsetX;
+            const y2 = end.y * canvasHeight + offsetY;
 
             ctx.moveTo(x1, y1);
             ctx.lineTo(x2, y2);
@@ -398,9 +460,8 @@ export function drawPoseOnCanvasWithOffset(
         const point = landmarks[idx];
 
         if (point && point.visibility > 0.5) {
-            // Apply offset to coordinates
-            const x = point.x * contentWidth + offsetX;
-            const y = point.y * contentHeight + offsetY;
+            const x = point.x * canvasWidth + offsetX;
+            const y = point.y * canvasHeight + offsetY;
 
             // Outer circle (border)
             ctx.beginPath();
@@ -408,7 +469,7 @@ export function drawPoseOnCanvasWithOffset(
             ctx.fillStyle = POINT_BORDER;
             ctx.fill();
 
-            // Inner circle
+            // Inner circle (point)
             ctx.beginPath();
             ctx.arc(x, y, innerRadius, 0, 2 * Math.PI);
             ctx.fillStyle = POINT_COLOR;

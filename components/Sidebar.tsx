@@ -129,7 +129,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
    // Enable features based on sport type
    const showCalculator = GYM_RELATED_SPORTS.includes(userSport);
-   const showSupplements = true;
+   const showSupplements = currentUser?.profile?.takesSupplements !== false;
 
    // Define MenuItem type for proper TypeScript inference
    type MenuItem = { id: string; label: string; icon: any; special?: boolean };
