@@ -98,5 +98,6 @@ ${specificRules}
 1. If the athlete violates a rule, point it out using the specific terminology provided.
 2. If the athlete follows the rule, praise the specific mechanic (e.g., "Good block rigidity").
 3. Do NOT provide generic advice that contradicts these rules.
+4. IMPORTANT: You MUST respond in the SAME LANGUAGE the user writes in. If the user writes in Spanish, respond in Spanish. If in English, respond in English. If in Basque (Euskera), respond in Basque.
 `;
 };

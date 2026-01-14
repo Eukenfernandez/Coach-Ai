@@ -733,9 +733,10 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
       try {
          // Biomechanical Context Injection
          const biomechanicalRules = getBiomechanicalContext(userProfile?.sport, userProfile?.discipline);
+         const languageInstruction = "[LANGUAGE]: You MUST respond in the SAME LANGUAGE the user writes in. Mirror their language exactly.";
          const augmentedPrompt = biomechanicalRules
             ? `${biomechanicalRules}\n\n[USER QUESTION]: ${newMsg.text}`
-            : newMsg.text;
+            : `${languageInstruction}\n\n[USER QUESTION]: ${newMsg.text}`;
 
          // Capture current video frame to send with the message
          let frameBase64 = '';
