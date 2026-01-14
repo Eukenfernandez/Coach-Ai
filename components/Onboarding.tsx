@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { User, UserProfile, Language } from '../types';
 import { StorageService } from '../services/storageService';
 import { ArrowRight, User as UserIcon, Activity, Trophy, ChevronRight, Check, Dumbbell, Target, Waves, Swords, Bike, Users, Search, Pill, CheckCircle2, Circle, XCircle, X, FileText, ShieldCheck } from 'lucide-react';
+import { getTranslatedDiscipline } from '../utils/sportTranslations';
 
 interface OnboardingProps {
   user: User;
@@ -46,7 +47,7 @@ const ONBOARDING_TEXTS = {
     yesSupp: "Sí, tomo suplementos",
     noSupp: "No, solo comida",
     start: "Comenzar",
-    
+
     // Terms Modal
     termsTitle: "Términos y Condiciones de Uso",
     termsContent: `Bienvenido a Coach AI.
@@ -66,7 +67,7 @@ Los planes Premium se facturan mensualmente. Puedes cancelar en cualquier moment
 5. RESPONSABILIDAD
 Coach AI no se hace responsable de lesiones ocurridas durante la práctica deportiva basada en nuestros análisis. Consulta siempre a un profesional antes de comenzar un nuevo régimen de entrenamiento.`,
     acceptContinue: "Aceptar y Continuar",
-    
+
     // Sports Labels
     gym: "Gimnasio / Fitness",
     athletics: "Atletismo",
@@ -115,7 +116,7 @@ Coach AI no se hace responsable de lesiones ocurridas durante la práctica depor
     yesSupp: "Yes, I take supplements",
     noSupp: "No, just food",
     start: "Start",
-    
+
     // Terms Modal
     termsTitle: "Terms and Conditions of Use",
     termsContent: `Welcome to Coach AI.
@@ -184,7 +185,7 @@ Coach AI is not responsible for injuries occurring during sports practice based 
     yesSupp: "Bai, osagarriak hartzen ditut",
     noSupp: "Ez, janaria bakarrik",
     start: "Hasi",
-    
+
     // Terms Modal
     termsTitle: "Erabilera Baldintzak eta Xedapenak",
     termsContent: `Ongi etorri Coach AI-ra.
@@ -273,9 +274,9 @@ export const Onboarding: React.FC<OnboardingProps> = ({ user, onComplete, langua
     const autoDiscipline = formData.role === 'coach' ? (t[categoryKey as keyof typeof t] || categoryKey) : undefined;
 
     setFormData({
-      ...formData, 
+      ...formData,
       sport: categoryKey,
-      discipline: autoDiscipline 
+      discipline: autoDiscipline
     });
   };
 
@@ -284,17 +285,17 @@ export const Onboarding: React.FC<OnboardingProps> = ({ user, onComplete, langua
   const isStep3Valid = !!formData.sport && (formData.role === 'coach' || !!formData.discipline);
 
   const selectedSportData = formData.sport ? ALL_SPORTS_STRUCTURE[formData.sport as keyof typeof ALL_SPORTS_STRUCTURE] : null;
-  const filteredDisciplines = selectedSportData 
-    ? selectedSportData.disciplines.filter(d => d.toLowerCase().includes(searchTerm.toLowerCase())) 
+  const filteredDisciplines = selectedSportData
+    ? selectedSportData.disciplines.filter(d => d.toLowerCase().includes(searchTerm.toLowerCase()))
     : [];
 
   return (
     <div className="min-h-screen w-full bg-gray-50 dark:bg-neutral-950 flex items-center justify-center p-4 transition-colors duration-300">
       <div className="max-w-md w-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-3xl p-8 shadow-2xl relative overflow-hidden flex flex-col max-h-[90vh] transition-colors">
-        
+
         {/* Progress Bar */}
         <div className="absolute top-0 left-0 w-full h-1 bg-neutral-200 dark:bg-neutral-800">
-          <div 
+          <div
             className="h-full bg-orange-600 transition-all duration-500 ease-out"
             style={{ width: `${(step / 4) * 100}%` }}
           ></div>
@@ -319,107 +320,105 @@ export const Onboarding: React.FC<OnboardingProps> = ({ user, onComplete, langua
         {step === 1 && (
           <div className="space-y-4 animate-in slide-in-from-right fade-in duration-300 overflow-y-auto no-scrollbar pb-2">
             <div className="grid grid-cols-2 gap-4">
-               <div>
-                  <label className="text-xs text-neutral-500 dark:text-neutral-400 ml-1 mb-1 block">{t.name}</label>
-                  <input 
-                    type="text" 
-                    value={formData.firstName || ''}
-                    onChange={(e) => setFormData({...formData, firstName: e.target.value})}
-                    className="w-full bg-neutral-100 dark:bg-black/50 border border-neutral-300 dark:border-neutral-700 rounded-xl p-3 text-neutral-900 dark:text-white focus:border-orange-500 focus:outline-none text-sm transition-colors"
-                    placeholder="Ej. Carlos"
-                  />
-               </div>
-               <div>
-                  <label className="text-xs text-neutral-500 dark:text-neutral-400 ml-1 mb-1 block">{t.lastName}</label>
-                  <input 
-                    type="text" 
-                    value={formData.lastName || ''}
-                    onChange={(e) => setFormData({...formData, lastName: e.target.value})}
-                    className="w-full bg-neutral-100 dark:bg-black/50 border border-neutral-300 dark:border-neutral-700 rounded-xl p-3 text-neutral-900 dark:text-white focus:border-orange-500 focus:outline-none text-sm transition-colors"
-                    placeholder="Ej. Pérez"
-                  />
-               </div>
+              <div>
+                <label className="text-xs text-neutral-500 dark:text-neutral-400 ml-1 mb-1 block">{t.name}</label>
+                <input
+                  type="text"
+                  value={formData.firstName || ''}
+                  onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
+                  className="w-full bg-neutral-100 dark:bg-black/50 border border-neutral-300 dark:border-neutral-700 rounded-xl p-3 text-neutral-900 dark:text-white focus:border-orange-500 focus:outline-none text-sm transition-colors"
+                  placeholder="Ej. Carlos"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-neutral-500 dark:text-neutral-400 ml-1 mb-1 block">{t.lastName}</label>
+                <input
+                  type="text"
+                  value={formData.lastName || ''}
+                  onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
+                  className="w-full bg-neutral-100 dark:bg-black/50 border border-neutral-300 dark:border-neutral-700 rounded-xl p-3 text-neutral-900 dark:text-white focus:border-orange-500 focus:outline-none text-sm transition-colors"
+                  placeholder="Ej. Pérez"
+                />
+              </div>
             </div>
-            
+
             <div>
               <label className="text-xs text-neutral-500 dark:text-neutral-400 ml-1 mb-1 block">{t.age}</label>
-              <input 
-                type="number" 
+              <input
+                type="number"
                 value={formData.age || ''}
-                onChange={(e) => setFormData({...formData, age: parseInt(e.target.value)})}
+                onChange={(e) => setFormData({ ...formData, age: parseInt(e.target.value) })}
                 className="w-full bg-neutral-100 dark:bg-black/50 border border-neutral-300 dark:border-neutral-700 rounded-xl p-3 text-neutral-900 dark:text-white focus:border-orange-500 focus:outline-none text-sm transition-colors"
                 placeholder="24"
               />
             </div>
 
             <div>
-               <label className="text-xs text-neutral-500 dark:text-neutral-400 ml-1 mb-2 block">{t.gender}</label>
-               <div className="grid grid-cols-2 gap-3">
-                  <button 
-                     onClick={() => setFormData({...formData, gender: 'male'})}
-                     className={`p-3 rounded-xl border flex items-center justify-center gap-2 transition-all ${
-                        formData.gender === 'male' 
-                        ? 'bg-blue-100 dark:bg-blue-900/30 border-blue-500 text-blue-700 dark:text-white' 
-                        : 'bg-neutral-100 dark:bg-black/50 border-neutral-300 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-800'
-                     }`}
-                  >
-                     <span className="font-bold text-sm">{t.male}</span>
-                  </button>
-                  <button 
-                     onClick={() => setFormData({...formData, gender: 'female'})}
-                     className={`p-3 rounded-xl border flex items-center justify-center gap-2 transition-all ${
-                        formData.gender === 'female' 
-                        ? 'bg-pink-100 dark:bg-pink-900/30 border-pink-500 text-pink-700 dark:text-white' 
-                        : 'bg-neutral-100 dark:bg-black/50 border-neutral-300 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-800'
-                     }`}
-                  >
-                     <span className="font-bold text-sm">{t.female}</span>
-                  </button>
-               </div>
+              <label className="text-xs text-neutral-500 dark:text-neutral-400 ml-1 mb-2 block">{t.gender}</label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => setFormData({ ...formData, gender: 'male' })}
+                  className={`p-3 rounded-xl border flex items-center justify-center gap-2 transition-all ${formData.gender === 'male'
+                      ? 'bg-blue-100 dark:bg-blue-900/30 border-blue-500 text-blue-700 dark:text-white'
+                      : 'bg-neutral-100 dark:bg-black/50 border-neutral-300 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-800'
+                    }`}
+                >
+                  <span className="font-bold text-sm">{t.male}</span>
+                </button>
+                <button
+                  onClick={() => setFormData({ ...formData, gender: 'female' })}
+                  className={`p-3 rounded-xl border flex items-center justify-center gap-2 transition-all ${formData.gender === 'female'
+                      ? 'bg-pink-100 dark:bg-pink-900/30 border-pink-500 text-pink-700 dark:text-white'
+                      : 'bg-neutral-100 dark:bg-black/50 border-neutral-300 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-800'
+                    }`}
+                >
+                  <span className="font-bold text-sm">{t.female}</span>
+                </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
-               <div>
-                  <label className="text-xs text-neutral-500 dark:text-neutral-400 ml-1 mb-1 block">{t.height}</label>
-                  <input 
-                    type="number" 
-                    value={formData.height || ''}
-                    onChange={(e) => setFormData({...formData, height: parseInt(e.target.value)})}
-                    className="w-full bg-neutral-100 dark:bg-black/50 border border-neutral-300 dark:border-neutral-700 rounded-xl p-3 text-neutral-900 dark:text-white focus:border-orange-500 focus:outline-none text-sm transition-colors"
-                    placeholder="180"
-                  />
-               </div>
-               <div>
-                  <label className="text-xs text-neutral-500 dark:text-neutral-400 ml-1 mb-1 block">{t.weight}</label>
-                  <input 
-                    type="number" 
-                    value={formData.weight || ''}
-                    onChange={(e) => setFormData({...formData, weight: parseFloat(e.target.value)})}
-                    className="w-full bg-neutral-100 dark:bg-black/50 border border-neutral-300 dark:border-neutral-700 rounded-xl p-3 text-neutral-900 dark:text-white focus:border-orange-500 focus:outline-none text-sm transition-colors"
-                    placeholder="75.5"
-                  />
-               </div>
+              <div>
+                <label className="text-xs text-neutral-500 dark:text-neutral-400 ml-1 mb-1 block">{t.height}</label>
+                <input
+                  type="number"
+                  value={formData.height || ''}
+                  onChange={(e) => setFormData({ ...formData, height: parseInt(e.target.value) })}
+                  className="w-full bg-neutral-100 dark:bg-black/50 border border-neutral-300 dark:border-neutral-700 rounded-xl p-3 text-neutral-900 dark:text-white focus:border-orange-500 focus:outline-none text-sm transition-colors"
+                  placeholder="180"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-neutral-500 dark:text-neutral-400 ml-1 mb-1 block">{t.weight}</label>
+                <input
+                  type="number"
+                  value={formData.weight || ''}
+                  onChange={(e) => setFormData({ ...formData, weight: parseFloat(e.target.value) })}
+                  className="w-full bg-neutral-100 dark:bg-black/50 border border-neutral-300 dark:border-neutral-700 rounded-xl p-3 text-neutral-900 dark:text-white focus:border-orange-500 focus:outline-none text-sm transition-colors"
+                  placeholder="75.5"
+                />
+              </div>
             </div>
 
             <div className="pt-2">
-               <label className="flex items-start gap-3 cursor-pointer group">
-                  <div className={`mt-0.5 w-5 h-5 min-w-[1.25rem] aspect-square flex-shrink-0 rounded-md border flex items-center justify-center transition-all ${acceptedTerms ? 'bg-orange-600 border-orange-600' : 'bg-transparent border-neutral-300 dark:border-neutral-600 group-hover:border-neutral-400'}`}>
-                     <input 
-                        type="checkbox" 
-                        className="hidden" 
-                        checked={acceptedTerms} 
-                        onChange={(e) => setAcceptedTerms(e.target.checked)} 
-                     />
-                     {acceptedTerms && <Check size={14} className="text-white" />}
-                  </div>
-                  <div className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
-                     {t.terms} <button onClick={(e) => {e.preventDefault(); setShowTermsModal(true);}} className="text-orange-600 dark:text-orange-500 hover:text-orange-500 dark:hover:text-orange-400 underline decoration-orange-500/50 underline-offset-2">{t.termsLink}</button> {t.and}
-                  </div>
-               </label>
+              <label className="flex items-start gap-3 cursor-pointer group">
+                <div className={`mt-0.5 w-5 h-5 min-w-[1.25rem] aspect-square flex-shrink-0 rounded-md border flex items-center justify-center transition-all ${acceptedTerms ? 'bg-orange-600 border-orange-600' : 'bg-transparent border-neutral-300 dark:border-neutral-600 group-hover:border-neutral-400'}`}>
+                  <input
+                    type="checkbox"
+                    className="hidden"
+                    checked={acceptedTerms}
+                    onChange={(e) => setAcceptedTerms(e.target.checked)}
+                  />
+                  {acceptedTerms && <Check size={14} className="text-white" />}
+                </div>
+                <div className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
+                  {t.terms} <button onClick={(e) => { e.preventDefault(); setShowTermsModal(true); }} className="text-orange-600 dark:text-orange-500 hover:text-orange-500 dark:hover:text-orange-400 underline decoration-orange-500/50 underline-offset-2">{t.termsLink}</button> {t.and}
+                </div>
+              </label>
             </div>
 
-            <button 
-              onClick={handleNext} 
+            <button
+              onClick={handleNext}
               disabled={!isStep1Valid}
               className="w-full py-3 bg-orange-600 rounded-xl text-white font-bold mt-2 disabled:opacity-50 hover:bg-orange-500 transition-colors"
             >
@@ -431,13 +430,12 @@ export const Onboarding: React.FC<OnboardingProps> = ({ user, onComplete, langua
         {/* STEP 2: Role */}
         {step === 2 && (
           <div className="space-y-4 animate-in slide-in-from-right fade-in duration-300">
-            <button 
-              onClick={() => setFormData({...formData, role: 'athlete'})}
-              className={`w-full p-4 rounded-xl border flex items-center gap-4 transition-all ${
-                formData.role === 'athlete' 
-                ? 'bg-orange-600/10 border-orange-500 text-orange-600 dark:text-white ring-1 ring-orange-500' 
-                : 'bg-white dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-700'
-              }`}
+            <button
+              onClick={() => setFormData({ ...formData, role: 'athlete' })}
+              className={`w-full p-4 rounded-xl border flex items-center gap-4 transition-all ${formData.role === 'athlete'
+                  ? 'bg-orange-600/10 border-orange-500 text-orange-600 dark:text-white ring-1 ring-orange-500'
+                  : 'bg-white dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-700'
+                }`}
             >
               <div className="p-2 bg-neutral-100 dark:bg-neutral-900 rounded-lg text-neutral-900 dark:text-white"><UserIcon size={24} /></div>
               <div className="text-left">
@@ -446,13 +444,12 @@ export const Onboarding: React.FC<OnboardingProps> = ({ user, onComplete, langua
               </div>
             </button>
 
-            <button 
-              onClick={() => setFormData({...formData, role: 'coach'})}
-              className={`w-full p-4 rounded-xl border flex items-center gap-4 transition-all ${
-                formData.role === 'coach' 
-                ? 'bg-orange-600/10 border-orange-500 text-orange-600 dark:text-white ring-1 ring-orange-500' 
-                : 'bg-white dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-700'
-              }`}
+            <button
+              onClick={() => setFormData({ ...formData, role: 'coach' })}
+              className={`w-full p-4 rounded-xl border flex items-center gap-4 transition-all ${formData.role === 'coach'
+                  ? 'bg-orange-600/10 border-orange-500 text-orange-600 dark:text-white ring-1 ring-orange-500'
+                  : 'bg-white dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-700'
+                }`}
             >
               <div className="p-2 bg-neutral-100 dark:bg-neutral-900 rounded-lg text-neutral-900 dark:text-white"><Activity size={24} /></div>
               <div className="text-left">
@@ -461,8 +458,8 @@ export const Onboarding: React.FC<OnboardingProps> = ({ user, onComplete, langua
               </div>
             </button>
 
-            <button 
-              onClick={handleNext} 
+            <button
+              onClick={handleNext}
               disabled={!isStep2Valid}
               className="w-full py-3 bg-neutral-900 dark:bg-white text-white dark:text-black rounded-xl font-bold mt-4 hover:bg-neutral-700 dark:hover:bg-neutral-200 transition-colors"
             >
@@ -474,22 +471,22 @@ export const Onboarding: React.FC<OnboardingProps> = ({ user, onComplete, langua
         {/* STEP 3: Sport & Discipline */}
         {step === 3 && (
           <div className="flex flex-col h-full animate-in slide-in-from-right fade-in duration-300 overflow-hidden">
-            
+
             <div className="flex-1 overflow-y-auto pr-1 space-y-4 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-neutral-300 dark:[&::-webkit-scrollbar-thumb]:bg-neutral-700 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-orange-500">
-              
+
               {formData.sport && formData.role === 'athlete' && (
-                 <button 
-                    onClick={() => { setFormData({...formData, sport: '', discipline: ''}); setSearchTerm(''); }}
-                    className="flex items-center text-xs text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white mb-2"
-                 >
-                    <ChevronRight className="rotate-180 mr-1" size={14} /> {t.backToCat}
-                 </button>
+                <button
+                  onClick={() => { setFormData({ ...formData, sport: '', discipline: '' }); setSearchTerm(''); }}
+                  className="flex items-center text-xs text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white mb-2"
+                >
+                  <ChevronRight className="rotate-180 mr-1" size={14} /> {t.backToCat}
+                </button>
               )}
 
               {(!formData.sport || formData.role === 'coach') && (
                 <div>
                   <label className="text-xs text-neutral-500 dark:text-neutral-400 mb-2 block ml-1">
-                     {formData.role === 'coach' ? t.speciality : t.selectCat}
+                    {formData.role === 'coach' ? t.speciality : t.selectCat}
                   </label>
                   <div className="grid grid-cols-2 gap-3">
                     {Object.entries(ALL_SPORTS_STRUCTURE).map(([key, data]) => {
@@ -501,11 +498,10 @@ export const Onboarding: React.FC<OnboardingProps> = ({ user, onComplete, langua
                         <button
                           key={key}
                           onClick={() => selectSportCategory(key)}
-                          className={`p-4 rounded-xl border text-left transition-all relative flex flex-col items-start gap-2 ${
-                            isSelected 
-                            ? 'bg-orange-600 border-orange-500 text-white shadow-lg' 
-                            : 'bg-white dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-700'
-                          }`}
+                          className={`p-4 rounded-xl border text-left transition-all relative flex flex-col items-start gap-2 ${isSelected
+                              ? 'bg-orange-600 border-orange-500 text-white shadow-lg'
+                              : 'bg-white dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-700'
+                            }`}
                         >
                           <Icon size={24} className={isSelected ? "text-white" : "text-neutral-500 dark:text-neutral-400"} />
                           <span className="font-bold block text-sm leading-tight">{label}</span>
@@ -520,45 +516,44 @@ export const Onboarding: React.FC<OnboardingProps> = ({ user, onComplete, langua
               {formData.sport && formData.role === 'athlete' && selectedSportData && (
                 <div className="animate-in fade-in slide-in-from-bottom-4 duration-300 h-full flex flex-col">
                   <div className="flex items-center gap-2 mb-3">
-                     <selectedSportData.icon className="text-orange-600 dark:text-orange-500" size={18} />
-                     <span className="font-bold text-neutral-900 dark:text-white text-lg">{t[formData.sport as keyof typeof t] || formData.sport}</span>
+                    <selectedSportData.icon className="text-orange-600 dark:text-orange-500" size={18} />
+                    <span className="font-bold text-neutral-900 dark:text-white text-lg">{t[formData.sport as keyof typeof t] || formData.sport}</span>
                   </div>
-                  
+
                   <div className="relative mb-3">
-                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" size={16} />
-                     <input 
-                        type="text" 
-                        placeholder={t.search} 
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="w-full bg-neutral-100 dark:bg-neutral-900 border border-neutral-300 dark:border-neutral-700 rounded-lg py-2 pl-9 pr-4 text-sm text-neutral-900 dark:text-white focus:border-orange-500 focus:outline-none placeholder-neutral-500"
-                     />
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" size={16} />
+                    <input
+                      type="text"
+                      placeholder={t.search}
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="w-full bg-neutral-100 dark:bg-neutral-900 border border-neutral-300 dark:border-neutral-700 rounded-lg py-2 pl-9 pr-4 text-sm text-neutral-900 dark:text-white focus:border-orange-500 focus:outline-none placeholder-neutral-500"
+                    />
                   </div>
 
                   <div className="flex-1 overflow-y-auto bg-neutral-50 dark:bg-neutral-800/50 rounded-xl border border-neutral-200 dark:border-neutral-800 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-neutral-300 dark:[&::-webkit-scrollbar-thumb]:bg-neutral-700 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-orange-500">
                     {filteredDisciplines.length > 0 ? filteredDisciplines.map((disc) => (
                       <button
                         key={disc}
-                        onClick={() => setFormData({...formData, discipline: disc})}
-                        className={`w-full p-3 text-left text-sm border-b border-neutral-200 dark:border-neutral-800 last:border-0 flex justify-between items-center transition-colors ${
-                          formData.discipline === disc 
-                          ? 'bg-orange-100 dark:bg-orange-500/20 text-orange-700 dark:text-orange-400 font-medium' 
-                          : 'text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800'
-                        }`}
+                        onClick={() => setFormData({ ...formData, discipline: disc })}
+                        className={`w-full p-3 text-left text-sm border-b border-neutral-200 dark:border-neutral-800 last:border-0 flex justify-between items-center transition-colors ${formData.discipline === disc
+                            ? 'bg-orange-100 dark:bg-orange-500/20 text-orange-700 dark:text-orange-400 font-medium'
+                            : 'text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800'
+                          }`}
                       >
-                        {disc}
+                        {getTranslatedDiscipline(disc, language)}
                         {formData.discipline === disc && <Check size={16} />}
                       </button>
                     )) : (
-                       <p className="p-4 text-center text-neutral-500 text-sm">{t.noResults}</p>
+                      <p className="p-4 text-center text-neutral-500 text-sm">{t.noResults}</p>
                     )}
                   </div>
                 </div>
               )}
             </div>
 
-            <button 
-              onClick={handleNext} 
+            <button
+              onClick={handleNext}
               disabled={!isStep3Valid}
               className="w-full py-3 bg-neutral-900 dark:bg-white text-white dark:text-black rounded-xl font-bold mt-4 flex-shrink-0 flex items-center justify-center gap-2 hover:bg-neutral-700 dark:hover:bg-neutral-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
@@ -570,48 +565,46 @@ export const Onboarding: React.FC<OnboardingProps> = ({ user, onComplete, langua
         {/* STEP 4: Supplementation */}
         {step === 4 && (
           <div className="flex flex-col h-full animate-in slide-in-from-right fade-in duration-300">
-             <div className="flex-1 flex flex-col justify-center gap-4">
-                <button 
-                   onClick={() => setFormData({...formData, takesSupplements: true})}
-                   className={`relative p-6 rounded-2xl border-2 transition-all flex flex-col items-center justify-center gap-3 h-40 ${
-                      formData.takesSupplements 
-                      ? 'bg-orange-600/10 border-orange-500 shadow-lg shadow-orange-500/20' 
-                      : 'bg-white dark:bg-neutral-800/50 border-neutral-200 dark:border-neutral-700 hover:border-neutral-300 dark:hover:border-neutral-500 hover:bg-neutral-50 dark:hover:bg-neutral-800'
-                   }`}
-                >
-                   <div className={`p-3 rounded-full ${formData.takesSupplements ? 'bg-orange-500 text-white' : 'bg-neutral-200 dark:bg-neutral-700 text-neutral-500 dark:text-neutral-400'}`}>
-                      <Pill size={32} />
-                   </div>
-                   <span className={`text-lg font-bold ${formData.takesSupplements ? 'text-orange-600 dark:text-white' : 'text-neutral-500 dark:text-neutral-400'}`}>
-                      {t.yesSupp}
-                   </span>
-                   {formData.takesSupplements && (
-                      <div className="absolute top-3 right-3 text-orange-500"><CheckCircle2 size={20} /></div>
-                   )}
-                </button>
+            <div className="flex-1 flex flex-col justify-center gap-4">
+              <button
+                onClick={() => setFormData({ ...formData, takesSupplements: true })}
+                className={`relative p-6 rounded-2xl border-2 transition-all flex flex-col items-center justify-center gap-3 h-40 ${formData.takesSupplements
+                    ? 'bg-orange-600/10 border-orange-500 shadow-lg shadow-orange-500/20'
+                    : 'bg-white dark:bg-neutral-800/50 border-neutral-200 dark:border-neutral-700 hover:border-neutral-300 dark:hover:border-neutral-500 hover:bg-neutral-50 dark:hover:bg-neutral-800'
+                  }`}
+              >
+                <div className={`p-3 rounded-full ${formData.takesSupplements ? 'bg-orange-500 text-white' : 'bg-neutral-200 dark:bg-neutral-700 text-neutral-500 dark:text-neutral-400'}`}>
+                  <Pill size={32} />
+                </div>
+                <span className={`text-lg font-bold ${formData.takesSupplements ? 'text-orange-600 dark:text-white' : 'text-neutral-500 dark:text-neutral-400'}`}>
+                  {t.yesSupp}
+                </span>
+                {formData.takesSupplements && (
+                  <div className="absolute top-3 right-3 text-orange-500"><CheckCircle2 size={20} /></div>
+                )}
+              </button>
 
-                <button 
-                   onClick={() => setFormData({...formData, takesSupplements: false})}
-                   className={`relative p-6 rounded-2xl border-2 transition-all flex flex-col items-center justify-center gap-3 h-40 ${
-                      formData.takesSupplements === false
-                      ? 'bg-neutral-100 dark:bg-neutral-700/50 border-neutral-300 dark:border-neutral-500 shadow-lg' 
-                      : 'bg-white dark:bg-neutral-800/50 border-neutral-200 dark:border-neutral-700 hover:border-neutral-300 dark:hover:border-neutral-500 hover:bg-neutral-50 dark:hover:bg-neutral-800'
-                   }`}
-                >
-                   <div className={`p-3 rounded-full ${formData.takesSupplements === false ? 'bg-neutral-500 text-white' : 'bg-neutral-200 dark:bg-neutral-700 text-neutral-500 dark:text-neutral-400'}`}>
-                      <XCircle size={32} />
-                   </div>
-                   <span className={`text-lg font-bold ${formData.takesSupplements === false ? 'text-neutral-700 dark:text-white' : 'text-neutral-500 dark:text-neutral-400'}`}>
-                      {t.noSupp}
-                   </span>
-                   {formData.takesSupplements === false && (
-                      <div className="absolute top-3 right-3 text-neutral-400"><CheckCircle2 size={20} /></div>
-                   )}
-                </button>
-             </div>
+              <button
+                onClick={() => setFormData({ ...formData, takesSupplements: false })}
+                className={`relative p-6 rounded-2xl border-2 transition-all flex flex-col items-center justify-center gap-3 h-40 ${formData.takesSupplements === false
+                    ? 'bg-neutral-100 dark:bg-neutral-700/50 border-neutral-300 dark:border-neutral-500 shadow-lg'
+                    : 'bg-white dark:bg-neutral-800/50 border-neutral-200 dark:border-neutral-700 hover:border-neutral-300 dark:hover:border-neutral-500 hover:bg-neutral-50 dark:hover:bg-neutral-800'
+                  }`}
+              >
+                <div className={`p-3 rounded-full ${formData.takesSupplements === false ? 'bg-neutral-500 text-white' : 'bg-neutral-200 dark:bg-neutral-700 text-neutral-500 dark:text-neutral-400'}`}>
+                  <XCircle size={32} />
+                </div>
+                <span className={`text-lg font-bold ${formData.takesSupplements === false ? 'text-neutral-700 dark:text-white' : 'text-neutral-500 dark:text-neutral-400'}`}>
+                  {t.noSupp}
+                </span>
+                {formData.takesSupplements === false && (
+                  <div className="absolute top-3 right-3 text-neutral-400"><CheckCircle2 size={20} /></div>
+                )}
+              </button>
+            </div>
 
-             <button 
-              onClick={handleFinish} 
+            <button
+              onClick={handleFinish}
               className="w-full py-3 bg-orange-600 rounded-xl text-white font-bold mt-4 flex-shrink-0 flex items-center justify-center gap-2 hover:bg-orange-500 transition-colors"
             >
               <span>{t.start}</span>
@@ -624,32 +617,32 @@ export const Onboarding: React.FC<OnboardingProps> = ({ user, onComplete, langua
 
       {/* TERMS AND CONDITIONS MODAL */}
       {showTermsModal && (
-         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 dark:bg-black/90 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-            <div className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col max-h-[85vh]">
-               <div className="p-4 border-b border-neutral-200 dark:border-neutral-800 flex justify-between items-center bg-neutral-50 dark:bg-neutral-950 rounded-t-2xl">
-                  <h3 className="font-bold text-neutral-900 dark:text-white flex items-center gap-2">
-                     <ShieldCheck className="text-orange-600" size={20} />
-                     {t.termsTitle}
-                  </h3>
-                  <button onClick={() => setShowTermsModal(false)} className="text-neutral-500 hover:text-neutral-900 dark:hover:text-white">
-                     <X size={20} />
-                  </button>
-               </div>
-               
-               <div className="flex-1 overflow-y-auto p-6 text-sm text-neutral-600 dark:text-neutral-300 leading-relaxed whitespace-pre-line">
-                  {t.termsContent}
-               </div>
-
-               <div className="p-4 border-t border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-950 rounded-b-2xl flex justify-end">
-                  <button 
-                     onClick={() => { setAcceptedTerms(true); setShowTermsModal(false); }}
-                     className="px-6 py-2 bg-orange-600 hover:bg-orange-500 text-white font-bold rounded-xl transition-colors"
-                  >
-                     {t.acceptContinue}
-                  </button>
-               </div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 dark:bg-black/90 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col max-h-[85vh]">
+            <div className="p-4 border-b border-neutral-200 dark:border-neutral-800 flex justify-between items-center bg-neutral-50 dark:bg-neutral-950 rounded-t-2xl">
+              <h3 className="font-bold text-neutral-900 dark:text-white flex items-center gap-2">
+                <ShieldCheck className="text-orange-600" size={20} />
+                {t.termsTitle}
+              </h3>
+              <button onClick={() => setShowTermsModal(false)} className="text-neutral-500 hover:text-neutral-900 dark:hover:text-white">
+                <X size={20} />
+              </button>
             </div>
-         </div>
+
+            <div className="flex-1 overflow-y-auto p-6 text-sm text-neutral-600 dark:text-neutral-300 leading-relaxed whitespace-pre-line">
+              {t.termsContent}
+            </div>
+
+            <div className="p-4 border-t border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-950 rounded-b-2xl flex justify-end">
+              <button
+                onClick={() => { setAcceptedTerms(true); setShowTermsModal(false); }}
+                className="px-6 py-2 bg-orange-600 hover:bg-orange-500 text-white font-bold rounded-xl transition-colors"
+              >
+                {t.acceptContinue}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
     </div>

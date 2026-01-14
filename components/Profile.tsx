@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { User, UserProfile, Language } from '../types';
 import { StorageService } from '../services/storageService';
 import { User as UserIcon, Save, Trash2, Activity, AlertTriangle, ChevronRight, Check, Search, Dumbbell, Target, Waves, Swords, Bike, Users, Trophy, Settings } from 'lucide-react';
+import { getTranslatedSportCategory, getTranslatedDiscipline } from '../utils/sportTranslations';
 
 interface ProfileProps {
    currentUser: User;
@@ -407,7 +408,7 @@ export const Profile: React.FC<ProfileProps> = ({ currentUser, onUpdateUser, onL
                                  {currentSportLabel || 'Seleccionar deporte'}
                               </span>
                               {formData.discipline && (
-                                 <span className="block text-xs text-neutral-500">{formData.discipline}</span>
+                                 <span className="block text-xs text-neutral-500">{getTranslatedDiscipline(formData.discipline, language)}</span>
                               )}
                            </div>
                            <ChevronRight size={18} className="text-neutral-400 group-hover:translate-x-1 transition-transform" />
@@ -469,7 +470,7 @@ export const Profile: React.FC<ProfileProps> = ({ currentUser, onUpdateUser, onL
                         {Object.entries(ALL_SPORTS_STRUCTURE).map(([key, data]) => {
                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
                            const Icon = data.icon as any;
-                           const label = SPORTS_LIST[key] || key;
+                           const label = getTranslatedSportCategory(key, language);
                            const isSelected = formData.sport === key;
 
                            return (
@@ -536,7 +537,7 @@ export const Profile: React.FC<ProfileProps> = ({ currentUser, onUpdateUser, onL
                               : 'text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800'
                               }`}
                         >
-                           {disc}
+                           {getTranslatedDiscipline(disc, language)}
                            {pendingDiscipline === disc && <Check size={16} />}
                         </button>
                      )) : (
