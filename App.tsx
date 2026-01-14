@@ -736,7 +736,7 @@ export default function App() {
     );
   }
 
-  if (!currentUser && showLanding) return <LandingPage onContinue={() => setShowLanding(false)} language={language} />;
+  if (!currentUser && showLanding) return <LandingPage onContinue={() => setShowLanding(false)} language={language} onLanguageChange={handleLanguageChange} />;
   if (!currentUser) return <Login onLogin={(u) => handleLogin(u)} language={language} onLanguageChange={handleLanguageChange} />;
   if (currentScreen === "admin_panel") return <AdminPanel onLogout={handleLogout} />;
   // Pass language to Onboarding
