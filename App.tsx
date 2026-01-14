@@ -73,7 +73,15 @@ export default function App() {
   const [currentScreen, setCurrentScreen] = useState<Screen>("dashboard");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isDesktopSidebarOpen, setIsDesktopSidebarOpen] = useState(true);
-  const [showLanding, setShowLanding] = useState(true);
+  const [showLanding, setShowLanding] = useState(!window.location.hash.includes('login'));
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      setShowLanding(!window.location.hash.includes('login'));
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
 
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [paymentMessage, setPaymentMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
@@ -736,7 +744,7 @@ export default function App() {
     );
   }
 
-  if (!currentUser && showLanding) return <LandingPage onContinue={() => setShowLanding(false)} language={language} onLanguageChange={handleLanguageChange} />;
+  if (!currentUser && showLanding) return <LandingPage onContinue={() => window.location.hash = 'login'} language={language} onLanguageChange={handleLanguageChange} />;
   if (!currentUser) return <Login onLogin={(u) => handleLogin(u)} language={language} onLanguageChange={handleLanguageChange} />;
   if (currentScreen === "admin_panel") return <AdminPanel onLogout={handleLogout} />;
   // Pass language to Onboarding
