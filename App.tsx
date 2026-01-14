@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState, useRef } from "react";
+import { LandingPage } from "./components/LandingPage";
 import { Login } from "./components/Login";
 import { Onboarding } from "./components/Onboarding";
 import { Sidebar } from "./components/Sidebar";
@@ -72,6 +73,7 @@ export default function App() {
   const [currentScreen, setCurrentScreen] = useState<Screen>("dashboard");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isDesktopSidebarOpen, setIsDesktopSidebarOpen] = useState(true);
+  const [showLanding, setShowLanding] = useState(true);
 
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [paymentMessage, setPaymentMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
@@ -734,6 +736,7 @@ export default function App() {
     );
   }
 
+  if (!currentUser && showLanding) return <LandingPage onContinue={() => setShowLanding(false)} language={language} />;
   if (!currentUser) return <Login onLogin={(u) => handleLogin(u)} language={language} onLanguageChange={handleLanguageChange} />;
   if (currentScreen === "admin_panel") return <AdminPanel onLogout={handleLogout} />;
   // Pass language to Onboarding
