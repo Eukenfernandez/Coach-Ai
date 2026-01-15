@@ -8,7 +8,7 @@
  * in Spanish for database consistency. Only the DISPLAY label is translated.
  */
 
-type Language = 'es' | 'en' | 'eu';
+type Language = 'es' | 'ing' | 'eus';
 
 // Sport Category Translations
 export const SPORT_CATEGORIES: Record<Language, Record<string, string>> = {
@@ -25,7 +25,7 @@ export const SPORT_CATEGORIES: Record<Language, Record<string, string>> = {
         cycling: 'Ciclismo',
         other: 'Otros'
     },
-    en: {
+    ing: {
         gym: 'Gym / Fitness',
         athletics: 'Athletics',
         soccer: 'Soccer / Football',
@@ -38,7 +38,7 @@ export const SPORT_CATEGORIES: Record<Language, Record<string, string>> = {
         cycling: 'Cycling',
         other: 'Other'
     },
-    eu: {
+    eus: {
         gym: 'Gimnasioa / Fitness',
         athletics: 'Atletismoa',
         soccer: 'Futbola',
@@ -112,7 +112,7 @@ export const DISCIPLINE_TRANSLATIONS: Record<Language, Record<string, string>> =
         'Balonmano': 'Balonmano', 'Hockey': 'Hockey', 'Tiro con Arco': 'Tiro con Arco',
         'Skate': 'Skate', 'Esquí': 'Esquí', 'Snowboard': 'Snowboard', 'Hípica': 'Hípica'
     },
-    en: {
+    ing: {
         // Athletics - Running
         '60m': '60m', '100m': '100m', '200m': '200m', '400m': '400m',
         '800m': '800m', '1500m': '1500m', '3000m': '3000m', '5000m': '5000m', '10000m': '10000m',
@@ -170,7 +170,7 @@ export const DISCIPLINE_TRANSLATIONS: Record<Language, Record<string, string>> =
         'Balonmano': 'Handball', 'Hockey': 'Hockey', 'Tiro con Arco': 'Archery',
         'Skate': 'Skateboarding', 'Esquí': 'Skiing', 'Snowboard': 'Snowboarding', 'Hípica': 'Equestrian'
     },
-    eu: {
+    eus: {
         // Athletics - Running
         '60m': '60m', '100m': '100m', '200m': '200m', '400m': '400m',
         '800m': '800m', '1500m': '1500m', '3000m': '3000m', '5000m': '5000m', '10000m': '10000m',
@@ -246,4 +246,34 @@ export const getTranslatedSportCategory = (sportKey: string, language: string): 
     const lang = (language as Language) || 'es';
     const categories = SPORT_CATEGORIES[lang] || SPORT_CATEGORIES.es;
     return categories[sportKey] || sportKey;
+};
+
+/**
+ * Translations for default strength exercises
+ */
+export const EXERCISE_TRANSLATIONS: Record<Language, Record<string, string>> = {
+    es: {
+        'Sentadilla': 'Sentadilla', 'Press Banca': 'Press Banca', 'Peso Muerto': 'Peso Muerto',
+        'Cargada': 'Cargada', 'Salto Vertical': 'Salto Vertical', 'Lanz. Balón Med.': 'Lanz. Balón Med.',
+        'Flexiones': 'Flexiones'
+    },
+    ing: {
+        'Sentadilla': 'Squat', 'Press Banca': 'Bench Press', 'Peso Muerto': 'Deadlift',
+        'Cargada': 'Power Clean', 'Salto Vertical': 'Vertical Jump', 'Lanz. Balón Med.': 'Med. Ball Throw',
+        'Flexiones': 'Push-ups'
+    },
+    eus: {
+        'Sentadilla': 'Makurtze', 'Press Banca': 'Banka Prentsa', 'Peso Muerto': 'Pisu Hilak',
+        'Cargada': 'Karga', 'Salto Vertical': 'Jauzi Bertikala', 'Lanz. Balón Med.': 'Baloi Med. Jaurt.',
+        'Flexiones': 'Besauliak'
+    }
+};
+
+/**
+ * Get translated exercise name for display.
+ */
+export const getTranslatedExercise = (exercise: string, language: string): string => {
+    const lang = (language as Language) || 'es';
+    const translations = EXERCISE_TRANSLATIONS[lang] || EXERCISE_TRANSLATIONS.es;
+    return translations[exercise] || exercise;
 };

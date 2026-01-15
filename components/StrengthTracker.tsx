@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { StrengthRecord, ExerciseDef, Language } from '../types';
 import { Plus, Trash2, TrendingUp, Calendar, Settings, X, Save } from 'lucide-react';
+import { getTranslatedExercise } from '../utils/sportTranslations';
 
 interface StrengthTrackerProps {
   records: StrengthRecord[];
@@ -75,9 +76,9 @@ const TEXTS = {
   }
 };
 
-export const StrengthTracker: React.FC<StrengthTrackerProps> = ({ 
-  records, 
-  onAddRecord, 
+export const StrengthTracker: React.FC<StrengthTrackerProps> = ({
+  records,
+  onAddRecord,
   onDeleteRecord,
   exercises,
   onUpdateExercises,
@@ -108,7 +109,7 @@ export const StrengthTracker: React.FC<StrengthTrackerProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!weight || !date || !selectedExerciseName) return;
-    
+
     onAddRecord({
       exercise: selectedExerciseName,
       weight: parseFloat(weight),
@@ -143,15 +144,15 @@ export const StrengthTracker: React.FC<StrengthTrackerProps> = ({
     <div className="h-full bg-gray-50 dark:bg-neutral-950 p-4 md:p-10 overflow-y-auto relative transition-colors duration-300">
       <div className="max-w-5xl mx-auto">
         <div className="flex justify-between items-start mb-2">
-           <h1 className="text-xl md:text-3xl font-bold text-neutral-900 dark:text-white">{t.title}</h1>
-           <button 
-             onClick={() => setIsManaging(true)}
-             className="flex items-center gap-2 bg-white dark:bg-neutral-800 hover:bg-neutral-100 dark:hover:bg-neutral-700 text-neutral-900 dark:text-white border border-neutral-200 dark:border-neutral-700 px-3 py-1.5 md:px-4 md:py-2 rounded-lg transition-colors text-xs md:text-sm font-medium shadow-sm"
-           >
-             <Settings size={14} className="md:w-4 md:h-4" />
-             <span className="hidden md:inline">{t.manage}</span>
-             <span className="md:hidden">{t.edit}</span>
-           </button>
+          <h1 className="text-xl md:text-3xl font-bold text-neutral-900 dark:text-white">{t.title}</h1>
+          <button
+            onClick={() => setIsManaging(true)}
+            className="flex items-center gap-2 bg-white dark:bg-neutral-800 hover:bg-neutral-100 dark:hover:bg-neutral-700 text-neutral-900 dark:text-white border border-neutral-200 dark:border-neutral-700 px-3 py-1.5 md:px-4 md:py-2 rounded-lg transition-colors text-xs md:text-sm font-medium shadow-sm"
+          >
+            <Settings size={14} className="md:w-4 md:h-4" />
+            <span className="hidden md:inline">{t.manage}</span>
+            <span className="md:hidden">{t.edit}</span>
+          </button>
         </div>
         <p className="text-sm md:text-base text-neutral-500 dark:text-neutral-400 mb-6 md:mb-8">{t.desc}</p>
 
@@ -160,11 +161,11 @@ export const StrengthTracker: React.FC<StrengthTrackerProps> = ({
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4 mb-8 md:mb-10">
             {exercises.map(ex => (
               <div key={ex.name} className="bg-white dark:bg-neutral-900 p-3 md:p-4 rounded-xl border border-neutral-200 dark:border-neutral-800 hover:border-orange-500/30 transition-colors shadow-sm dark:shadow-none">
-                <p className="text-neutral-500 text-[10px] md:text-sm mb-1 truncate" title={ex.name}>{ex.name}</p>
+                <p className="text-neutral-500 text-[10px] md:text-sm mb-1 truncate" title={getTranslatedExercise(ex.name, language)}>{getTranslatedExercise(ex.name, language)}</p>
                 <div className="flex items-baseline gap-1">
                   <span className="text-lg md:text-2xl font-bold text-neutral-900 dark:text-white">{maxes[ex.name]}</span>
                   <span className="text-xs md:text-sm text-orange-500 font-medium">
-                     {ex.unit}
+                    {ex.unit}
                   </span>
                 </div>
               </div>
@@ -172,7 +173,7 @@ export const StrengthTracker: React.FC<StrengthTrackerProps> = ({
           </div>
         ) : (
           <div className="p-6 text-center border border-dashed border-neutral-300 dark:border-neutral-800 rounded-xl mb-10 text-neutral-500 text-sm">
-             {t.emptyConfig}
+            {t.emptyConfig}
           </div>
         )}
 
@@ -187,12 +188,12 @@ export const StrengthTracker: React.FC<StrengthTrackerProps> = ({
               <div>
                 <label className="block text-xs text-neutral-500 dark:text-neutral-400 mb-1">{t.exercise}</label>
                 {exercises.length > 0 ? (
-                  <select 
+                  <select
                     value={selectedExerciseName}
                     onChange={(e) => setSelectedExerciseName(e.target.value)}
                     className="w-full bg-gray-50 dark:bg-neutral-800 text-neutral-900 dark:text-white p-3 rounded-lg border border-neutral-300 dark:border-neutral-700 focus:border-orange-500 focus:outline-none appearance-none"
                   >
-                    {exercises.map(ex => <option key={ex.name} value={ex.name}>{ex.name}</option>)}
+                    {exercises.map(ex => <option key={ex.name} value={ex.name}>{getTranslatedExercise(ex.name, language)}</option>)}
                   </select>
                 ) : (
                   <div className="p-3 text-sm text-red-500 bg-red-100 dark:bg-red-900/20 rounded-lg">{t.emptyConfig}</div>
@@ -201,8 +202,8 @@ export const StrengthTracker: React.FC<StrengthTrackerProps> = ({
               <div>
                 <label className="block text-xs text-neutral-500 dark:text-neutral-400 mb-1">{t.result} ({currentUnit})</label>
                 <div className="relative">
-                  <input 
-                    type="number" 
+                  <input
+                    type="number"
                     step="0.01"
                     value={weight}
                     onChange={(e) => setWeight(e.target.value)}
@@ -218,8 +219,8 @@ export const StrengthTracker: React.FC<StrengthTrackerProps> = ({
               </div>
               <div>
                 <label className="block text-xs text-neutral-500 dark:text-neutral-400 mb-1">{t.date}</label>
-                <input 
-                  type="date" 
+                <input
+                  type="date"
                   value={date}
                   onChange={(e) => setDate(e.target.value)}
                   className="w-full bg-gray-50 dark:bg-neutral-800 text-neutral-900 dark:text-white p-3 rounded-lg border border-neutral-300 dark:border-neutral-700 focus:border-orange-500 focus:outline-none"
@@ -227,7 +228,7 @@ export const StrengthTracker: React.FC<StrengthTrackerProps> = ({
                   disabled={exercises.length === 0}
                 />
               </div>
-              <button 
+              <button
                 type="submit"
                 disabled={exercises.length === 0}
                 className="w-full bg-orange-600 hover:bg-orange-500 text-white font-bold py-3 rounded-lg transition-colors mt-2 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -258,7 +259,7 @@ export const StrengthTracker: React.FC<StrengthTrackerProps> = ({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-neutral-200 dark:divide-neutral-800">
-                      {[...records].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(record => {
+                      {[...records].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(record => {
                         const recUnit = exercises.find(e => e.name === record.exercise)?.unit || 'kg';
                         return (
                           <tr key={record.id} className="hover:bg-gray-50 dark:hover:bg-neutral-800/50 transition-colors">
@@ -267,15 +268,15 @@ export const StrengthTracker: React.FC<StrengthTrackerProps> = ({
                                 {record.date}
                               </div>
                             </td>
-                            <td className="p-3 md:p-4 text-neutral-900 dark:text-white font-medium text-xs md:text-sm">{record.exercise}</td>
+                            <td className="p-3 md:p-4 text-neutral-900 dark:text-white font-medium text-xs md:text-sm">{getTranslatedExercise(record.exercise, language)}</td>
                             <td className="p-3 md:p-4 text-orange-600 dark:text-orange-400 font-bold text-sm md:text-base whitespace-nowrap">
-                              {record.weight} 
+                              {record.weight}
                               <span className="text-[10px] md:text-xs text-neutral-500 font-normal ml-1">
-                                  {recUnit}
+                                {recUnit}
                               </span>
                             </td>
                             <td className="p-3 md:p-4 text-right">
-                              <button 
+                              <button
                                 onClick={() => onDeleteRecord(record.id)}
                                 className="text-neutral-400 hover:text-red-500 transition-colors"
                               >
@@ -297,88 +298,87 @@ export const StrengthTracker: React.FC<StrengthTrackerProps> = ({
       {/* Exercise Management Modal */}
       {isManaging && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 dark:bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-           <div className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh] transition-colors">
-              <div className="p-4 border-b border-neutral-200 dark:border-neutral-800 flex justify-between items-center bg-gray-50 dark:bg-neutral-950">
-                 <h3 className="font-bold text-neutral-900 dark:text-white text-sm md:text-base">{t.modalTitle}</h3>
-                 <button onClick={() => setIsManaging(false)} className="text-neutral-500 hover:text-neutral-900 dark:hover:text-white">
-                    <X size={20} />
-                 </button>
+          <div className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh] transition-colors">
+            <div className="p-4 border-b border-neutral-200 dark:border-neutral-800 flex justify-between items-center bg-gray-50 dark:bg-neutral-950">
+              <h3 className="font-bold text-neutral-900 dark:text-white text-sm md:text-base">{t.modalTitle}</h3>
+              <button onClick={() => setIsManaging(false)} className="text-neutral-500 hover:text-neutral-900 dark:hover:text-white">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-4 bg-white dark:bg-neutral-900 border-b border-neutral-200 dark:border-neutral-800 space-y-4">
+              <div className="flex flex-col gap-2">
+                <label className="text-xs text-neutral-500 dark:text-neutral-400">{t.exName}</label>
+                <input
+                  type="text"
+                  value={newExerciseName}
+                  onChange={(e) => setNewExerciseName(e.target.value)}
+                  placeholder="Ej. Salto Profundo"
+                  className="w-full bg-gray-50 dark:bg-neutral-950 border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 text-neutral-900 dark:text-white focus:border-orange-500 focus:outline-none text-sm"
+                />
               </div>
-              
-              <div className="p-4 bg-white dark:bg-neutral-900 border-b border-neutral-200 dark:border-neutral-800 space-y-4">
-                 <div className="flex flex-col gap-2">
-                    <label className="text-xs text-neutral-500 dark:text-neutral-400">{t.exName}</label>
-                    <input 
-                       type="text" 
-                       value={newExerciseName}
-                       onChange={(e) => setNewExerciseName(e.target.value)}
-                       placeholder="Ej. Salto Profundo"
-                       className="w-full bg-gray-50 dark:bg-neutral-950 border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 text-neutral-900 dark:text-white focus:border-orange-500 focus:outline-none text-sm"
-                    />
-                 </div>
-                 
-                 <div>
-                    <label className="text-xs text-neutral-500 dark:text-neutral-400 mb-2 block">{t.unit}</label>
-                    <div className="flex flex-wrap gap-2">
-                       {AVAILABLE_UNITS.map(u => (
-                          <button
-                             key={u}
-                             onClick={() => setNewExerciseUnit(u)}
-                             className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
-                                newExerciseUnit === u 
-                                ? 'bg-orange-600 text-white ring-2 ring-orange-500 ring-offset-2 ring-offset-white dark:ring-offset-neutral-900' 
-                                : 'bg-gray-200 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 hover:bg-gray-300 dark:hover:bg-neutral-700'
-                             }`}
-                          >
-                             {u}
-                          </button>
-                       ))}
+
+              <div>
+                <label className="text-xs text-neutral-500 dark:text-neutral-400 mb-2 block">{t.unit}</label>
+                <div className="flex flex-wrap gap-2">
+                  {AVAILABLE_UNITS.map(u => (
+                    <button
+                      key={u}
+                      onClick={() => setNewExerciseUnit(u)}
+                      className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${newExerciseUnit === u
+                        ? 'bg-orange-600 text-white ring-2 ring-orange-500 ring-offset-2 ring-offset-white dark:ring-offset-neutral-900'
+                        : 'bg-gray-200 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 hover:bg-gray-300 dark:hover:bg-neutral-700'
+                        }`}
+                    >
+                      {u}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <button
+                onClick={handleAddExercise}
+                disabled={!newExerciseName.trim()}
+                className="w-full bg-neutral-900 dark:bg-white hover:bg-neutral-700 dark:hover:bg-neutral-200 disabled:opacity-50 text-white dark:text-black font-bold py-2 rounded-lg transition-colors flex items-center justify-center gap-2 mt-2"
+              >
+                <Plus size={18} />
+                {t.addEx}
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-2">
+              {exercises.length === 0 ? (
+                <p className="text-center text-neutral-500 text-sm py-4">{t.emptyList}</p>
+              ) : (
+                <div className="space-y-1">
+                  {exercises.map(ex => (
+                    <div key={ex.name} className="flex items-center justify-between p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-neutral-800 group transition-colors">
+                      <div className="flex items-center gap-3">
+                        <span className="text-neutral-900 dark:text-neutral-200 font-medium text-sm">{getTranslatedExercise(ex.name, language)}</span>
+                        <span className="text-[10px] bg-gray-200 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-500 px-2 py-0.5 rounded border border-neutral-300 dark:border-neutral-700">{ex.unit}</span>
+                      </div>
+                      <button
+                        onClick={() => handleDeleteExercise(ex.name)}
+                        className="text-neutral-400 hover:text-red-500 transition-colors p-1"
+                        title="Eliminar de la lista"
+                      >
+                        <Trash2 size={16} />
+                      </button>
                     </div>
-                 </div>
+                  ))}
+                </div>
+              )}
+            </div>
 
-                 <button 
-                    onClick={handleAddExercise}
-                    disabled={!newExerciseName.trim()}
-                    className="w-full bg-neutral-900 dark:bg-white hover:bg-neutral-700 dark:hover:bg-neutral-200 disabled:opacity-50 text-white dark:text-black font-bold py-2 rounded-lg transition-colors flex items-center justify-center gap-2 mt-2"
-                 >
-                    <Plus size={18} />
-                    {t.addEx}
-                 </button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto p-2">
-                 {exercises.length === 0 ? (
-                    <p className="text-center text-neutral-500 text-sm py-4">{t.emptyList}</p>
-                 ) : (
-                    <div className="space-y-1">
-                       {exercises.map(ex => (
-                          <div key={ex.name} className="flex items-center justify-between p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-neutral-800 group transition-colors">
-                             <div className="flex items-center gap-3">
-                                <span className="text-neutral-900 dark:text-neutral-200 font-medium text-sm">{ex.name}</span>
-                                <span className="text-[10px] bg-gray-200 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-500 px-2 py-0.5 rounded border border-neutral-300 dark:border-neutral-700">{ex.unit}</span>
-                             </div>
-                             <button 
-                                onClick={() => handleDeleteExercise(ex.name)}
-                                className="text-neutral-400 hover:text-red-500 transition-colors p-1"
-                                title="Eliminar de la lista"
-                             >
-                                <Trash2 size={16} />
-                             </button>
-                          </div>
-                       ))}
-                    </div>
-                 )}
-              </div>
-
-              <div className="p-4 bg-gray-50 dark:bg-neutral-950 border-t border-neutral-200 dark:border-neutral-800">
-                 <button 
-                    onClick={() => setIsManaging(false)}
-                    className="w-full py-2 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-white border border-neutral-200 dark:border-neutral-700 font-bold rounded-lg hover:bg-gray-100 dark:hover:bg-neutral-700 transition-colors"
-                 >
-                    {t.close}
-                 </button>
-              </div>
-           </div>
+            <div className="p-4 bg-gray-50 dark:bg-neutral-950 border-t border-neutral-200 dark:border-neutral-800">
+              <button
+                onClick={() => setIsManaging(false)}
+                className="w-full py-2 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-white border border-neutral-200 dark:border-neutral-700 font-bold rounded-lg hover:bg-gray-100 dark:hover:bg-neutral-700 transition-colors"
+              >
+                {t.close}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

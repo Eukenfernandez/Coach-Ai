@@ -44,7 +44,12 @@ const SIDEBAR_TEXTS = {
       deleteConfirmTitle: '¿Eliminar cuenta permanentemente?',
       deleteConfirmDesc: 'Perderás todos tus datos, vídeos y registros. Esta acción no se puede deshacer.',
       cancel: 'Cancelar',
-      confirm: 'Sí, eliminar cuenta'
+      confirm: 'Sí, eliminar cuenta',
+      dark: 'Oscuro',
+      light: 'Claro',
+      coachRole: 'Entrenador',
+      athleteRole: 'Atleta',
+      athletes: 'Atletas'
    },
    ing: {
       dashboard: 'Dashboard',
@@ -69,7 +74,12 @@ const SIDEBAR_TEXTS = {
       deleteConfirmTitle: 'Delete account permanently?',
       deleteConfirmDesc: 'You will lose all data, videos, and records. This action cannot be undone.',
       cancel: 'Cancel',
-      confirm: 'Yes, delete account'
+      confirm: 'Yes, delete account',
+      dark: 'Dark',
+      light: 'Light',
+      coachRole: 'Coach',
+      athleteRole: 'Athlete',
+      athletes: 'Athletes'
    },
    eus: {
       dashboard: 'Hasiera',
@@ -94,7 +104,12 @@ const SIDEBAR_TEXTS = {
       deleteConfirmTitle: 'Kontua betirako ezabatu?',
       deleteConfirmDesc: 'Datu, bideo eta erregistro guztiak galduko dituzu. Ekintza hau ezin da desegin.',
       cancel: 'Utzi',
-      confirm: 'Bai, ezabatu'
+      confirm: 'Bai, ezabatu',
+      dark: 'Iluna',
+      light: 'Argia',
+      coachRole: 'Entrenatzailea',
+      athleteRole: 'Atleta',
+      athletes: 'Atletak'
    }
 };
 
@@ -217,7 +232,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                      <span className="text-xs font-bold text-neutral-600 dark:text-neutral-400">{t.theme}</span>
                      <div className="flex items-center gap-2 text-neutral-800 dark:text-white">
                         {theme === 'dark' ? <Moon size={14} /> : <Sun size={14} />}
-                        <span className="text-xs capitalize">{theme === 'dark' ? 'Dark' : 'Light'}</span>
+                        <span className="text-xs capitalize">{theme === 'dark' ? t.dark : t.light}</span>
                      </div>
                   </button>
 
@@ -257,7 +272,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                               {isViewingSelf ? t.myProfile : t.analyzing}
                            </p>
                            <p className="text-sm font-bold text-neutral-900 dark:text-white truncate">
-                              {isViewingSelf ? (currentUser.profile?.role === 'coach' ? 'Entrenador' : 'Atleta') : `${viewedAthlete?.profile?.firstName} ${viewedAthlete?.profile?.lastName}`}
+                              {isViewingSelf ? (currentUser.profile?.role === 'coach' ? t.coachRole : t.athleteRole) : `${viewedAthlete?.profile?.firstName} ${viewedAthlete?.profile?.lastName}`}
                            </p>
                         </div>
                      </div>
@@ -276,7 +291,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
                         {managedAthletes.length > 0 && (
                            <div className="px-3 py-1 text-[10px] text-neutral-500 uppercase bg-neutral-50 dark:bg-neutral-950/50 font-bold tracking-wider">
-                              Atletas
+                              {t.athletes}
                            </div>
                         )}
 

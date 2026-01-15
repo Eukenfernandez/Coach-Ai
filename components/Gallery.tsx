@@ -109,6 +109,13 @@ export const Gallery: React.FC<GalleryProps> = ({ videos, onSelectVideo, onUploa
     return () => clearInterval(interval);
   }, [isRecording]);
 
+  // Sync camera stream with video element when both are available
+  useEffect(() => {
+    if (stream && showCamera && videoRef.current) {
+      videoRef.current.srcObject = stream;
+    }
+  }, [stream, showCamera]);
+
   const handleUploadClick = () => {
     if (isLimitReached) {
       setShowLimitModal(true);
@@ -136,12 +143,12 @@ export const Gallery: React.FC<GalleryProps> = ({ videos, onSelectVideo, onUploa
       return;
     }
     try {
+      setShowCamera(true); // Show camera view first
       const mediaStream = await navigator.mediaDevices.getUserMedia(CAMERA_CONSTRAINTS);
-      setStream(mediaStream);
-      if (videoRef.current) videoRef.current.srcObject = mediaStream;
-      setShowCamera(true);
+      setStream(mediaStream); // useEffect will sync srcObject after render
     } catch (err) {
       console.error("Error accessing camera:", err);
+      setShowCamera(false);
       alert("No se pudo acceder a la cámara.");
     }
   };
@@ -188,17 +195,17 @@ export const Gallery: React.FC<GalleryProps> = ({ videos, onSelectVideo, onUploa
   };
 
   return (
-    <div className="h-full bg-neutral-950 p-6 md:p-10 overflow-y-auto relative transition-colors duration-300">
+    <div className="h-full bg-gray-50 dark:bg-neutral-950 p-6 md:p-10 overflow-y-auto relative transition-colors duration-300">
       <div className="flex flex-col md:flex-row md:items-end justify-between mb-8 gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-white mb-2">{t.title}</h1>
-          <p className="text-neutral-400">{t.subtitle}</p>
+          <h1 className="text-3xl font-bold text-neutral-900 dark:text-white mb-2">{t.title}</h1>
+          <p className="text-neutral-500 dark:text-neutral-400">{t.subtitle}</p>
         </div>
 
         {showUsage && usage && (
           <div className="flex items-center gap-2">
             {/* Desktop Usage View */}
-            <div className="hidden md:flex bg-neutral-900 border border-neutral-800 rounded-2xl p-4 items-center gap-4 animate-in fade-in slide-in-from-right-4">
+            <div className="hidden md:flex bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl p-4 items-center gap-4 animate-in fade-in slide-in-from-right-4 shadow-sm dark:shadow-none">
               <div className="flex flex-col items-end">
                 <span className="text-[10px] uppercase tracking-widest text-neutral-500 font-bold">{t.usageLimit}</span>
                 <div className="flex items-baseline gap-1">
@@ -218,9 +225,9 @@ export const Gallery: React.FC<GalleryProps> = ({ videos, onSelectVideo, onUploa
             </div>
 
             {/* Mobile Usage View (Discrete) */}
-            <div className="md:hidden absolute top-6 right-6 flex items-center gap-1.5 bg-neutral-900/80 backdrop-blur border border-neutral-800 px-2.5 py-1 rounded-full shadow-lg">
+            <div className="md:hidden absolute top-6 right-6 flex items-center gap-1.5 bg-white/80 dark:bg-neutral-900/80 backdrop-blur border border-neutral-200 dark:border-neutral-800 px-2.5 py-1 rounded-full shadow-lg">
               <div className={`w-2 h-2 rounded-full ${isLimitReached ? 'bg-red-500 animate-pulse' : 'bg-orange-500'}`}></div>
-              <span className="text-xs font-mono font-bold text-white">
+              <span className="text-xs font-mono font-bold text-neutral-900 dark:text-white">
                 {usage.analysisCount}/{limitVal}
               </span>
             </div>
@@ -229,11 +236,11 @@ export const Gallery: React.FC<GalleryProps> = ({ videos, onSelectVideo, onUploa
       </div>
 
       {videos.length === 0 && !showCamera ? (
-        <div className="flex flex-col items-center justify-center h-[50vh] text-center border-2 border-dashed border-neutral-800 rounded-3xl">
-          <div className="w-20 h-20 bg-neutral-900 rounded-full flex items-center justify-center mb-6">
+        <div className="flex flex-col items-center justify-center h-[50vh] text-center border-2 border-dashed border-neutral-300 dark:border-neutral-800 rounded-3xl">
+          <div className="w-20 h-20 bg-orange-100 dark:bg-neutral-900 rounded-full flex items-center justify-center mb-6">
             <Film size={32} className="text-orange-600" />
           </div>
-          <h3 className="text-xl font-semibold text-white mb-2">{t.empty}</h3>
+          <h3 className="text-xl font-semibold text-neutral-900 dark:text-white mb-2">{t.empty}</h3>
           <p className="text-neutral-500 max-w-sm mb-8">{t.emptySub}</p>
           <div className="flex flex-col sm:flex-row gap-4">
             <button

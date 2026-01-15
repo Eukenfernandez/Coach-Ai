@@ -509,7 +509,26 @@ export default function App() {
     if (!effectiveUsage) return;
 
     const limit = userLimits.maxAnalysisPerMonth;
-    if (effectiveUsage.analysisCount >= limit) return;
+
+    // Check monthly analysis limit
+    if (effectiveUsage.analysisCount >= limit) {
+      alert(language === 'ing'
+        ? 'You have reached your monthly analysis limit. Upgrade your plan or wait for the reset.'
+        : language === 'eus'
+          ? 'Hileko analisi muga gainditu duzu. Zure plana hobetu edo berrezarpena itxaron.'
+          : 'Has alcanzado el límite mensual de análisis. Mejora tu plan o espera al reseteo.');
+      return;
+    }
+
+    // Check TOTAL video storage limit - must delete old videos before uploading new ones
+    if (videos.length >= limit) {
+      alert(language === 'ing'
+        ? `You have ${limit} videos stored (maximum allowed). Delete some videos before uploading new ones.`
+        : language === 'eus'
+          ? `${limit} bideo gordeta dituzu (gehienezko baimena). Ezabatu bideo batzuk berriak igo aurretik.`
+          : `Tienes ${limit} vídeos guardados (máximo permitido). Elimina algunos vídeos antes de subir nuevos.`);
+      return;
+    }
 
     const newId = Date.now().toString();
     const localDisplayUrl = URL.createObjectURL(file);

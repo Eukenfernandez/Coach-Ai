@@ -2,6 +2,7 @@
 import React from 'react';
 import { VideoFile, StrengthRecord, ThrowRecord, Screen, UserProfile, Language } from '../types';
 import { Activity, TrendingUp, Video, Trophy, Target, CalendarRange, Timer } from 'lucide-react';
+import { getTranslatedDiscipline } from '../utils/sportTranslations';
 
 interface DashboardProps {
   userProfile?: UserProfile;
@@ -250,7 +251,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       {/* Main Content */}
       <div className="flex-1 p-4 md:p-10">
         <h1 className="text-2xl md:text-3xl font-bold text-neutral-900 dark:text-white mb-1">{t.hello}, {userProfile?.firstName || t.athlete} 👋</h1>
-        <p className="text-sm md:text-base text-neutral-500 dark:text-neutral-400 mb-6 md:mb-8">{t.summary} {userProfile?.discipline || t.sport}.</p>
+        <p className="text-sm md:text-base text-neutral-500 dark:text-neutral-400 mb-6 md:mb-8">{t.summary} {userProfile?.discipline ? getTranslatedDiscipline(userProfile.discipline, language) : t.sport}.</p>
 
         {/* Key Metrics Grid */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 mb-8 md:mb-10">

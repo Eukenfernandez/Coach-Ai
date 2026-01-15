@@ -26,6 +26,60 @@ const DRAWING_COLORS = [
    { id: 'white', hex: '#ffffff' },
 ];
 
+const ANALYZER_TEXTS = {
+   es: {
+      chatIntro: 'Hola, soy tu entrenador IA. ¿Qué quieres analizar de este vídeo?',
+      analyzing: 'Analizando...',
+      askPlaceholder: 'Pregunta...',
+      coachIA: 'Coach IA',
+      compareTitle: '¡Compara Vídeos!',
+      compareDesc: 'Como usuario Pro/Premium, puedes comparar dos vídeos lado a lado para analizar tu técnica.',
+      syncTitle: '¡Sincroniza los Vídeos!',
+      syncDesc: 'Alinea los vídeos manualmente y pulsa este botón para que se muevan juntos.',
+      geminiTitle: '¡Analiza con Gemini AI!',
+      geminiDesc: 'Pulsa este botón para obtener análisis inteligente de tu técnica con IA.',
+      upgradeTitle: 'Función Pro/Premium',
+      upgradeDesc: 'La comparación de vídeos lado a lado está disponible para usuarios Atleta Pro y Atleta Premium. ¡Mejora tu plan para desbloquear esta función!',
+      viewPlans: 'Ver Planes',
+      close: 'Cerrar',
+      connectionError: 'Error de conexión.'
+   },
+   ing: {
+      chatIntro: 'Hi, I\'m your AI coach. What do you want to analyze in this video?',
+      analyzing: 'Analyzing...',
+      askPlaceholder: 'Ask...',
+      coachIA: 'AI Coach',
+      compareTitle: 'Compare Videos!',
+      compareDesc: 'As a Pro/Premium user, you can compare two videos side by side to analyze your technique.',
+      syncTitle: 'Sync the Videos!',
+      syncDesc: 'Manually align the videos and press this button to move them together.',
+      geminiTitle: 'Analyze with Gemini AI!',
+      geminiDesc: 'Press this button to get intelligent analysis of your technique with AI.',
+      upgradeTitle: 'Pro/Premium Feature',
+      upgradeDesc: 'Side-by-side video comparison is available for Pro Athlete and Premium Athlete users. Upgrade your plan to unlock this feature!',
+      viewPlans: 'View Plans',
+      close: 'Close',
+      connectionError: 'Connection error.'
+   },
+   eus: {
+      chatIntro: 'Kaixo, zure AI entrenatzailea naiz. Zer aztertu nahi duzu bideo honetan?',
+      analyzing: 'Aztertzen...',
+      askPlaceholder: 'Galdetu...',
+      coachIA: 'AI Entrenatzailea',
+      compareTitle: 'Konparatu Bideoak!',
+      compareDesc: 'Pro/Premium erabiltzaile gisa, bi bideo aldez alde konpara ditzakezu zure teknika aztertzeko.',
+      syncTitle: 'Sinkronizatu Bideoak!',
+      syncDesc: 'Lerrokatu bideoak eskuz eta sakatu botoi hau elkarrekin mugitzeko.',
+      geminiTitle: 'Aztertu Gemini AI-rekin!',
+      geminiDesc: 'Sakatu botoi hau zure teknikaren analisi adimentsua lortzeko IA-rekin.',
+      upgradeTitle: 'Pro/Premium Funtzioa',
+      upgradeDesc: 'Aldez aldeko bideo konparaketa Pro Atleta eta Premium Atleta erabiltzaileentzat dago eskuragarri. Eguneratu zure plana funtzio hau desblokeatzeko!',
+      viewPlans: 'Ikusi Planak',
+      close: 'Itxi',
+      connectionError: 'Konexio errorea.'
+   }
+};
+
 interface VideoAnalyzerProps {
    video: VideoFile;
    onBack: () => void;
@@ -191,6 +245,8 @@ interface VideoAnalyzerProps {
 }
 
 export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usage, limits, onIncrementUsage, language, onNavigate, userProfile }) => {
+   const t = ANALYZER_TEXTS[language] || ANALYZER_TEXTS.es;
+
    const [currentTime, setCurrentTime] = useState(0);
    const [duration, setDuration] = useState(0);
    const [playbackRate, setPlaybackRate] = useState(1);
@@ -217,7 +273,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
    const [isChatOpen, setIsChatOpen] = useState(false);
    const [useDeepAnalysis, setUseDeepAnalysis] = useState(false);
    const [chatInput, setChatInput] = useState('');
-   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([{ id: 'intro', role: 'model', text: 'Hola, soy tu entrenador IA. ¿Qué quieres analizar de este vídeo?', timestamp: new Date() }]);
+   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([{ id: 'intro', role: 'model', text: t.chatIntro, timestamp: new Date() }]);
    const [isChatLoading, setIsChatLoading] = useState(false);
 
    const [isVideoLoaded, setIsVideoLoaded] = useState(false);
@@ -764,7 +820,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
          setChatMessages(prev => [...prev, { id: Date.now().toString(), role: 'model', text: response, timestamp: new Date() }]);
          onIncrementUsage?.();
       } catch {
-         setChatMessages(prev => [...prev, { id: Date.now().toString(), role: 'model', text: 'Error de conexión.', timestamp: new Date() }]);
+         setChatMessages(prev => [...prev, { id: Date.now().toString(), role: 'model', text: t.connectionError, timestamp: new Date() }]);
       } finally { setIsChatLoading(false); }
    };
 
@@ -913,8 +969,8 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
                                  <Split size={20} />
                               </div>
                               <div className="flex-1">
-                                 <h4 className="font-bold text-sm mb-1">¡Compara Vídeos!</h4>
-                                 <p className="text-xs text-white/80">Como usuario Pro/Premium, puedes comparar dos vídeos lado a lado para analizar tu técnica.</p>
+                                 <h4 className="font-bold text-sm mb-1">{t.compareTitle}</h4>
+                                 <p className="text-xs text-white/80">{t.compareDesc}</p>
                               </div>
                               <button onClick={dismissCompareTip} className="text-white/60 hover:text-white">
                                  <X size={16} />
@@ -945,8 +1001,8 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
                                     <Link2 size={20} />
                                  </div>
                                  <div className="flex-1">
-                                    <h4 className="font-bold text-sm mb-1">¡Sincroniza los Vídeos!</h4>
-                                    <p className="text-xs text-white/80">Alinea los vídeos manualmente y pulsa este botón para que se muevan juntos.</p>
+                                    <h4 className="font-bold text-sm mb-1">{t.syncTitle}</h4>
+                                    <p className="text-xs text-white/80">{t.syncDesc}</p>
                                  </div>
                                  <button onClick={dismissSyncTip} className="text-white/60 hover:text-white">
                                     <X size={16} />
@@ -980,8 +1036,8 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
                                  </svg>
                               </div>
                               <div className="flex-1">
-                                 <h4 className="font-bold text-sm mb-1">¡Analiza con Gemini AI!</h4>
-                                 <p className="text-xs text-white/80">Pulsa este botón para obtener análisis inteligente de tu técnica con IA.</p>
+                                 <h4 className="font-bold text-sm mb-1">{t.geminiTitle}</h4>
+                                 <p className="text-xs text-white/80">{t.geminiDesc}</p>
                               </div>
                               <button onClick={dismissGeminiTip} className="text-white/60 hover:text-white">
                                  <X size={16} />
@@ -997,10 +1053,10 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
          </div>
 
          {/* Main Workspace */}
-         <div className="flex-1 flex flex-col relative bg-black">
+         <div className="flex-1 flex flex-col relative bg-black overflow-y-auto">
 
-            {/* Video Container Area */}
-            <div className="flex-1 relative overflow-hidden flex items-center justify-center bg-black"
+            {/* Video Container Area - Stacked on mobile, side-by-side on desktop */}
+            <div className={`flex-1 relative overflow-hidden flex ${compareVideo ? 'flex-col md:flex-row' : 'items-center justify-center'} bg-black`}
                style={{ cursor: isDrawingMode ? (activeTool === 'eraser' ? 'cell' : 'crosshair') : (zoom > 1 ? 'grab' : 'default') }}
                onMouseDown={handleMouseDown}
                onTouchStart={handleMouseDown}
@@ -1010,18 +1066,17 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
                onTouchEnd={handleMouseUp}
                onMouseLeave={handleMouseUp}
             >
-               {!isVideoLoaded && !videoError && <Loader2 size={40} className="animate-spin text-orange-500 absolute" />}
+               {!isVideoLoaded && !videoError && <Loader2 size={40} className="animate-spin text-orange-500 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />}
 
-               {/* Transformed Wrapper */}
-               <div
-                  ref={wrapperRef}
-                  className={`relative flex items-center justify-center transition-transform duration-75 ease-linear ${compareVideo ? 'w-full h-full gap-1' : 'w-full h-full'}`}
-                  style={{
-                     transform: `scale(${zoom}) translate(${pan.x}px, ${pan.y}px)`,
-                  }}
-               >
-                  {/* Primary Video */}
-                  <div className={`relative flex items-center justify-center ${compareVideo ? 'w-1/2 h-full' : 'w-full h-full'}`}>
+               {/* Primary Video Container with its own scrubber on mobile */}
+               <div className={`relative flex flex-col ${compareVideo ? 'w-full md:w-1/2 flex-1 md:flex-initial' : 'w-full h-full items-center justify-center'}`}>
+                  <div
+                     ref={!compareVideo ? wrapperRef : undefined}
+                     className={`relative flex items-center justify-center flex-1 transition-transform duration-75 ease-linear ${!compareVideo ? 'w-full h-full' : ''}`}
+                     style={{
+                        transform: `scale(${zoom}) translate(${pan.x}px, ${pan.y}px)`,
+                     }}
+                  >
                      {activeUrl && (
                         <>
                            <video
@@ -1044,9 +1099,25 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
                      )}
                   </div>
 
-                  {/* Comparison Video */}
-                  {compareVideo && (
-                     <div className="relative w-1/2 h-full flex items-center justify-center border-l border-white/10">
+                  {/* Primary Video Scrubber - Only visible on mobile when comparing AND not synced */}
+                  {compareVideo && !isSynced && (
+                     <div className="md:hidden bg-black px-4 py-2">
+                        <DualScrubber
+                           curr={currentTime}
+                           dur={duration}
+                           setTime={seek}
+                           onScrubStart={() => setIsScrubbing(true)}
+                           onScrubEnd={() => { setIsScrubbing(false); flushPendingSeek(); }}
+                           label="CAM A"
+                        />
+                     </div>
+                  )}
+               </div>
+
+               {/* Comparison Video Container with its own scrubber on mobile */}
+               {compareVideo && (
+                  <div className="relative flex flex-col w-full md:w-1/2 flex-1 md:flex-initial border-t md:border-t-0 md:border-l border-white/10">
+                     <div className="relative flex items-center justify-center flex-1">
                         <video
                            ref={videoRef2}
                            src={compareVideo.url}
@@ -1064,14 +1135,31 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
                            />
                         )}
                      </div>
-                  )}
 
-                  {/* Canvas Overlay (Shares transform with videos) */}
+                     {/* Secondary Video Scrubber - Only visible on mobile when comparing AND not synced */}
+                     {!isSynced && (
+                        <div className="md:hidden bg-black px-4 py-2">
+                           <DualScrubber
+                              curr={compareTime}
+                              dur={compareDuration}
+                              setTime={seek2}
+                              onScrubStart={() => setIsScrubbing(true)}
+                              onScrubEnd={() => { setIsScrubbing(false); flushPendingSeek(); }}
+                              isSecondary
+                              label="CAM B"
+                           />
+                        </div>
+                     )}
+                  </div>
+               )}
+
+               {/* Canvas Overlay (Shares transform with videos) - Only when not comparing */}
+               {!compareVideo && (
                   <canvas
                      ref={canvasRef}
                      className="absolute inset-0 z-20 pointer-events-none"
                   />
-               </div>
+               )}
 
                {/* Zoom Controls (Floating) */}
                <div className="absolute bottom-36 right-4 z-40 flex flex-col gap-2 bg-black/60 backdrop-blur-md rounded-xl p-1 border border-white/10">
@@ -1083,25 +1171,39 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
 
             {/* Controls Bar */}
             <div className="bg-black border-t border-neutral-900 px-4 py-4 z-30">
-               <div className={`w-full ${compareVideo && !isSynced ? 'grid grid-cols-2 gap-4' : ''} mb-4`}>
-                  <DualScrubber
-                     curr={currentTime}
-                     dur={duration}
-                     setTime={seek}
-                     onScrubStart={() => setIsScrubbing(true)}
-                     onScrubEnd={() => { setIsScrubbing(false); flushPendingSeek(); }}
-                     label="CAM A"
-                  />
-                  {compareVideo && !isSynced && (
+               {/* Scrubbers - hidden on mobile when comparing AND not synced (each video has its own). Visible on mobile when synced (shared scrubber) */}
+               <div className={`w-full mb-4 ${compareVideo && !isSynced ? 'hidden md:block' : ''}`}>
+                  {!compareVideo ? (
                      <DualScrubber
-                        curr={compareTime}
-                        dur={compareDuration}
-                        setTime={seek2}
+                        curr={currentTime}
+                        dur={duration}
+                        setTime={seek}
                         onScrubStart={() => setIsScrubbing(true)}
                         onScrubEnd={() => { setIsScrubbing(false); flushPendingSeek(); }}
-                        isSecondary
-                        label="CAM B"
+                        label="CAM A"
                      />
+                  ) : (
+                     <div className={`w-full ${!isSynced ? 'grid grid-cols-2 gap-4' : ''}`}>
+                        <DualScrubber
+                           curr={currentTime}
+                           dur={duration}
+                           setTime={seek}
+                           onScrubStart={() => setIsScrubbing(true)}
+                           onScrubEnd={() => { setIsScrubbing(false); flushPendingSeek(); }}
+                           label="CAM A"
+                        />
+                        {!isSynced && (
+                           <DualScrubber
+                              curr={compareTime}
+                              dur={compareDuration}
+                              setTime={seek2}
+                              onScrubStart={() => setIsScrubbing(true)}
+                              onScrubEnd={() => { setIsScrubbing(false); flushPendingSeek(); }}
+                              isSecondary
+                              label="CAM B"
+                           />
+                        )}
+                     </div>
                   )}
                </div>
 
@@ -1118,69 +1220,73 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
          </div>
 
          {/* Chat Sidebar */}
-         {isChatOpen && (
-            <div className="w-80 border-l border-neutral-800 bg-neutral-900 flex flex-col animate-in slide-in-from-right duration-300 z-40 absolute right-0 top-0 bottom-0 shadow-2xl">
-               <div className="p-4 border-b border-neutral-800 flex justify-between items-center bg-neutral-950">
-                  <h3 className="font-bold text-white flex items-center gap-2"><Sparkles size={16} className="text-purple-500" /> Coach IA</h3>
-                  <button onClick={() => setIsChatOpen(false)}><X size={18} className="text-neutral-500" /></button>
-               </div>
-               <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                  {chatMessages.map(msg => (
-                     <div key={msg.id} className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
-                        <div className={`p-3 rounded-2xl text-xs leading-relaxed max-w-[85%] ${msg.role === 'user' ? 'bg-purple-600 text-white rounded-tr-none' : 'bg-neutral-800 border border-neutral-700 text-neutral-200 rounded-tl-none'}`}>{msg.text}</div>
-                     </div>
-                  ))}
+         {
+            isChatOpen && (
+               <div className="w-80 border-l border-neutral-800 bg-neutral-900 flex flex-col animate-in slide-in-from-right duration-300 z-40 absolute right-0 top-0 bottom-0 shadow-2xl">
+                  <div className="p-4 border-b border-neutral-800 flex justify-between items-center bg-neutral-950">
+                     <h3 className="font-bold text-white flex items-center gap-2"><Sparkles size={16} className="text-purple-500" /> {t.coachIA}</h3>
+                     <button onClick={() => setIsChatOpen(false)}><X size={18} className="text-neutral-500" /></button>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                     {chatMessages.map(msg => (
+                        <div key={msg.id} className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
+                           <div className={`p-3 rounded-2xl text-xs leading-relaxed max-w-[85%] ${msg.role === 'user' ? 'bg-purple-600 text-white rounded-tr-none' : 'bg-neutral-800 border border-neutral-700 text-neutral-200 rounded-tl-none'}`}>{msg.text}</div>
+                        </div>
+                     ))}
 
-                  {/* Left-Aligned Loading State */}
-                  {isChatLoading && (
-                     <div className="flex gap-3">
-                        <div className="w-8 h-8 rounded-full bg-purple-600 flex items-center justify-center flex-shrink-0">
-                           <Sparkles size={14} className="text-white" />
+                     {/* Left-Aligned Loading State */}
+                     {isChatLoading && (
+                        <div className="flex gap-3">
+                           <div className="w-8 h-8 rounded-full bg-purple-600 flex items-center justify-center flex-shrink-0">
+                              <Sparkles size={14} className="text-white" />
+                           </div>
+                           <div className="bg-neutral-800 border border-neutral-700 px-4 py-3 rounded-2xl rounded-tl-none flex items-center gap-2">
+                              <Loader2 size={14} className="animate-spin text-purple-400" />
+                              <span className="text-xs text-neutral-400">{t.analyzing}</span>
+                           </div>
                         </div>
-                        <div className="bg-neutral-800 border border-neutral-700 px-4 py-3 rounded-2xl rounded-tl-none flex items-center gap-2">
-                           <Loader2 size={14} className="animate-spin text-purple-400" />
-                           <span className="text-xs text-neutral-400">Analizando...</span>
-                        </div>
-                     </div>
-                  )}
+                     )}
+                  </div>
+                  <form onSubmit={handleSendChat} className="p-4 border-t border-neutral-800 bg-neutral-950 flex gap-2">
+                     <input type="text" value={chatInput} onChange={e => setChatInput(e.target.value)} placeholder={t.askPlaceholder} className="flex-1 bg-neutral-900 border border-neutral-700 rounded-xl px-4 py-2 text-xs text-white outline-none focus:border-purple-500" />
+                     <button type="submit" className="p-2 bg-purple-600 text-white rounded-xl hover:bg-purple-500"><Send size={16} /></button>
+                  </form>
                </div>
-               <form onSubmit={handleSendChat} className="p-4 border-t border-neutral-800 bg-neutral-950 flex gap-2">
-                  <input type="text" value={chatInput} onChange={e => setChatInput(e.target.value)} placeholder="Pregunta..." className="flex-1 bg-neutral-900 border border-neutral-700 rounded-xl px-4 py-2 text-xs text-white outline-none focus:border-purple-500" />
-                  <button type="submit" className="p-2 bg-purple-600 text-white rounded-xl hover:bg-purple-500"><Send size={16} /></button>
-               </form>
-            </div>
-         )}
+            )
+         }
 
          {/* Upgrade Modal for Compare Feature */}
-         {showUpgradeModal && (
-            <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-               <div className="bg-neutral-900 border border-neutral-800 p-6 rounded-3xl max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-200">
-                  <div className="flex flex-col items-center text-center">
-                     <div className="w-16 h-16 bg-blue-500/10 rounded-full flex items-center justify-center mb-4">
-                        <Split size={32} className="text-blue-500" />
-                     </div>
-                     <h3 className="text-xl font-bold text-white mb-2">Función Pro/Premium</h3>
-                     <p className="text-neutral-400 text-sm mb-6">
-                        La comparación de vídeos lado a lado está disponible para usuarios Atleta Pro y Atleta Premium. ¡Mejora tu plan para desbloquear esta función!
-                     </p>
-                     {onNavigate && (
+         {
+            showUpgradeModal && (
+               <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+                  <div className="bg-neutral-900 border border-neutral-800 p-6 rounded-3xl max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-200">
+                     <div className="flex flex-col items-center text-center">
+                        <div className="w-16 h-16 bg-blue-500/10 rounded-full flex items-center justify-center mb-4">
+                           <Split size={32} className="text-blue-500" />
+                        </div>
+                        <h3 className="text-xl font-bold text-white mb-2">{t.upgradeTitle}</h3>
+                        <p className="text-neutral-400 text-sm mb-6">
+                           {t.upgradeDesc}
+                        </p>
+                        {onNavigate && (
+                           <button
+                              onClick={() => { setShowUpgradeModal(false); onNavigate('pricing'); }}
+                              className="w-full py-3 px-4 bg-gradient-to-r from-blue-600 to-cyan-500 text-white font-bold rounded-xl hover:opacity-90 transition-opacity"
+                           >
+                              {t.viewPlans}
+                           </button>
+                        )}
                         <button
-                           onClick={() => { setShowUpgradeModal(false); onNavigate('pricing'); }}
-                           className="w-full py-3 px-4 bg-gradient-to-r from-blue-600 to-cyan-500 text-white font-bold rounded-xl hover:opacity-90 transition-opacity"
+                           onClick={() => setShowUpgradeModal(false)}
+                           className="mt-3 text-sm text-neutral-500 hover:text-white transition-colors"
                         >
-                           Ver Planes
+                           {t.close}
                         </button>
-                     )}
-                     <button
-                        onClick={() => setShowUpgradeModal(false)}
-                        className="mt-3 text-sm text-neutral-500 hover:text-white transition-colors"
-                     >
-                        Cerrar
-                     </button>
+                     </div>
                   </div>
                </div>
-            </div>
-         )}
-      </div>
+            )
+         }
+      </div >
    );
 };
