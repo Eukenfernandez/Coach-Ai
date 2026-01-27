@@ -385,7 +385,14 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
       setVideoError(null);
       setCurrentTime(0);
       if (!activeUrl) setVideoError("Error: URL de video no encontrada.");
-   }, [video.id]);
+
+      // Check if video is already ready (e.g., from cache)
+      if (videoRef.current && videoRef.current.readyState >= 2) { // HAVE_CURRENT_DATA
+         setIsVideoLoaded(true);
+         setDuration(videoRef.current.duration);
+         setIsVertical(videoRef.current.videoHeight > videoRef.current.videoWidth);
+      }
+   }, [video.id, activeUrl]);
 
    const handleLoadedData = () => {
       setIsVideoLoaded(true);
@@ -1110,7 +1117,11 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
                   onTouchStart={(e) => { e.stopPropagation(); handleMouseDown(e, 1); }}
                   style={{ cursor: isDrawingMode ? 'crosshair' : (zoom1 > 1 ? 'grab' : 'default') }}
                >
-                  {!isVideoLoaded && !videoError && <Loader2 size={40} className="animate-spin text-orange-500 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50" />}
+                  {!isVideoLoaded && !videoError && (
+                     <div className="absolute inset-0 flex items-center justify-center z-50 pointer-events-none">
+                        <Loader2 size={40} className="animate-spin text-orange-500" />
+                     </div>
+                  )}
                   <div
                      ref={!compareVideo ? wrapperRef : undefined}
                      className={`relative flex items-center justify-center flex-1 transition-transform duration-75 ease-linear ${!compareVideo ? 'w-full h-full' : 'p-4'}`}
@@ -1127,6 +1138,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
                               className="max-h-full max-w-full object-contain pointer-events-none select-none"
                               playsInline
                               onLoadedData={handleLoadedData}
+                              onCanPlay={() => setIsVideoLoaded(true)} // Fallback ensuring state update
                               onTimeUpdate={handleTimeUpdatePrimary}
                            />
                            {/* Pose Detection Canvas Overlay */}
