@@ -1092,7 +1092,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
          <div className="flex-1 flex flex-col relative bg-black overflow-y-auto">
 
             {/* Video Container Area - Dynamic layout based on aspect ratio (Mobile) / Always SxS (Desktop) */}
-            <div className={`flex-1 relative overflow-hidden flex ${compareVideo ? (isVertical ? 'flex-row gap-4 md:gap-0' : 'flex-col gap-4 md:flex-row md:gap-0') : 'items-center justify-center'} bg-black`}
+            <div className={`flex-1 relative overflow-hidden flex ${compareVideo ? (isVertical ? 'flex-row gap-0.5 md:gap-0' : 'flex-col gap-0.5 md:flex-row md:gap-0') : 'items-center justify-center'} bg-black`}
                style={{ cursor: isDrawingMode ? (activeTool === 'eraser' ? 'cell' : 'crosshair') : 'default' }}
                onMouseDown={(e) => handleMouseDown(e, 1)} // Default to 1 if clicking background (though usually covered)
                onTouchStart={(e) => handleMouseDown(e, 1)}
