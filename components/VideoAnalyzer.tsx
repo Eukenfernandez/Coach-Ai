@@ -303,16 +303,19 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
    const [isVideoLoaded, setIsVideoLoaded] = useState(false);
    const [videoError, setVideoError] = useState<string | null>(null);
    const videoRef = useRef<HTMLVideoElement>(null);
-   const canvasRef = useRef<HTMLCanvasElement>(null);
+   const canvasRef1 = useRef<HTMLCanvasElement>(null);
+   const canvasRef2 = useRef<HTMLCanvasElement>(null);
    const wrapperRef = useRef<HTMLDivElement>(null);
 
    // Drawing State
    const [isDrawingMode, setIsDrawingMode] = useState(false);
    const [activeTool, setActiveTool] = useState<'pen' | 'eraser'>('pen'); // New Tool State
    const [isDrawing, setIsDrawing] = useState(false);
+   const [activeDrawingTarget, setActiveDrawingTarget] = useState<1 | 2>(1);
    const [drawShape, setDrawShape] = useState<'free' | 'line'>('free');
    const [selectedColor, setSelectedColor] = useState(DRAWING_COLORS[0].hex);
-   const [drawings, setDrawings] = useState<Line[]>([]);
+   const [drawings1, setDrawings1] = useState<Line[]>([]);
+   const [drawings2, setDrawings2] = useState<Line[]>([]);
 
    // Pose Detection State
    const [isPoseEnabled, setIsPoseEnabled] = useState(false);
@@ -451,23 +454,33 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
    };
 
    // --- CANVAS DRAWING LOGIC ---
-   useEffect(() => {
-      const canvas = canvasRef.current;
-      const ctx = canvas?.getContext('2d');
-      if (!canvas || !ctx || !wrapperRef.current) return;
+   const renderDrawings = (canvas: HTMLCanvasElement | null, lines: Line[]) => {
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      // Use client dimensions for canvas resolution to match display size
+      // This ensures 1:1 mapping with mouse/touch events relative to the element
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return;
 
-      // Match canvas size to video wrapper size for correct coordinate mapping
-      canvas.width = wrapperRef.current.clientWidth;
-      canvas.height = wrapperRef.current.clientHeight;
+      // Update canvas size if it doesn't match display size
+      if (canvas.width !== rect.width || canvas.height !== rect.height) {
+         canvas.width = rect.width;
+         canvas.height = rect.height;
+      }
+
+      const width = canvas.width;
+      const height = canvas.height;
+
+      if (!ctx) return;
 
       // Clear
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.clearRect(0, 0, width, height);
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
       ctx.lineWidth = 4;
 
       // Draw all lines
-      drawings.forEach(line => {
+      lines.forEach(line => {
          ctx.beginPath();
          ctx.strokeStyle = line.color;
          if (line.points.length > 0) {
@@ -476,7 +489,15 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
          }
          ctx.stroke();
       });
-   }, [drawings, zoom1, pan1, isVideoLoaded]); // Redraw when these change
+   };
+
+   useEffect(() => {
+      renderDrawings(canvasRef1.current, drawings1);
+   }, [drawings1, zoom1, pan1, isVideoLoaded, compareVideo]);
+
+   useEffect(() => {
+      renderDrawings(canvasRef2.current, drawings2);
+   }, [drawings2, zoom2, pan2, compareVideo]);
 
    // --- POSE CANVAS DRAWING LOGIC ---
    // Update video dimensions for pose canvas positioning
@@ -658,8 +679,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
       }
    }, [landmarks2, isPoseEnabled, compareVideo, compareTime, zoom2, pan2]);
 
-   const getCanvasCoordinates = (e: React.MouseEvent | React.TouchEvent) => {
-      const canvas = canvasRef.current;
+   const getCanvasCoordinates = (e: React.MouseEvent | React.TouchEvent, canvas: HTMLCanvasElement | null) => {
       if (!canvas) return { x: 0, y: 0 };
 
       const rect = canvas.getBoundingClientRect();
@@ -678,15 +698,20 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
    };
 
    const handleMouseDown = (e: React.MouseEvent | React.TouchEvent, target: 1 | 2 = 1) => {
-      if (isDrawingMode && target === 1) { // Drawing only supported on primary for now, or need logic
+      if (isDrawingMode) {
          setIsDrawing(true);
-         const { x, y } = getCanvasCoordinates(e);
+         setActiveDrawingTarget(target);
+
+         const currentCanvas = target === 1 ? canvasRef1.current : canvasRef2.current;
+         const { x, y } = getCanvasCoordinates(e, currentCanvas);
 
          if (activeTool === 'pen') {
             // Start a new line
-            setDrawings(prev => [...prev, { id: Date.now().toString(), points: [{ x, y }], color: selectedColor, isStraight: drawShape === 'line' }]);
+            const newLine = { id: Date.now().toString(), points: [{ x, y }], color: selectedColor, isStraight: drawShape === 'line' };
+            if (target === 1) setDrawings1(prev => [...prev, newLine]);
+            else setDrawings2(prev => [...prev, newLine]);
          } else if (activeTool === 'eraser') {
-            eraseAt(x, y);
+            eraseAt(x, y, target);
          }
       } else {
          const currentZoom = target === 1 ? zoom1 : zoom2;
@@ -702,36 +727,40 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
       }
    };
 
-   const eraseAt = (x: number, y: number) => {
+   const eraseAt = (x: number, y: number, target: 1 | 2) => {
       const ERASE_RADIUS = 40; // Increased pixel radius for easier erasing
-      setDrawings(prev => prev.filter(line => {
-         // Check if any point in the line is close to the eraser
-         return !line.points.some(p => Math.hypot(p.x - x, p.y - y) < ERASE_RADIUS);
-      }));
+      const filterFunc = (line: Line) => !line.points.some(p => Math.hypot(p.x - x, p.y - y) < ERASE_RADIUS);
+
+      if (target === 1) setDrawings1(prev => prev.filter(filterFunc));
+      else setDrawings2(prev => prev.filter(filterFunc));
    }
 
    const handleMouseMove = (e: React.MouseEvent | React.TouchEvent) => {
       if (isDrawing && isDrawingMode) {
-         const { x, y } = getCanvasCoordinates(e);
+         const target = activeDrawingTarget;
+         const currentCanvas = target === 1 ? canvasRef1.current : canvasRef2.current;
+         const { x, y } = getCanvasCoordinates(e, currentCanvas);
 
          if (activeTool === 'pen') {
-            setDrawings(prev => {
+            const updateDrawings = (prev: Line[]) => {
                const lastLine = prev[prev.length - 1];
                if (!lastLine) return prev;
 
                if (lastLine.isStraight) {
-                  // Update end point only for straight line
                   const startPoint = lastLine.points[0];
                   const newLine = { ...lastLine, points: [startPoint, { x, y }] };
                   return [...prev.slice(0, -1), newLine];
                } else {
-                  // Append point for freehand
                   const newLine = { ...lastLine, points: [...lastLine.points, { x, y }] };
                   return [...prev.slice(0, -1), newLine];
                }
-            });
+            };
+
+            if (target === 1) setDrawings1(updateDrawings);
+            else setDrawings2(updateDrawings);
+
          } else if (activeTool === 'eraser') {
-            eraseAt(x, y);
+            eraseAt(x, y, target);
          }
       } else if (activePanTarget !== 0) {
          const clientX = 'touches' in e ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
@@ -936,7 +965,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
                            </button>
                            <div className="w-px h-4 bg-white/10 mx-0.5 self-center"></div>
                            <button
-                              onClick={() => setDrawings([])}
+                              onClick={() => { setDrawings1([]); setDrawings2([]); }}
                               className="p-1.5 text-red-400 hover:bg-red-900/30 rounded-full transition-colors"
                               title="Borrar Todo"
                            >
@@ -1148,6 +1177,11 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
                                  className="absolute inset-0 z-10 pointer-events-none"
                               />
                            )}
+                           {/* Drawing Canvas 1 */}
+                           <canvas
+                              ref={canvasRef1}
+                              className="absolute inset-0 z-20 pointer-events-none"
+                           />
                         </>
                      )}
                   </div>
@@ -1199,12 +1233,18 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
                            onTimeUpdate={handleTimeUpdateSecondary}
                         />
                         {/* Pose Detection Canvas Overlay for Comparison Video */}
+
                         {isPoseEnabled && (
                            <canvas
                               ref={poseCanvasRef2}
                               className="absolute inset-0 z-10 pointer-events-none"
                            />
                         )}
+                        {/* Drawing Canvas 2 */}
+                        <canvas
+                           ref={canvasRef2}
+                           className="absolute inset-0 z-20 pointer-events-none"
+                        />
 
 
                      </div>
@@ -1234,16 +1274,8 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
                   </div>
                )}
 
-               {/* Canvas Overlay (Shares transform with videos) - Only when not comparing */}
-               {!compareVideo && (
-                  <canvas
-                     ref={canvasRef}
-                     className="absolute inset-0 z-20 pointer-events-none"
-                     style={{
-                        transform: `scale(${zoom1}) translate(${pan1.x}px, ${pan1.y}px)`,
-                     }}
-                  />
-               )}
+               {/* Canvas Overlay Removed from global wrapper - Moved inside each video container */}
+
             </div>
 
             {/* Controls Bar */}
