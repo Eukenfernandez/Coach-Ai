@@ -283,6 +283,8 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
    const [pan2, setPan2] = useState({ x: 0, y: 0 });
    const [activePanTarget, setActivePanTarget] = useState<0 | 1 | 2>(0);
    const [startPan, setStartPan] = useState({ x: 0, y: 0 });
+   const [aspectRatio1, setAspectRatio1] = useState<number | undefined>(undefined);
+   const [aspectRatio2, setAspectRatio2] = useState<number | undefined>(undefined);
 
    // Comparison State
    const [compareVideo, setCompareVideo] = useState<VideoFile | null>(null);
@@ -401,6 +403,8 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
       setIsVideoLoaded(true);
       if (videoRef.current) {
          setDuration(videoRef.current.duration);
+         const ratio = videoRef.current.videoWidth / videoRef.current.videoHeight;
+         setAspectRatio1(ratio);
          // Check aspect ratio (Height > Width = Vertical)
          setIsVertical(videoRef.current.videoHeight > videoRef.current.videoWidth);
       }
@@ -487,8 +491,12 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
       ctx.clearRect(0, 0, width, height);
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
-      // Adjust line width proportional to video size for visibility
-      ctx.lineWidth = Math.max(4, width / 250);
+
+      // Calculate visual scale factor to normalize stroke width
+      // We want the visual stroke to be ~4px regardless of video resolution
+      const layoutWidth = canvas.offsetWidth;
+      const scaleFactor = layoutWidth > 0 ? (width / layoutWidth) : 1;
+      ctx.lineWidth = 4 * scaleFactor;
 
       // Draw all lines
       lines.forEach(line => {
@@ -1170,12 +1178,19 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
                      }}
                   >
                      {activeUrl && (
-                        <>
+                        <div
+                           className="relative max-w-full max-h-full shadow-2xl"
+                           style={{
+                              aspectRatio: aspectRatio1,
+                              width: aspectRatio1 ? 'auto' : '100%',
+                              height: aspectRatio1 ? 'auto' : '100%'
+                           }}
+                        >
                            <video
                               ref={videoRef}
                               src={activeUrl}
                               crossOrigin="anonymous"
-                              className="max-h-full max-w-full object-contain pointer-events-none select-none"
+                              className="w-full h-full object-contain pointer-events-none select-none block"
                               playsInline
                               onLoadedData={handleLoadedData}
                               onCanPlay={() => setIsVideoLoaded(true)} // Fallback ensuring state update
@@ -1185,15 +1200,15 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
                            {isPoseEnabled && (
                               <canvas
                                  ref={poseCanvasRef}
-                                 className="absolute inset-0 z-10 pointer-events-none"
+                                 className="absolute inset-0 z-10 pointer-events-none w-full h-full"
                               />
                            )}
                            {/* Drawing Canvas 1 */}
                            <canvas
                               ref={canvasRef1}
-                              className="absolute inset-0 z-20 pointer-events-none"
+                              className="absolute inset-0 z-20 pointer-events-none w-full h-full"
                            />
-                        </>
+                        </div>
                      )}
                   </div>
 
@@ -1234,30 +1249,40 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
                            transform: `scale(${zoom2}) translate(${pan2.x}px, ${pan2.y}px)`,
                         }}
                      >
-                        <video
-                           ref={videoRef2}
-                           src={compareVideo.url}
-                           crossOrigin="anonymous"
-                           className="max-h-full max-w-full object-contain pointer-events-none select-none"
-                           playsInline
-                           onLoadedData={(e) => setCompareDuration(e.currentTarget.duration)}
-                           onTimeUpdate={handleTimeUpdateSecondary}
-                        />
-                        {/* Pose Detection Canvas Overlay for Comparison Video */}
-
-                        {isPoseEnabled && (
-                           <canvas
-                              ref={poseCanvasRef2}
-                              className="absolute inset-0 z-10 pointer-events-none"
+                        <div
+                           className="relative max-w-full max-h-full shadow-2xl"
+                           style={{
+                              aspectRatio: aspectRatio2,
+                              width: aspectRatio2 ? 'auto' : '100%',
+                              height: aspectRatio2 ? 'auto' : '100%'
+                           }}
+                        >
+                           <video
+                              ref={videoRef2}
+                              src={compareVideo.url}
+                              crossOrigin="anonymous"
+                              className="w-full h-full object-contain pointer-events-none select-none block"
+                              playsInline
+                              onLoadedData={(e) => {
+                                 setCompareDuration(e.currentTarget.duration);
+                                 setAspectRatio2(e.currentTarget.videoWidth / e.currentTarget.videoHeight);
+                              }}
+                              onTimeUpdate={handleTimeUpdateSecondary}
                            />
-                        )}
-                        {/* Drawing Canvas 2 */}
-                        <canvas
-                           ref={canvasRef2}
-                           className="absolute inset-0 z-20 pointer-events-none"
-                        />
+                           {/* Pose Detection Canvas Overlay for Comparison Video */}
 
-
+                           {isPoseEnabled && (
+                              <canvas
+                                 ref={poseCanvasRef2}
+                                 className="absolute inset-0 z-10 pointer-events-none w-full h-full"
+                              />
+                           )}
+                           {/* Drawing Canvas 2 */}
+                           <canvas
+                              ref={canvasRef2}
+                              className="absolute inset-0 z-20 pointer-events-none w-full h-full"
+                           />
+                        </div>
                      </div>
 
                      {/* Zoom Controls Video 2 */}
