@@ -243,6 +243,26 @@ interface VideoAnalyzerProps {
    onNavigate: (screen: Screen) => void;
    userProfile?: UserProfile;
 }
+// Helper Component for Zoom Controls
+const ZoomControls = ({ zoom, setZoom, setPan, placement = 'bottom-right' }: {
+   zoom: number,
+   setZoom: React.Dispatch<React.SetStateAction<number>>,
+   setPan: React.Dispatch<React.SetStateAction<{ x: number, y: number }>>,
+   placement?: 'bottom-right' | 'top-right' | 'bottom-left' | 'top-left'
+}) => (
+   <div className={`absolute z-40 flex flex-col gap-2 bg-black/60 backdrop-blur-md rounded-xl p-1 border border-white/10 ${placement === 'bottom-right' ? 'bottom-4 right-4' :
+      placement === 'top-right' ? 'top-4 right-4' :
+         placement === 'bottom-left' ? 'bottom-4 left-4' :
+            'top-4 left-4'
+      }`}
+      onMouseDown={(e) => e.stopPropagation()} // Prevent pan start when clicking controls
+      onTouchStart={(e) => e.stopPropagation()}
+   >
+      <button onClick={() => { setZoom(z => Math.min(4, z + 0.5)); }} className="p-2 text-white hover:bg-white/10 rounded-lg"><ZoomIn size={20} /></button>
+      <span className="text-[10px] text-center font-mono text-neutral-400">{Math.round(zoom * 100)}%</span>
+      <button onClick={() => { setZoom(z => Math.max(1, z - 0.5)); setPan({ x: 0, y: 0 }); }} className="p-2 text-white hover:bg-white/10 rounded-lg"><ZoomOut size={20} /></button>
+   </div>
+);
 
 export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usage, limits, onIncrementUsage, language, onNavigate, userProfile }) => {
    const t = ANALYZER_TEXTS[language] || ANALYZER_TEXTS.es;
@@ -251,13 +271,17 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
    const [duration, setDuration] = useState(0);
    const [playbackRate, setPlaybackRate] = useState(1);
    const [isPlaying, setIsPlaying] = useState(false);
+   const [isVertical, setIsVertical] = useState(false); // Track if primary video is vertical
    const [isScrubbing, setIsScrubbing] = useState(false); // Track dragging state
    const lastSeekTimeRef = useRef<number>(0); // Throttle video seeks during scrubbing
 
    // Zoom & Pan State
-   const [zoom, setZoom] = useState(1);
-   const [pan, setPan] = useState({ x: 0, y: 0 });
-   const [isPanning, setIsPanning] = useState(false);
+   // Zoom & Pan State (Independent for each video)
+   const [zoom1, setZoom1] = useState(1);
+   const [pan1, setPan1] = useState({ x: 0, y: 0 });
+   const [zoom2, setZoom2] = useState(1);
+   const [pan2, setPan2] = useState({ x: 0, y: 0 });
+   const [activePanTarget, setActivePanTarget] = useState<0 | 1 | 2>(0);
    const [startPan, setStartPan] = useState({ x: 0, y: 0 });
 
    // Comparison State
@@ -365,7 +389,11 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
 
    const handleLoadedData = () => {
       setIsVideoLoaded(true);
-      if (videoRef.current) setDuration(videoRef.current.duration);
+      if (videoRef.current) {
+         setDuration(videoRef.current.duration);
+         // Check aspect ratio (Height > Width = Vertical)
+         setIsVertical(videoRef.current.videoHeight > videoRef.current.videoWidth);
+      }
    };
 
    // --- SYNC LOGIC ---
@@ -441,7 +469,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
          }
          ctx.stroke();
       });
-   }, [drawings, zoom, pan, isVideoLoaded]); // Redraw when these change
+   }, [drawings, zoom1, pan1, isVideoLoaded]); // Redraw when these change
 
    // --- POSE CANVAS DRAWING LOGIC ---
    // Update video dimensions for pose canvas positioning
@@ -495,7 +523,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
          window.removeEventListener('resize', updateVideoDimensions);
          window.removeEventListener('orientationchange', updateVideoDimensions);
       };
-   }, [isVideoLoaded, compareVideo, zoom, pan]);
+   }, [isVideoLoaded, compareVideo, zoom1, pan1, zoom2, pan2]);
 
    useEffect(() => {
       const poseCanvas = poseCanvasRef.current;
@@ -564,7 +592,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
          // Draw pose with correct offset
          drawPoseOnCanvasWithOffset(ctx, landmarks, contentWidth, contentHeight, totalOffsetX, totalOffsetY);
       }
-   }, [landmarks, isPoseEnabled, isVideoLoaded, currentTime, zoom, pan]);
+   }, [landmarks, isPoseEnabled, isVideoLoaded, currentTime, zoom1, pan1]);
 
    // --- POSE CANVAS DRAWING LOGIC FOR COMPARISON VIDEO ---
    useEffect(() => {
@@ -621,7 +649,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
 
          drawPoseOnCanvasWithOffset(ctx, landmarks2, contentWidth, contentHeight, totalOffsetX, totalOffsetY);
       }
-   }, [landmarks2, isPoseEnabled, compareVideo, compareTime, zoom, pan]);
+   }, [landmarks2, isPoseEnabled, compareVideo, compareTime, zoom2, pan2]);
 
    const getCanvasCoordinates = (e: React.MouseEvent | React.TouchEvent) => {
       const canvas = canvasRef.current;
@@ -642,8 +670,8 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
       };
    };
 
-   const handleMouseDown = (e: React.MouseEvent | React.TouchEvent) => {
-      if (isDrawingMode) {
+   const handleMouseDown = (e: React.MouseEvent | React.TouchEvent, target: 1 | 2 = 1) => {
+      if (isDrawingMode && target === 1) { // Drawing only supported on primary for now, or need logic
          setIsDrawing(true);
          const { x, y } = getCanvasCoordinates(e);
 
@@ -653,12 +681,17 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
          } else if (activeTool === 'eraser') {
             eraseAt(x, y);
          }
-      } else if (zoom > 1) {
-         // Start Panning
-         setIsPanning(true);
-         const clientX = 'touches' in e ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
-         const clientY = 'touches' in e ? e.touches[0].clientY : (e as React.MouseEvent).clientY;
-         setStartPan({ x: clientX - pan.x, y: clientY - pan.y });
+      } else {
+         const currentZoom = target === 1 ? zoom1 : zoom2;
+         const currentPan = target === 1 ? pan1 : pan2;
+
+         if (currentZoom > 1) {
+            // Start Panning
+            setActivePanTarget(target);
+            const clientX = 'touches' in e ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
+            const clientY = 'touches' in e ? e.touches[0].clientY : (e as React.MouseEvent).clientY;
+            setStartPan({ x: clientX - currentPan.x, y: clientY - currentPan.y });
+         }
       }
    };
 
@@ -693,19 +726,22 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
          } else if (activeTool === 'eraser') {
             eraseAt(x, y);
          }
-      } else if (isPanning) {
+      } else if (activePanTarget !== 0) {
          const clientX = 'touches' in e ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
          const clientY = 'touches' in e ? e.touches[0].clientY : (e as React.MouseEvent).clientY;
-         setPan({
+         const newPan = {
             x: clientX - startPan.x,
             y: clientY - startPan.y
-         });
+         };
+
+         if (activePanTarget === 1) setPan1(newPan);
+         else setPan2(newPan);
       }
    };
 
    const handleMouseUp = () => {
       setIsDrawing(false);
-      setIsPanning(false);
+      setActivePanTarget(0);
    };
 
    const togglePlay = () => {
@@ -1055,26 +1091,31 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
          {/* Main Workspace */}
          <div className="flex-1 flex flex-col relative bg-black overflow-y-auto">
 
-            {/* Video Container Area - Stacked on mobile, side-by-side on desktop */}
-            <div className={`flex-1 relative overflow-hidden flex ${compareVideo ? 'flex-col md:flex-row' : 'items-center justify-center'} bg-black`}
-               style={{ cursor: isDrawingMode ? (activeTool === 'eraser' ? 'cell' : 'crosshair') : (zoom > 1 ? 'grab' : 'default') }}
-               onMouseDown={handleMouseDown}
-               onTouchStart={handleMouseDown}
+            {/* Video Container Area - Dynamic layout based on aspect ratio (Mobile) / Always SxS (Desktop) */}
+            <div className={`flex-1 relative overflow-hidden flex ${compareVideo ? (isVertical ? 'flex-row gap-4 md:gap-0' : 'flex-col gap-4 md:flex-row md:gap-0') : 'items-center justify-center'} bg-black`}
+               style={{ cursor: isDrawingMode ? (activeTool === 'eraser' ? 'cell' : 'crosshair') : 'default' }}
+               onMouseDown={(e) => handleMouseDown(e, 1)} // Default to 1 if clicking background (though usually covered)
+               onTouchStart={(e) => handleMouseDown(e, 1)}
                onMouseMove={handleMouseMove}
                onTouchMove={handleMouseMove}
                onMouseUp={handleMouseUp}
                onTouchEnd={handleMouseUp}
                onMouseLeave={handleMouseUp}
             >
-               {!isVideoLoaded && !videoError && <Loader2 size={40} className="animate-spin text-orange-500 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />}
+
 
                {/* Primary Video Container with its own scrubber on mobile */}
-               <div className={`relative flex flex-col ${compareVideo ? 'w-full md:w-1/2 flex-1 md:flex-initial' : 'w-full h-full items-center justify-center'}`}>
+               <div className={`relative flex flex-col overflow-hidden ${compareVideo ? (isVertical ? 'w-1/2 h-full min-w-0' : 'flex-1 w-full min-h-0 md:w-1/2 md:h-full') : 'w-full h-full items-center justify-center'}`}
+                  onMouseDown={(e) => { e.stopPropagation(); handleMouseDown(e, 1); }}
+                  onTouchStart={(e) => { e.stopPropagation(); handleMouseDown(e, 1); }}
+                  style={{ cursor: isDrawingMode ? 'crosshair' : (zoom1 > 1 ? 'grab' : 'default') }}
+               >
+                  {!isVideoLoaded && !videoError && <Loader2 size={40} className="animate-spin text-orange-500 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50" />}
                   <div
                      ref={!compareVideo ? wrapperRef : undefined}
-                     className={`relative flex items-center justify-center flex-1 transition-transform duration-75 ease-linear ${!compareVideo ? 'w-full h-full' : ''}`}
+                     className={`relative flex items-center justify-center flex-1 transition-transform duration-75 ease-linear ${!compareVideo ? 'w-full h-full' : 'p-4'}`}
                      style={{
-                        transform: `scale(${zoom}) translate(${pan.x}px, ${pan.y}px)`,
+                        transform: `scale(${zoom1}) translate(${pan1.x}px, ${pan1.y}px)`,
                      }}
                   >
                      {activeUrl && (
@@ -1099,6 +1140,16 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
                      )}
                   </div>
 
+                  {activeUrl && (
+                     /* Zoom Controls Video 1 */
+                     <ZoomControls
+                        zoom={zoom1}
+                        setZoom={setZoom1}
+                        setPan={setPan1}
+                        placement={compareVideo && !isVertical ? 'top-right' : 'bottom-right'}
+                     />
+                  )}
+
                   {/* Primary Video Scrubber - Only visible on mobile when comparing AND not synced */}
                   {compareVideo && !isSynced && (
                      <div className="md:hidden bg-black px-4 py-2">
@@ -1116,8 +1167,16 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
 
                {/* Comparison Video Container with its own scrubber on mobile */}
                {compareVideo && (
-                  <div className="relative flex flex-col w-full md:w-1/2 flex-1 md:flex-initial border-t md:border-t-0 md:border-l border-white/10">
-                     <div className="relative flex items-center justify-center flex-1">
+                  <div className={`relative flex flex-col overflow-hidden ${isVertical ? 'w-1/2 h-full min-w-0 border-l' : 'flex-1 w-full min-h-0 border-t md:w-1/2 md:h-full md:border-t-0 md:border-l'} border-white/10`}
+                     onMouseDown={(e) => { e.stopPropagation(); handleMouseDown(e, 2); }}
+                     onTouchStart={(e) => { e.stopPropagation(); handleMouseDown(e, 2); }}
+                     style={{ cursor: isDrawingMode ? 'crosshair' : (zoom2 > 1 ? 'grab' : 'default') }}
+                  >
+                     <div className="relative flex items-center justify-center flex-1 p-4"
+                        style={{
+                           transform: `scale(${zoom2}) translate(${pan2.x}px, ${pan2.y}px)`,
+                        }}
+                     >
                         <video
                            ref={videoRef2}
                            src={compareVideo.url}
@@ -1134,7 +1193,17 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
                               className="absolute inset-0 z-10 pointer-events-none"
                            />
                         )}
+
+
                      </div>
+
+                     {/* Zoom Controls Video 2 */}
+                     <ZoomControls
+                        zoom={zoom2}
+                        setZoom={setZoom2}
+                        setPan={setPan2}
+                        placement={isVertical ? 'bottom-right' : 'bottom-right'}
+                     />
 
                      {/* Secondary Video Scrubber - Only visible on mobile when comparing AND not synced */}
                      {!isSynced && (
@@ -1158,15 +1227,11 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
                   <canvas
                      ref={canvasRef}
                      className="absolute inset-0 z-20 pointer-events-none"
+                     style={{
+                        transform: `scale(${zoom1}) translate(${pan1.x}px, ${pan1.y}px)`,
+                     }}
                   />
                )}
-
-               {/* Zoom Controls (Floating) */}
-               <div className="absolute bottom-36 right-4 z-40 flex flex-col gap-2 bg-black/60 backdrop-blur-md rounded-xl p-1 border border-white/10">
-                  <button onClick={() => { setZoom(z => Math.min(4, z + 0.5)); }} className="p-2 text-white hover:bg-white/10 rounded-lg"><ZoomIn size={20} /></button>
-                  <span className="text-[10px] text-center font-mono text-neutral-400">{Math.round(zoom * 100)}%</span>
-                  <button onClick={() => { setZoom(z => Math.max(1, z - 0.5)); setPan({ x: 0, y: 0 }); }} className="p-2 text-white hover:bg-white/10 rounded-lg"><ZoomOut size={20} /></button>
-               </div>
             </div>
 
             {/* Controls Bar */}
