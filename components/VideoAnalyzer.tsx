@@ -457,15 +457,17 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
    const renderDrawings = (canvas: HTMLCanvasElement | null, lines: Line[]) => {
       if (!canvas) return;
       const ctx = canvas.getContext('2d');
-      // Use client dimensions for canvas resolution to match display size
-      // This ensures 1:1 mapping with mouse/touch events relative to the element
-      const rect = canvas.getBoundingClientRect();
-      if (rect.width === 0 || rect.height === 0) return;
+      // Use offsetWidth/Height for internal resolution to match the element's layout size (unscaled)
+      // This ensures coordinates remain consistent regardless of CSS transforms (zoom)
+      const layoutWidth = canvas.offsetWidth;
+      const layoutHeight = canvas.offsetHeight;
 
-      // Update canvas size if it doesn't match display size
-      if (canvas.width !== rect.width || canvas.height !== rect.height) {
-         canvas.width = rect.width;
-         canvas.height = rect.height;
+      if (layoutWidth === 0 || layoutHeight === 0) return;
+
+      // Update canvas size if it doesn't match layout size
+      if (canvas.width !== layoutWidth || canvas.height !== layoutHeight) {
+         canvas.width = layoutWidth;
+         canvas.height = layoutHeight;
       }
 
       const width = canvas.width;
