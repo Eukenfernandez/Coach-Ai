@@ -454,32 +454,41 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
    };
 
    // --- CANVAS DRAWING LOGIC ---
-   const renderDrawings = (canvas: HTMLCanvasElement | null, lines: Line[]) => {
+   const renderDrawings = (canvas: HTMLCanvasElement | null, lines: Line[], referenceVideo: HTMLVideoElement | null) => {
       if (!canvas) return;
       const ctx = canvas.getContext('2d');
-      // Use offsetWidth/Height for internal resolution to match the element's layout size (unscaled)
-      // This ensures coordinates remain consistent regardless of CSS transforms (zoom)
-      const layoutWidth = canvas.offsetWidth;
-      const layoutHeight = canvas.offsetHeight;
 
-      if (layoutWidth === 0 || layoutHeight === 0) return;
+      let width = canvas.width;
+      let height = canvas.height;
 
-      // Update canvas size if it doesn't match layout size
-      if (canvas.width !== layoutWidth || canvas.height !== layoutHeight) {
-         canvas.width = layoutWidth;
-         canvas.height = layoutHeight;
+      // Sync canvas resolution with video resolution if available
+      if (referenceVideo && referenceVideo.videoWidth > 0 && referenceVideo.videoHeight > 0) {
+         if (canvas.width !== referenceVideo.videoWidth || canvas.height !== referenceVideo.videoHeight) {
+            canvas.width = referenceVideo.videoWidth;
+            canvas.height = referenceVideo.videoHeight;
+         }
+         width = referenceVideo.videoWidth;
+         height = referenceVideo.videoHeight;
+      } else {
+         // Fallback to offsetWidth if video not ready (though this shouldn't happen while drawing)
+         const layoutWidth = canvas.offsetWidth;
+         const layoutHeight = canvas.offsetHeight;
+         if (layoutWidth > 0 && layoutHeight > 0 && (canvas.width !== layoutWidth || canvas.height !== layoutHeight)) {
+            canvas.width = layoutWidth;
+            canvas.height = layoutHeight;
+            width = layoutWidth;
+            height = layoutHeight;
+         }
       }
 
-      const width = canvas.width;
-      const height = canvas.height;
-
-      if (!ctx) return;
+      if (width === 0 || height === 0 || !ctx) return;
 
       // Clear
       ctx.clearRect(0, 0, width, height);
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
-      ctx.lineWidth = 4;
+      // Adjust line width proportional to video size for visibility
+      ctx.lineWidth = Math.max(4, width / 250);
 
       // Draw all lines
       lines.forEach(line => {
@@ -494,12 +503,12 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
    };
 
    useEffect(() => {
-      renderDrawings(canvasRef1.current, drawings1);
+      renderDrawings(canvasRef1.current, drawings1, videoRef.current);
    }, [drawings1, zoom1, pan1, isVideoLoaded, compareVideo]);
 
    useEffect(() => {
-      renderDrawings(canvasRef2.current, drawings2);
-   }, [drawings2, zoom2, pan2, compareVideo]);
+      renderDrawings(canvasRef2.current, drawings2, videoRef2.current);
+   }, [drawings2, zoom2, pan2, compareVideo, isSynced]);
 
    // --- POSE CANVAS DRAWING LOGIC ---
    // Update video dimensions for pose canvas positioning
