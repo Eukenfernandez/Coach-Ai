@@ -45,6 +45,30 @@ const CURRENT_USER_KEY = 'coachai_current_user';
 const DATA_PREFIX = 'coachai_data_';
 const REQUESTS_KEY = 'coachai_local_requests';
 
+// ====== IN-MEMORY CACHE FOR PERFORMANCE ======
+// Cache user data to avoid redundant Firestore queries
+const userDataCache = new Map<string, { data: UserData, timestamp: number }>();
+const CACHE_TTL = 30000; // 30 seconds
+
+// Helper to get cached data
+const getCachedUserData = (userId: string): UserData | null => {
+  const cached = userDataCache.get(userId);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.data;
+  }
+  return null;
+};
+
+// Helper to set cached data
+const setCachedUserData = (userId: string, data: UserData) => {
+  userDataCache.set(userId, { data: { ...data }, timestamp: Date.now() });
+};
+
+// Helper to invalidate cache
+const invalidateCache = (userId: string) => {
+  userDataCache.delete(userId);
+};
+
 // Helper to remove blob URLs before saving to DB
 const cleanDataForStorage = (data: any): any => {
   if (Array.isArray(data)) return data.map(cleanDataForStorage);
@@ -262,6 +286,12 @@ export const StorageService = {
   },
 
   getUserData: async (userId: string): Promise<UserData> => {
+    // Check in-memory cache first for fast access
+    const cached = getCachedUserData(userId);
+    if (cached) {
+      return cached;
+    }
+
     let data: any = null;
     const defaults: UserData = {
       videos: [], plans: [], strengthRecords: [], competitionRecords: [], trainingRecords: [],
@@ -281,24 +311,49 @@ export const StorageService = {
       data = local ? JSON.parse(local) : defaults;
     }
     if (!data.usage) data.usage = getInitialUsage();
+
+    // Cache the result for future fast access
+    setCachedUserData(userId, data);
     return data as UserData;
   },
 
   updateDataSection: async (userId: string, section: keyof UserData, value: any) => {
     const cleanedValue = cleanDataForStorage(value);
+
+    // Write to Firestore (fire-and-forget for better UX, errors logged)
     if (isFirebaseConfigured && !userId.startsWith('test-') && userId !== 'MASTER_GOD_EUKEN') {
-      await db.collection("userdata").doc(userId).set({ [section]: sanitizeForFirestore(cleanedValue) }, { merge: true });
+      db.collection("userdata").doc(userId).set({ [section]: sanitizeForFirestore(cleanedValue) }, { merge: true })
+        .catch(err => console.error("Firestore write error:", err));
     }
-    const data = await StorageService.getUserData(userId);
+
+    // Update local storage and cache directly (no re-fetch needed!)
+    const local = localStorage.getItem(`${DATA_PREFIX}${userId}`);
+    const defaults: UserData = {
+      videos: [], plans: [], strengthRecords: [], competitionRecords: [], trainingRecords: [],
+      customExercises: [], supplements: [], usage: getInitialUsage()
+    };
+    const data = local ? { ...defaults, ...JSON.parse(local) } : defaults;
     (data as any)[section] = cleanedValue;
     StorageService._saveLocalUserData(userId, data);
+
+    // Update in-memory cache
+    setCachedUserData(userId, data);
   },
 
   incrementUsage: async (userId: string, type: 'analysis' | 'chat' | 'plan') => {
-    const data = await StorageService.getUserData(userId);
+    // Get from cache or local storage directly (avoid Firestore fetch)
+    const local = localStorage.getItem(`${DATA_PREFIX}${userId}`);
+    const defaults: UserData = {
+      videos: [], plans: [], strengthRecords: [], competitionRecords: [], trainingRecords: [],
+      customExercises: [], supplements: [], usage: getInitialUsage()
+    };
+    const data = local ? { ...defaults, ...JSON.parse(local) } : defaults;
+    if (!data.usage) data.usage = getInitialUsage();
+
     if (type === 'analysis') data.usage.analysisCount++;
     if (type === 'chat') data.usage.chatCount++;
     if (type === 'plan') data.usage.plansCount++;
+
     await StorageService.updateDataSection(userId, 'usage', data.usage);
   },
 

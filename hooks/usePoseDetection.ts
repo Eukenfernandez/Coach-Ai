@@ -355,7 +355,7 @@ export function drawPoseOnCanvas(
     // Responsive sizing based on canvas width
     // Base scale: assuming ~1000px is standard desktop view
     // Mobile (~350px) will differ from Desktop (~1200px)
-    const scaleFactor = Math.max(0.6, Math.min(1.2, canvasWidth / 800));
+    const scaleFactor = Math.max(0.6, Math.min(1.2, Math.min(canvasWidth, canvasHeight) / 800));
 
     // Dynamic sizes
     const lineWidth = Math.max(1, 2 * scaleFactor);
@@ -424,7 +424,7 @@ export function drawPoseOnCanvasWithOffset(
     const LINE_COLOR = '#FACC15'; // Yellow for lines
 
     // Responsive sizing based on canvas width
-    const scaleFactor = Math.max(0.6, Math.min(1.2, canvasWidth / 800));
+    const scaleFactor = Math.max(0.6, Math.min(1.2, Math.min(canvasWidth, canvasHeight) / 800));
 
     // Dynamic sizes
     const lineWidth = Math.max(1, 2 * scaleFactor);

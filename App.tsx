@@ -364,70 +364,89 @@ export default function App() {
 
       const data = await StorageService.getUserData(targetId);
 
+      // Set usage immediately (critical for UI)
+      setUsage(data.usage);
+
+      // Set secondary data (non-blocking, immediate)
       setStrengthRecords(data.strengthRecords || []);
       setCompetitionRecords(data.competitionRecords || []);
       setTrainingRecords(data.trainingRecords || []);
       setMatchRecords(data.matchRecords || []);
       setCustomExercises(data.customExercises || []);
       setSupplements(data.supplements || []);
-      setUsage(data.usage);
 
+      // ===== OPTIMIZED VIDEO LOADING: Progressive batches =====
       const loadedVideos = data.videos || [];
       if (loadedVideos.length > 0) {
-        const hydrated = await Promise.all(
-          loadedVideos.map(async (v) => {
-            const blob = await VideoStorage.getVideo(v.id);
-            if (blob) {
-              return { ...v, url: URL.createObjectURL(blob), isLocal: true };
-            }
-            if (v.remoteUrl) {
-              return { ...v, url: v.remoteUrl, isLocal: false };
-            }
-            // Fallback: If no blob and no remote URL, keep existing but ensure no broken blob URL remains
-            return { ...v, url: "", isLocal: false };
-          })
-        );
-        setVideos(hydrated);
+        const batchSize = 3;
+        const hydrated: VideoFile[] = [];
+
+        for (let i = 0; i < loadedVideos.length; i += batchSize) {
+          const batch = loadedVideos.slice(i, i + batchSize);
+          const batchResults = await Promise.all(
+            batch.map(async (v) => {
+              const blob = await VideoStorage.getVideo(v.id);
+              if (blob) {
+                return { ...v, url: URL.createObjectURL(blob), isLocal: true };
+              }
+              if (v.remoteUrl) {
+                return { ...v, url: v.remoteUrl, isLocal: false };
+              }
+              return { ...v, url: "", isLocal: false };
+            })
+          );
+          hydrated.push(...batchResults);
+
+          // Progressive update: show videos as they load
+          setVideos([...hydrated]);
+        }
       } else {
         setVideos([]);
       }
 
+      // ===== DEFERRED PLAN LOADING: Lower priority =====
       const loadedPlans = data.plans || [];
       if (loadedPlans.length > 0) {
-        let plansUpdated = false;
-        const hydrated = await Promise.all(
-          loadedPlans.map(async (p) => {
-            const blob = await PlanStorage.getPlan(p.id);
-            if (blob) {
-              return { ...p, url: URL.createObjectURL(blob), file: blob as any, isLocal: true };
-            }
-
-            if (StorageService.isCloudMode() && !blob) {
-              // Try to find a valid URL in the cloud if we don't have the file locally
-              const found = await StorageService.findPlanDownloadUrl(targetId, p);
-              if (found?.url) {
-                // If we found a new URL or it's different/better, update
-                if (found.url !== p.remoteUrl) plansUpdated = true;
-                return { ...p, remoteUrl: found.url, storagePath: found.path || p.storagePath, url: found.url, isLocal: false };
+        // Use requestIdleCallback for non-critical plan hydration
+        const hydratePlans = async () => {
+          let plansUpdated = false;
+          const hydrated = await Promise.all(
+            loadedPlans.map(async (p) => {
+              const blob = await PlanStorage.getPlan(p.id);
+              if (blob) {
+                return { ...p, url: URL.createObjectURL(blob), file: blob as any, isLocal: true };
               }
-            }
 
-            // If we have a stored remoteUrl but verification failed (or we didn't check), fallback to it
-            if (p.remoteUrl) {
-              return { ...p, url: p.remoteUrl, isLocal: false };
-            }
+              if (StorageService.isCloudMode() && !blob) {
+                const found = await StorageService.findPlanDownloadUrl(targetId, p);
+                if (found?.url) {
+                  if (found.url !== p.remoteUrl) plansUpdated = true;
+                  return { ...p, remoteUrl: found.url, storagePath: found.path || p.storagePath, url: found.url, isLocal: false };
+                }
+              }
 
-            return p;
-          })
-        );
+              if (p.remoteUrl) {
+                return { ...p, url: p.remoteUrl, isLocal: false };
+              }
 
-        if (plansUpdated) {
-          // Persist recovered URLs so the entry stops being broken for other sessions
-          const sanitized = hydrated.map(plan => ({ ...plan, url: "", file: undefined }));
-          await StorageService.updatePlans(targetId, sanitized);
+              return p;
+            })
+          );
+
+          if (plansUpdated) {
+            const sanitized = hydrated.map(plan => ({ ...plan, url: "", file: undefined }));
+            await StorageService.updatePlans(targetId, sanitized);
+          }
+
+          setPlans(hydrated);
+        };
+
+        // Use requestIdleCallback if available, otherwise setTimeout
+        if ('requestIdleCallback' in window) {
+          (window as any).requestIdleCallback(() => hydratePlans());
+        } else {
+          setTimeout(hydratePlans, 50);
         }
-
-        setPlans(hydrated);
       } else {
         setPlans([]);
       }
@@ -663,12 +682,11 @@ export default function App() {
       const payerId = isCoach ? currentUser.id : viewedUserId;
       await StorageService.incrementUsage(payerId, 'plan');
 
+      // Optimistic local state update (no re-fetch needed, incrementUsage already updates local storage)
       if (isCoach) {
-        const freshCoachData = await StorageService.getUserData(currentUser.id);
-        setMyUsage(freshCoachData.usage);
+        setMyUsage(prev => prev ? { ...prev, plansCount: (prev.plansCount || 0) + 1 } : prev);
       } else {
-        const freshAthleteData = await StorageService.getUserData(viewedUserId);
-        setUsage(freshAthleteData.usage);
+        setUsage(prev => prev ? { ...prev, plansCount: (prev.plansCount || 0) + 1 } : prev);
       }
 
       // Update state and DB with final data
@@ -682,8 +700,8 @@ export default function App() {
         url: ""
       };
 
-      const currentData = await StorageService.getUserData(viewedUserId);
-      const newPlanList = [...currentData.plans, planForDb];
+      // Use current plans state instead of fetching from DB
+      const newPlanList = [...plans.map(p => ({ ...p, url: "", file: undefined })), planForDb];
 
       await StorageService.updatePlans(viewedUserId, newPlanList);
 
@@ -713,12 +731,11 @@ export default function App() {
 
       await StorageService.incrementUsage(payerId, 'chat');
 
+      // Optimistic local state update (no re-fetch needed)
       if (isCoach) {
-        const fresh = await StorageService.getUserData(currentUser.id);
-        setMyUsage(fresh.usage);
+        setMyUsage(prev => prev ? { ...prev, chatCount: (prev.chatCount || 0) + 1 } : prev);
       } else {
-        const fresh = await StorageService.getUserData(viewedUserId);
-        setUsage(fresh.usage);
+        setUsage(prev => prev ? { ...prev, chatCount: (prev.chatCount || 0) + 1 } : prev);
       }
     }
   }
