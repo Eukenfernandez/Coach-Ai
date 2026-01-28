@@ -244,25 +244,39 @@ interface VideoAnalyzerProps {
    userProfile?: UserProfile;
 }
 // Helper Component for Zoom Controls
-const ZoomControls = ({ zoom, setZoom, setPan, placement = 'bottom-right' }: {
+const ZoomControls = ({ zoom, setZoom, setPan, placement = 'bottom-right', hasBottomScrubber = false }: {
    zoom: number,
    setZoom: React.Dispatch<React.SetStateAction<number>>,
    setPan: React.Dispatch<React.SetStateAction<{ x: number, y: number }>>,
-   placement?: 'bottom-right' | 'top-right' | 'bottom-left' | 'top-left'
-}) => (
-   <div className={`absolute z-40 flex flex-col gap-2 bg-black/60 backdrop-blur-md rounded-xl p-1 border border-white/10 ${placement === 'bottom-right' ? 'bottom-4 right-4' :
-      placement === 'top-right' ? 'top-4 right-4' :
-         placement === 'bottom-left' ? 'bottom-4 left-4' :
-            'top-4 left-4'
-      }`}
-      onMouseDown={(e) => e.stopPropagation()} // Prevent pan start when clicking controls
-      onTouchStart={(e) => e.stopPropagation()}
-   >
-      <button onClick={() => { setZoom(z => Math.min(4, z + 0.5)); }} className="p-2 text-white hover:bg-white/10 rounded-lg"><ZoomIn size={20} /></button>
-      <span className="text-[10px] text-center font-mono text-neutral-400">{Math.round(zoom * 100)}%</span>
-      <button onClick={() => { setZoom(z => Math.max(1, z - 0.5)); setPan({ x: 0, y: 0 }); }} className="p-2 text-white hover:bg-white/10 rounded-lg"><ZoomOut size={20} /></button>
-   </div>
-);
+   placement?: 'bottom-right' | 'top-right' | 'bottom-left' | 'top-left',
+   hasBottomScrubber?: boolean // When true, position higher on mobile to avoid scrubber overlap
+}) => {
+   // Determine position classes based on placement and mobile scrubber
+   const getPositionClass = () => {
+      if (placement === 'top-right') return 'top-4 right-4';
+      if (placement === 'top-left') return 'top-4 left-4';
+      if (placement === 'bottom-left') {
+         return hasBottomScrubber
+            ? 'bottom-24 left-4 md:bottom-4' // Higher on mobile when scrubber present
+            : 'bottom-4 left-4';
+      }
+      // bottom-right (default)
+      return hasBottomScrubber
+         ? 'bottom-24 right-4 md:bottom-4' // Higher on mobile when scrubber present
+         : 'bottom-4 right-4';
+   };
+
+   return (
+      <div className={`absolute z-40 flex flex-col gap-2 bg-black/60 backdrop-blur-md rounded-xl p-1 border border-white/10 ${getPositionClass()}`}
+         onMouseDown={(e) => e.stopPropagation()} // Prevent pan start when clicking controls
+         onTouchStart={(e) => e.stopPropagation()}
+      >
+         <button onClick={() => { setZoom(z => Math.min(4, z + 0.5)); }} className="p-2 text-white hover:bg-white/10 rounded-lg"><ZoomIn size={20} /></button>
+         <span className="text-[10px] text-center font-mono text-neutral-400">{Math.round(zoom * 100)}%</span>
+         <button onClick={() => { setZoom(z => Math.max(1, z - 0.5)); setPan({ x: 0, y: 0 }); }} className="p-2 text-white hover:bg-white/10 rounded-lg"><ZoomOut size={20} /></button>
+      </div>
+   );
+};
 
 export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usage, limits, onIncrementUsage, language, onNavigate, userProfile }) => {
    const t = ANALYZER_TEXTS[language] || ANALYZER_TEXTS.es;
@@ -1219,6 +1233,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
                         setZoom={setZoom1}
                         setPan={setPan1}
                         placement={compareVideo && !isVertical ? 'top-right' : 'bottom-right'}
+                        hasBottomScrubber={!!compareVideo && !isSynced}
                      />
                   )}
 
@@ -1290,7 +1305,8 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
                         zoom={zoom2}
                         setZoom={setZoom2}
                         setPan={setPan2}
-                        placement={isVertical ? 'bottom-right' : 'bottom-right'}
+                        placement={'bottom-right'}
+                        hasBottomScrubber={!isSynced}
                      />
 
                      {/* Secondary Video Scrubber - Only visible on mobile when comparing AND not synced */}
