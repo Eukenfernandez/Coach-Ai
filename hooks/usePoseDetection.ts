@@ -352,15 +352,11 @@ export function drawPoseOnCanvas(
     const POINT_BORDER = '#22C55E'; // Green border
     const LINE_COLOR = '#FACC15'; // Yellow for lines
 
-    // Responsive sizing based on canvas width
-    // Base scale: assuming ~1000px is standard desktop view
-    // Mobile (~350px) will differ from Desktop (~1200px)
-    const scaleFactor = Math.max(0.6, Math.min(1.2, Math.min(canvasWidth, canvasHeight) / 800));
-
-    // Dynamic sizes
-    const lineWidth = Math.max(1, 2 * scaleFactor);
-    const outerRadius = Math.max(3, 5 * scaleFactor); // Was 6 fixed (approx)
-    const innerRadius = Math.max(1.5, 3 * scaleFactor); // Was 4 fixed (approx)
+    // FIXED sizes for consistent appearance across all videos
+    // Using small fixed values to match the left video reference
+    const lineWidth = 2;
+    const outerRadius = 4;
+    const innerRadius = 2;
 
     ctx.lineWidth = lineWidth;
     ctx.lineCap = 'round';
@@ -423,13 +419,11 @@ export function drawPoseOnCanvasWithOffset(
     const POINT_BORDER = '#22C55E'; // Green border
     const LINE_COLOR = '#FACC15'; // Yellow for lines
 
-    // Responsive sizing based on canvas width
-    const scaleFactor = Math.max(0.6, Math.min(1.2, Math.min(canvasWidth, canvasHeight) / 800));
-
-    // Dynamic sizes
-    const lineWidth = Math.max(1, 2 * scaleFactor);
-    const outerRadius = Math.max(3, 5 * scaleFactor);
-    const innerRadius = Math.max(1.5, 3 * scaleFactor);
+    // FIXED sizes for consistent appearance across all videos
+    // Using small fixed values to match the left video reference
+    const lineWidth = 2;
+    const outerRadius = 4;
+    const innerRadius = 2;
 
     ctx.lineWidth = lineWidth;
     ctx.lineCap = 'round';
