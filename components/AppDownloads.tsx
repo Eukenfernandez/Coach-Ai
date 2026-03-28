@@ -13,10 +13,10 @@ interface AppDownloadsProps {
 const RELEASE_CONFIG = {
     version: '1.0.0',
     windows: {
-        // URL del .zip en GitHub Releases (cambiar al publicar nueva release)
-        downloadUrl: 'https://github.com/Eukenfernandez/Coach-Ai/releases/download/v1.0.0/Coach-AI-Windows-v1.0.0.zip',
-        fileName: 'Coach-AI-Windows-v1.0.0.zip',
-        sizeApprox: '~307 MB',
+        // URL del instalador en GitHub Releases (cambiar al publicar nueva release)
+        downloadUrl: 'https://github.com/Eukenfernandez/Coach-Ai/releases/download/v1.0.0/Coach-AI-Setup-1.0.0.exe',
+        fileName: 'Coach-AI-Setup-1.0.0.exe',
+        sizeApprox: '~200 MB',
     },
     android: {
         // URL del .apk en GitHub Releases (cuando esté disponible)
@@ -50,14 +50,14 @@ const TEXTS = {
             'Abrir el APK en la tablet para instalarlo'
         ],
         windowsTitle: 'Windows PC',
-        windowsDesc: 'Aplicación de escritorio real (.EXE) para Windows. Se ejecuta como cualquier programa nativo con su propio icono.',
+        windowsDesc: 'Aplicación de escritorio real con instalador profesional para Windows. Se instala como cualquier programa nativo.',
         windowsBtn: 'Descargar para Windows',
-        windowsBtnAlt: 'Regenerar .EXE',
+        windowsBtnAlt: 'Regenerar Instalador',
         windowsSteps: [
-            'Se descarga la carpeta "Coach AI" completa',
-            'Abre la carpeta descargada',
-            'Ejecuta "Coach AI.exe" para abrir la app',
-            'Opcionalmente: crea un acceso directo en el escritorio'
+            'Se descarga el instalador "Coach-AI-Setup.exe"',
+            'Ejecuta el instalador con doble clic',
+            'Sigue los pasos del asistente de instalación (vía NSIS)',
+            'La app se instalará con su icono y acceso directo automáticamente'
         ],
         iphoneTitle: 'iPhone / iPad',
         iphoneDesc: 'Aplicación iOS nativa. Requiere un Mac con Xcode y una cuenta de desarrollador de Apple.',
@@ -106,14 +106,14 @@ const TEXTS = {
             'Open the APK on your tablet to install it'
         ],
         windowsTitle: 'Windows PC',
-        windowsDesc: 'Real desktop application (.EXE) for Windows. Runs like any native program with its own icon.',
+        windowsDesc: 'Real desktop application with professional installer for Windows. Installs like any native program.',
         windowsBtn: 'Download for Windows',
-        windowsBtnAlt: 'Regenerate .EXE',
+        windowsBtnAlt: 'Regenerate Installer',
         windowsSteps: [
-            'The "Coach AI" folder downloads completely',
-            'Open the downloaded folder',
-            'Run "Coach AI.exe" to open the app',
-            'Optionally: create a desktop shortcut'
+            'Download the installer "Coach-AI-Setup.exe"',
+            'Double-click the installer to run it',
+            'Follow the installation wizard steps (via NSIS)',
+            'The app installs with its icon and shortcut automatically'
         ],
         iphoneTitle: 'iPhone / iPad',
         iphoneDesc: 'Native iOS app. Requires a Mac with Xcode and an Apple Developer account.',
@@ -162,14 +162,14 @@ const TEXTS = {
             'Ireki APKa tabletan instalatzeko'
         ],
         windowsTitle: 'Windows PC',
-        windowsDesc: 'Benetako mahaigaineko aplikazioa (.EXE) Windows-erako. Edozein programa natiboren moduan exekutatzen da.',
+        windowsDesc: 'Benetako mahaigaineko aplikazioa Windows-erako instalatzaile profesionalarekin. Edozein programa natiboren moduan instalatzen da.',
         windowsBtn: 'Windows-erako deskargatu',
-        windowsBtnAlt: '.EXE Birsortu',
+        windowsBtnAlt: 'Instalatzailea Birsortu',
         windowsSteps: [
-            '"Coach AI" karpeta osoa deskargatzen da',
-            'Ireki deskargatutako karpeta',
-            'Exekutatu "Coach AI.exe" aplikazioa irekitzeko',
-            'Aukeran: sortu zuzeneko sarbidea mahaigainean'
+            '"Coach-AI-Setup.exe" instalatzailea deskargatzen da',
+            'Exekutatu instalatzailea klik bikoitzarekin',
+            'Jarraitu instalazio laguntzailearen urratsak (NSIS bidez)',
+            'Aplikazioa bere ikonoarekin eta zuzeneko sarbidearekin instalatuko da'
         ],
         iphoneTitle: 'iPhone / iPad',
         iphoneDesc: 'iOS aplikazio natiboa. Mac bat behar da Xcode-rekin eta Apple Developer kontu bat.',
@@ -357,9 +357,7 @@ export const AppDownloads: React.FC<AppDownloadsProps> = ({ language }) => {
                                             <span className="leading-relaxed">{step}</span>
                                         </div>
                                     ))}
-                                    <div className="text-[10px] text-neutral-500 mt-2 bg-neutral-800/50 p-2 rounded">
-                                        💡 {language === 'ing' ? 'To rebuild' : language === 'eus' ? 'Birsortzeko' : 'Para regenerar'}: <code className="text-blue-400">npm run electron:build</code>
-                                    </div>
+
                                 </div>
                             )}
                         </div>

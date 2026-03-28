@@ -9,7 +9,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "electron:dev": "vite build && electron .",
-    "electron:build": "vite build && npx @electron/packager . \"Coach AI\" --platform=win32 --arch=x64 --out=dist-electron --overwrite --icon=public/icons/icon-256.png --prune=false",
+    "electron:build": "vite build && npx electron-builder --win --x64",
     "cap:sync": "vite build && npx cap sync android",
     "cap:build:android": "vite build && npx cap sync android && cd android && gradlew.bat assembleDebug"
   },
@@ -27,13 +27,23 @@
     "win": {
       "target": [
         {
-          "target": "dir",
-          "arch": [
-            "x64"
-          ]
+          "target": "nsis",
+          "arch": ["x64"]
         }
       ],
-      "icon": "public/icons/icon-256.png"
+      "icon": "public/icons/icon.ico",
+      "publisherName": "Coach AI"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "public/icons/icon.ico",
+      "uninstallerIcon": "public/icons/icon.ico",
+      "installerHeaderIcon": "public/icons/icon.ico",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Coach AI",
+      "artifactName": "Coach-AI-Setup-${version}.${ext}"
     }
   },
   "dependencies": {
