@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { ThrowRecord, UserProfile, Language, isTimeBased as checkTimeBased, getMetricUnit } from '../types';
 import { MapPin, Trash2, Trophy, Timer } from 'lucide-react';
+import { DatePicker } from './DatePicker';
 
 interface CompetitionTrackerProps {
   profile: UserProfile;
@@ -202,11 +203,10 @@ export const JavelinTracker: React.FC<CompetitionTrackerProps> = ({ profile, rec
               </div>
               <div>
                 <label className="block text-xs text-neutral-500 dark:text-neutral-400 mb-1">{t.date}</label>
-                <input
-                  type="date"
+                <DatePicker
                   value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  className="w-full bg-gray-50 dark:bg-neutral-800 text-neutral-900 dark:text-white p-3 rounded-lg border border-neutral-300 dark:border-neutral-700 focus:border-orange-500 focus:outline-none"
+                  onChange={setDate}
+                  locale={language}
                   required
                 />
               </div>
