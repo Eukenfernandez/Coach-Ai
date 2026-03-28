@@ -1,12 +1,39 @@
 
 import React, { useEffect, useState } from 'react';
 import { Language } from '../types';
-import { Tablet, Monitor, Smartphone, Download, CheckCircle, ArrowRight, Share, Package, Zap, Database, Wifi } from 'lucide-react';
+import { Tablet, Monitor, Smartphone, Download, CheckCircle, ArrowRight, Share, Package, Zap, Database, Wifi, ExternalLink } from 'lucide-react';
 
 interface AppDownloadsProps {
     language: Language;
 }
 
+// ============================================================
+// CONFIGURACIÓN DE RELEASES - Actualizar aquí al publicar nueva versión
+// ============================================================
+const RELEASE_CONFIG = {
+    version: '1.0.0',
+    windows: {
+        // URL del .zip en GitHub Releases (cambiar al publicar nueva release)
+        downloadUrl: 'https://github.com/Eukenfernandez/Coach-Ai/releases/download/v1.0.0/Coach-AI-Windows-v1.0.0.zip',
+        fileName: 'Coach-AI-Windows-v1.0.0.zip',
+        sizeApprox: '~307 MB',
+    },
+    android: {
+        // URL del .apk en GitHub Releases (cuando esté disponible)
+        downloadUrl: '',
+        fileName: '',
+    }
+};
+
+const detectPlatform = (): 'windows' | 'android' | 'ios' | 'mac' | 'other' => {
+    if (typeof navigator === 'undefined') return 'other';
+    const ua = navigator.userAgent.toLowerCase();
+    if (/android/i.test(ua)) return 'android';
+    if (/iphone|ipad|ipod/i.test(ua)) return 'ios';
+    if (/macintosh|mac os/i.test(ua)) return 'mac';
+    if (/win/i.test(ua)) return 'windows';
+    return 'other';
+};
 const TEXTS = {
     es: {
         title: 'Descargar Coach AI',
@@ -57,7 +84,12 @@ const TEXTS = {
         buildRequired: 'Requiere compilación',
         downloadReady: '¡Descarga lista!',
         generating: 'Generando...',
-        openFolder: 'Abrir carpeta del .EXE'
+        openFolder: 'Abrir carpeta del .EXE',
+        downloadWindows: 'Descargar para Windows',
+        downloadSize: 'Tamaño',
+        version: 'Versión',
+        directDownload: 'Descarga directa',
+        yourPlatform: 'Tu plataforma'
     },
     ing: {
         title: 'Download Coach AI',
@@ -108,7 +140,12 @@ const TEXTS = {
         buildRequired: 'Build required',
         downloadReady: 'Download ready!',
         generating: 'Generating...',
-        openFolder: 'Open .EXE folder'
+        openFolder: 'Open .EXE folder',
+        downloadWindows: 'Download for Windows',
+        downloadSize: 'Size',
+        version: 'Version',
+        directDownload: 'Direct download',
+        yourPlatform: 'Your platform'
     },
     eus: {
         title: 'Coach AI Deskargatu',
@@ -159,13 +196,20 @@ const TEXTS = {
         buildRequired: 'Konpilazioa behar da',
         downloadReady: 'Deskarga prest!',
         generating: 'Sortzen...',
-        openFolder: '.EXE karpeta ireki'
+        openFolder: '.EXE karpeta ireki',
+        downloadWindows: 'Windows-erako deskargatu',
+        downloadSize: 'Tamaina',
+        version: 'Bertsioa',
+        directDownload: 'Zuzeneko deskarga',
+        yourPlatform: 'Zure plataforma'
     }
 };
 
 export const AppDownloads: React.FC<AppDownloadsProps> = ({ language }) => {
     const t = TEXTS[language] || TEXTS.es;
     const [showSteps, setShowSteps] = useState<string | null>(null);
+    const [platform] = useState(detectPlatform);
+    const isWindows = platform === 'windows';
 
     return (
         <div className="h-full overflow-y-auto p-4 md:p-8">
@@ -250,9 +294,17 @@ export const AppDownloads: React.FC<AppDownloadsProps> = ({ language }) => {
                     </div>
 
                     {/* WINDOWS CARD */}
-                    <div className="relative group bg-gradient-to-b from-neutral-900 to-neutral-950 border border-neutral-800 rounded-2xl overflow-hidden hover:border-blue-500/50 transition-all duration-300">
-                        <div className="absolute top-4 right-4 bg-green-600 text-white text-[10px] font-black uppercase px-3 py-1 rounded-full tracking-wider shadow-lg shadow-green-600/30 z-10">
-                            ✓ {t.ready}
+                    <div className={`relative group bg-gradient-to-b from-neutral-900 to-neutral-950 border rounded-2xl overflow-hidden transition-all duration-300 ${isWindows ? 'border-blue-500/50 ring-1 ring-blue-500/20' : 'border-neutral-800 hover:border-blue-500/50'}`}>
+                        {/* Badge */}
+                        <div className="absolute top-4 right-4 flex items-center gap-2 z-10">
+                            {isWindows && (
+                                <span className="bg-blue-500/20 text-blue-400 text-[10px] font-black uppercase px-2.5 py-1 rounded-full tracking-wider border border-blue-500/30">
+                                    {t.yourPlatform}
+                                </span>
+                            )}
+                            <span className="bg-green-600 text-white text-[10px] font-black uppercase px-3 py-1 rounded-full tracking-wider shadow-lg shadow-green-600/30">
+                                ✓ {t.ready}
+                            </span>
                         </div>
 
                         <div className="p-6 md:p-8">
@@ -263,34 +315,40 @@ export const AppDownloads: React.FC<AppDownloadsProps> = ({ language }) => {
                             <h3 className="text-xl font-bold text-white mb-2">{t.windowsTitle}</h3>
                             <p className="text-sm text-neutral-400 mb-4 leading-relaxed">{t.windowsDesc}</p>
 
-                            <div className="flex flex-wrap gap-2 mb-6">
+                            <div className="flex flex-wrap gap-2 mb-4">
                                 {['.EXE', 'Windows 10+', 'Electron', 'x64'].map(tag => (
                                     <span key={tag} className="text-[10px] bg-neutral-800 text-neutral-400 px-2 py-1 rounded-md font-medium">{tag}</span>
                                 ))}
                             </div>
 
-                            {/* Windows download is already built */}
+                            {/* Version & Size info */}
+                            <div className="flex items-center gap-4 mb-5 text-xs text-neutral-500">
+                                <span>{t.version}: <strong className="text-neutral-300">{RELEASE_CONFIG.version}</strong></span>
+                                <span>{t.downloadSize}: <strong className="text-neutral-300">{RELEASE_CONFIG.windows.sizeApprox}</strong></span>
+                            </div>
+
+                            {/* Primary Download CTA */}
                             <div className="space-y-3">
-                                <div className="flex items-center gap-2 text-green-400 bg-green-900/20 px-4 py-3 rounded-xl border border-green-800/30">
-                                    <CheckCircle size={18} />
-                                    <span className="font-bold text-sm">{t.downloadReady}</span>
-                                </div>
+                                <a
+                                    href={RELEASE_CONFIG.windows.downloadUrl}
+                                    download
+                                    className="w-full py-3.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition-all transform hover:scale-[1.02] shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2 no-underline"
+                                >
+                                    <Download size={18} />
+                                    {t.downloadWindows}
+                                </a>
 
                                 <button
                                     onClick={() => setShowSteps(showSteps === 'windows' ? null : 'windows')}
-                                    className="w-full py-3.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition-all transform hover:scale-[1.02] shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2"
+                                    className="w-full py-2.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 font-medium rounded-xl transition-all text-sm flex items-center justify-center gap-2"
                                 >
-                                    <Download size={18} />
-                                    {t.openFolder}
+                                    <ArrowRight size={14} />
+                                    {language === 'ing' ? 'Installation steps' : language === 'eus' ? 'Instalazio urratsak' : 'Pasos de instalación'}
                                 </button>
                             </div>
 
                             {showSteps === 'windows' && (
                                 <div className="mt-4 space-y-2.5 animate-in slide-in-from-top-2 duration-200">
-                                    <div className="bg-blue-900/20 border border-blue-800/30 rounded-lg p-3 text-xs text-blue-300">
-                                        <p className="font-bold mb-1">📁 {t.windowsTitle} .EXE:</p>
-                                        <code className="text-blue-400 text-[11px] break-all">dist-electron\Coach AI-win32-x64\Coach AI.exe</code>
-                                    </div>
                                     {t.windowsSteps.map((step, i) => (
                                         <div key={i} className="flex items-start gap-3 text-xs text-neutral-400">
                                             <div className="w-5 h-5 bg-blue-600/20 text-blue-500 rounded-full flex items-center justify-center flex-shrink-0 text-[10px] font-black mt-0.5">
@@ -300,7 +358,7 @@ export const AppDownloads: React.FC<AppDownloadsProps> = ({ language }) => {
                                         </div>
                                     ))}
                                     <div className="text-[10px] text-neutral-500 mt-2 bg-neutral-800/50 p-2 rounded">
-                                        💡 Para regenerar: <code className="text-blue-400">npm run electron:build</code>
+                                        💡 {language === 'ing' ? 'To rebuild' : language === 'eus' ? 'Birsortzeko' : 'Para regenerar'}: <code className="text-blue-400">npm run electron:build</code>
                                     </div>
                                 </div>
                             )}
