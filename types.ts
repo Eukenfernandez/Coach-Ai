@@ -8,6 +8,7 @@ export interface UserLimits {
   maxAnalysisPerMonth: number;
   maxPdfUploads: number;
   maxVideoDurationSeconds: number;
+  maxStoredVideos: number; // New: Limit of videos in gallery
   maxChatMessagesPerMonth: number | 'unlimited';
   maxManagedAthletes: number | 'unlimited';
   canCompareVideos: boolean; // New: Limit comparison
@@ -160,6 +161,31 @@ export interface UserProfile {
   coaches?: string[];
   subscriptionTier?: SubscriptionTier;
   gracePeriodDeadline?: string;
+  currentPlanId?: string; // New: Cached canonical truth mechanism
+  maxStoredVideosLimit?: number; // Cached capacity
+}
+
+export type EnforcementStatus = 'COMPLIANT' | 'OVER_LIMIT_GRACE_PERIOD' | 'PENDING_ACCOUNT_DELETION' | 'DELETION_IN_PROGRESS' | 'DELETED';
+
+export interface AccountEnforcement {
+  userId: string;
+  status: EnforcementStatus;
+  allowedVideoLimit: number;
+  currentVideoCount: number;
+  gracePeriodEndsAt: any; // Can be string in local, Timestamp in firebase
+  lastEvaluatedAt: any; 
+  reason?: string;
+}
+
+export interface InAppNotification {
+  id?: string;
+  userId: string;
+  title: string;
+  body: string;
+  severity: 'warning' | 'critical' | 'info';
+  read: boolean;
+  createdAt: string;
+  actionUrl?: string;
 }
 
 export interface UserUsage {
@@ -213,4 +239,4 @@ export interface UserData {
   usage: UserUsage;
 }
 
-export type Screen = 'login' | 'onboarding' | 'dashboard' | 'gallery' | 'analyzer' | 'strength' | 'competition' | 'training' | 'matches' | 'planning' | 'planViewer' | 'coach' | 'calculator' | 'supplements' | 'admin_panel' | 'team_management' | 'pricing' | 'profile';
+export type Screen = 'login' | 'onboarding' | 'dashboard' | 'gallery' | 'analyzer' | 'strength' | 'competition' | 'training' | 'matches' | 'planning' | 'planViewer' | 'coach' | 'calculator' | 'supplements' | 'admin_panel' | 'team_management' | 'pricing' | 'profile' | 'app_downloads';

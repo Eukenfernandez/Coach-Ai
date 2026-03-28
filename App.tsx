@@ -20,6 +20,7 @@ import { CoachTeamManagement } from "./components/CoachTeamManagement";
 import { Notifications } from "./components/Notifications";
 import { PricingSection } from "./components/PricingSection";
 import { Profile } from "./components/Profile";
+import { AppDownloads } from "./components/AppDownloads";
 import {
   Screen,
   VideoFile,
@@ -37,6 +38,7 @@ import {
 } from "./types";
 import { StorageService, VideoStorage, PlanStorage, db } from "./services/storageService";
 import { getSubscriptionTier, getUserLimits, waitForSubscriptionActive } from "./services/subscriptionService";
+import { GracePeriodBanner } from "./components/GracePeriodBanner";
 import { Menu, PanelLeft, Loader2, CheckCircle, XCircle, AlertTriangle, Clock } from "lucide-react";
 
 // Preload pose detection model as early as possible for instant activation
@@ -577,10 +579,8 @@ export default function App() {
       const videoForDb: VideoFile = { ...videoForState, isLocal: !cloudUrl, isUploading: false, url: "" };
       if (cloudUrl) videoForDb.remoteUrl = cloudUrl;
 
-      // OPTIMIZATION 2: Use current state instead of fetching from DB (eliminates 1 query)
-      const newDbList = [videoForDb, ...videos.map(v => ({ ...v, url: "" }))];
-
-      await StorageService.updateVideos(viewedUserId, newDbList);
+      // V3 Authoritative Video Storage
+      await StorageService.addVideoSafe(viewedUserId, videoForDb);
 
       // Only increment counter if video wasn't deleted during upload
       if (uploadingVideosRef.current.has(newId)) {
@@ -627,7 +627,7 @@ export default function App() {
     revokeObjectUrlMaybe(video?.url);
     const updatedVideos = videos.filter((v) => v.id !== id);
     setVideos(updatedVideos);
-    await StorageService.updateVideos(viewedUserId, updatedVideos.map(v => ({ ...v, url: "" })));
+    await StorageService.deleteVideoSafe(viewedUserId, id);
   };
 
   const handleUploadPlan = async (file: File) => {
@@ -855,6 +855,9 @@ export default function App() {
 
         <div className="absolute top-4 right-4 z-40 flex items-center gap-3"><Notifications currentUser={currentUser} onRefreshUser={() => void handleLogin(currentUser)} /></div>
 
+        {/* Global Grace Period Banner Banner - Highest Priority Warning */}
+        <GracePeriodBanner />
+
         {showMobileMenuButton && (
           <div className="md:hidden fixed bottom-6 left-6 z-40">
             <button onClick={() => setIsMobileMenuOpen(true)} className="p-3.5 bg-neutral-900/80 backdrop-blur border border-neutral-700 rounded-full shadow-xl">
@@ -880,6 +883,7 @@ export default function App() {
           {currentScreen === "team_management" && <CoachTeamManagement currentUser={currentUser} onSelectAthlete={handleSwitchAthlete} activeAthleteId={viewedUserId} language={language} onAthleteRemoved={(athleteId) => setManagedAthletes(prev => prev.filter(a => a.id !== athleteId))} />}
           {currentScreen === "pricing" && <PricingSection currentUser={currentUser} language={language} />}
           {currentScreen === "profile" && <Profile currentUser={currentUser} onUpdateUser={setCurrentUser} onLogout={handleLogout} language={language} onRefreshData={() => loadDataForUser(viewedUserId!)} />}
+          {currentScreen === "app_downloads" && <AppDownloads language={language} />}
         </div>
       </main>
     </div>

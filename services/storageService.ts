@@ -4,6 +4,7 @@ import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
 import 'firebase/compat/firestore';
 import 'firebase/compat/storage';
+import 'firebase/compat/functions'; // Required to call Cloud Functions
 
 const firebaseConfig = {
   apiKey: "AIzaSyAiSaQ_H7Ja3rLg2IPm_7k6lZL_XmWaPX4",
@@ -304,6 +305,17 @@ export const StorageService = {
         const cloudData = unwrapFromFirestore(snap.data());
         // Merge with defaults to ensure all fields exist even if cloud doc is partial
         data = { ...defaults, ...cloudData };
+        
+        // --- NEW ENFORCEMENT ARCHITECTURE ---
+        // Override 'data.videos' with authoritative Subcollection
+        try {
+           const subVideos = await db.collection(`userdata/${userId}/videos`).get();
+           if (!subVideos.empty) {
+               data.videos = subVideos.docs.map(doc => doc.data() as VideoFile);
+           }
+        } catch (subErr) {
+           console.error("Failed fetching video subcollection enforcing read rules", subErr);
+        }
       }
     }
     if (!data) {
@@ -357,7 +369,35 @@ export const StorageService = {
     await StorageService.updateDataSection(userId, 'usage', data.usage);
   },
 
+  // DEPRECATED: Do not use for active clients in V3. Only kept for backwards compat utility if manually forced.
   updateVideos: (userId: string, videos: VideoFile[]) => StorageService.updateDataSection(userId, 'videos', videos),
+  
+  // V3 Authoritative Video Storage Add
+  addVideoSafe: async (userId: string, video: VideoFile): Promise<boolean> => {
+    if (!isFirebaseConfigured || userId.startsWith('test-') || userId === 'MASTER_GOD_EUKEN') {
+       const data = await StorageService.getUserData(userId);
+       data.videos.unshift(video);
+       await StorageService.updateDataSection(userId, 'videos', data.videos);
+       return true;
+    }
+    
+    // Auth Backend Callable strictly verifies quota before accepting to Subcollection
+    const callableFunc = firebase.app().functions('europe-west1').httpsCallable('registerVideoInGallery');
+    const result = await callableFunc({ videoData: video });
+    return result.data.success;
+  },
+
+  // V3 Authoritative Video Storage Delete
+  deleteVideoSafe: async (userId: string, videoId: string): Promise<void> => {
+    if (isFirebaseConfigured && !userId.startsWith('test-') && userId !== 'MASTER_GOD_EUKEN') {
+        await db.collection(`userdata/${userId}/videos`).doc(videoId).delete();
+    } else {
+        const data = await StorageService.getUserData(userId);
+        data.videos = data.videos.filter(v => v.id !== videoId);
+        await StorageService.updateDataSection(userId, 'videos', data.videos);
+    }
+  },
+
   updatePlans: (userId: string, plans: PlanFile[]) => StorageService.updateDataSection(userId, 'plans', plans),
   updateStrengthRecords: (userId: string, records: StrengthRecord[]) => StorageService.updateDataSection(userId, 'strengthRecords', records),
   updateCompetitionRecords: (userId: string, records: ThrowRecord[]) => StorageService.updateDataSection(userId, 'competitionRecords', records),

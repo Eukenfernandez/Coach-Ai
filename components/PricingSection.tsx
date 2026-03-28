@@ -1,7 +1,8 @@
 
 import React, { useState } from 'react';
 import { Check, Zap, ShieldCheck, Loader2, Star, Circle, XCircle, Crown, AlertTriangle, Settings } from 'lucide-react';
-import { createCheckoutSession, createPortalSession, STRIPE_PRICES } from '../services/subscriptionService';
+import { createCheckoutSession, createPortalSession, STRIPE_PRICES, getUserLimits } from '../services/subscriptionService';
+import { StorageService } from '../services/storageService';
 import { User, Language } from '../types';
 
 interface PricingSectionProps {
@@ -109,6 +110,7 @@ const TEXTS = {
 export const PricingSection: React.FC<PricingSectionProps> = ({ currentUser, language }) => {
   const [loadingPriceId, setLoadingPriceId] = useState<string | null>(null);
   const [showDowngradeModal, setShowDowngradeModal] = useState(false);
+  const [downgradeWarning, setDowngradeWarning] = useState<string | null>(null);
   const t = TEXTS[language as keyof typeof TEXTS] || TEXTS.es;
 
   const currentTier = currentUser.profile?.subscriptionTier || 'FREE';
@@ -133,6 +135,13 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ currentUser, lan
 
   const handlePlanAction = async (planId: string, actionType: 'checkout' | 'portal') => {
     if (planId === 'FREE' && actionType === 'portal') {
+       const uData = await StorageService.getUserData(currentUser.id);
+       const targetLimit = getUserLimits('FREE').maxStoredVideos || 3;
+       if (uData.videos.length > targetLimit) {
+           setDowngradeWarning(`¡Cuidado! Tu galería tiene ${uData.videos.length} vídeos. El plan Gratuito solo permite ${targetLimit}. Si confirmas, entrarás en un periodo de gracia obligatorio de 3 días para borrar el exceso, o tu cuenta será eliminada permanentemente.`);
+       } else {
+           setDowngradeWarning(null);
+       }
        setShowDowngradeModal(true);
        return;
     }
@@ -359,6 +368,15 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ currentUser, lan
                        ))}
                     </ul>
                  </div>
+                 
+                 {downgradeWarning && (
+                     <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 text-left w-full mb-6 relative">
+                        <AlertTriangle size={18} className="absolute top-4 left-4 text-red-500" />
+                        <p className="text-red-600 dark:text-red-400 text-xs font-bold leading-relaxed pl-8">
+                            {downgradeWarning}
+                        </p>
+                     </div>
+                 )}
 
                  <div className="flex flex-col gap-3 w-full">
                     <button 

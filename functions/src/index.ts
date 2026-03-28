@@ -8,8 +8,14 @@
  */
 
 import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { onSchedule } from "firebase-functions/v2/scheduler";
+import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import { defineSecret } from "firebase-functions/params";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenerativeAI, Schema, SchemaType } from "@google/generative-ai";
+import * as admin from 'firebase-admin';
+
+admin.initializeApp();
+const db = admin.firestore();
 
 // La API Key se guarda de forma segura en Firebase Secrets
 const geminiApiKey = defineSecret("GEMINI_API_KEY");
@@ -24,71 +30,34 @@ const getSystemPromptForLang = (lang: 'es' | 'ing' | 'eus', type: 'frame' | 'cha
         switch (lang) {
             case 'ing': return `You are an EXPERT biomechanics coach with DEEP technical knowledge! 🏆
 
-YOUR ANALYSIS PROCESS (follow these steps mentally):
-1. IDENTIFY THE SPORT: What sport/discipline is this? (javelin, shot put, running, etc.)
-2. RECALL CORRECT TECHNIQUE: What does PERFECT form look like for this sport?
-   - Correct body angles, arm positions, leg positions, weight distribution
-3. ANALYZE THIS FRAME: Compare what you see against the correct technique
-4. IDENTIFY ERRORS: What is the athlete doing WRONG compared to ideal form?
-5. PROVIDE HONEST FEEDBACK: Tell them specifically what to fix
+YOUR PROCESS AND STRICT RULES FOR VISUAL GROUNDING:
+1. OBSERVE THE CURRENT FRAME STRICTLY: Analyze ONLY what is fully visible in the current exact frame.
+2. DO NOT ANTICIPATE: Do NOT describe a technical phase as "happening" or "completed" if it isn't visible yet. For instance, do not talk about "release" or "follow-through" if the implement hasn't left the hand.
+3. CONTEXT INDEPENDENCE: Do not blindly reuse narratives from the previous chat history if it contradicts the current observable frame.
+4. UNCERTAINTY IS OK: If an angle, joint, or phase is not clearly visible or uncertain, explicitly state it instead of guessing. Differentiate between "pre-release" and "release confirmed".
+5. PROVIDE HONEST, OBSERVABLE FEEDBACK: Describe what you see, identify 1-2 specific errors (with correction), and maintain an elite coaching standard.
 
-CRITICAL RULES:
-- Do NOT just say "looks good" - find REAL technical issues to correct
-- Be SPECIFIC: "Your elbow is too low" not just "arm position could improve"
-- If the athlete is walking/standing, say so and ask them to go to a key moment
-- Compare against elite athlete technique in this sport
-
-RESPONSE FORMAT:
-- Describe what you see (position, phase of movement)
-- Point out 1-2 SPECIFIC technical errors with how to fix them
-- End with encouragement but be HONEST about what needs work
-- Use 1-2 emojis, motivating but technically demanding
-
-Be a coach who makes athletes BETTER, not one who just praises! 3-5 sentences.`;
+IMPORTANT: You MUST return a STRICT JSON object answering the schema. Do NOT use markdown codeblocks. Just the JSON.`;
             case 'eus': return `Biomekanikako entrenatzaile ADITUA zara jakintza tekniko SAKONA duena! 🏆
 
-ZURE ANALISI PROZESUA (jarraitu urrats hauek mentalki):
-1. IDENTIFIKATU KIROLA: Zein kirol/diziplina da? (jabalina, bala, korrika, etab.)
-2. GOGORATU TEKNIKA ZUZENA: Nolakoa da forma PERFEKTUA kirol honetarako?
-3. AZTERTU FOTOGRAMA HAU: Konparatu ikusten duzuna teknika zuzenarekin
-4. IDENTIFIKATU AKATSAK: Zer egiten du atletak GAIZKI forma idealarekin konparatuta?
-5. EMAN FEEDBACK ZINTZOA: Esan zehazki zer zuzendu behar duen
+ZURE PROZESUA ETA IKUSIZKO ARAU ZORROTZAK:
+1. AZTERTU EGUNGO FOTOGRAMA ZORROTZKI: Uneko fotograman soilik guztiz ikusten dena aztertu.
+2. EZ AURRERATU: Ez deskribatu fase bat "gertatzen ari" deituz edo "amaituta" gisa, oraindik ikusten ez bada. Adibidez, ez hitz egin "askatzeaz" inplementua oraindik eskuan badago.
+3. TESTUINGURUAREN INDEPENDENTZIA: Ez berrerabili itsuki aurreko historia fotogramaren kontra doanean.
+4. ZALANTZA ONDO DAGO: Angelu bat edo fase bat ez bada garbi ikusten, esan ezazu asmatu beharrean. Bereizi "askatu aurretik" eta "askatzea berretsita" artean.
+5. FEEDBACK ZINTZOA ETA IKUSGARRIA EMAN: Azaldu ikusten duzuna, identifikatu 1-2 akats zehatz, nola zuzendu esan.
 
-ARAU KRITIKOAK:
-- EZ esan "ondo dago" - bilatu BENETAKO akats teknikoak zuzentzeko
-- Izan ZEHATZA: "Zure ukondoa baxuegi dago" ez bakarrik "beso posizioa hobetu daiteke"
-- Atleta ibiltzen/zutik badago, esan eta eskatu une garrantzitsu batera joateko
+GARRANTZITSUA: SCHEMARI erantzuten dion JSON ZORROTZA itzuli BEHAR duzu. Ez erabili markdown kode blokearik. JSON hutsa.`;
+            default: return `¡Eres un entrenador EXPERTO en biomecánica con conocimiento profundo! 🏆
 
-ERANTZUN FORMATUA:
-- Deskribatu ikusten duzuna
-- Azpimarratu 1-2 akats tekniko ZEHATZ nola zuzentzeko
-- Amaitu bultzadarekin baina izan ZINTZOA lantzeko dagoenarekin
-- Erabili 1-2 emoji, motibatzailea baina teknikoki zorrotza
+TU PROCESO Y REGLAS ESTRICTAS DE GROUNDING VISUAL:
+1. OBSERVACIÓN ESTRICTA DEL FRAME: Analiza ÚNICAMENTE lo que es visible en este fotograma exacto.
+2. NO ANTICIPES FASES: NUNCA describas una fase de "liberación", "soltado" o "lanzamiento final" si el implemento NO ha salido claramente de la mano en esta imagen.
+3. INDEPENDENCIA DEL HISTORIAL: No reutilices ciegamente la narrativa del turno anterior si contradice el frame actual. Recalcula tu análisis desde cero.
+4. INCERTIDUMBRE Y PRUDENCIA: Si la fase es ambigua, recógelo. Diferencia estrictamente entre "pre-liberación" y "liberación confirmada".
+5. FEEDBACK TÉCNICO ALINEADO: Tras clasificar estrictamente la fase, proporciona correcciones de élite (1-2) atadas exclusivamente al defecto visto. NUNCA suenes más seguro de lo que la imagen permite o inventes detalles que no se ven.
 
-Izan atletak HOBETZEN dituen entrenatzailea! 3-5 esaldi.`;
-            default: return `¡Eres un entrenador EXPERTO en biomecánica con conocimiento técnico PROFUNDO! 🏆
-
-TU PROCESO DE ANÁLISIS (sigue estos pasos mentalmente):
-1. IDENTIFICA EL DEPORTE: ¿Qué deporte/disciplina es? (jabalina, peso, carrera, etc.)
-2. RECUERDA LA TÉCNICA CORRECTA: ¿Cómo es la forma PERFECTA para este deporte?
-   - Ángulos corporales correctos, posición de brazos, piernas, distribución de peso
-3. ANALIZA ESTE FOTOGRAMA: Compara lo que ves contra la técnica correcta
-4. IDENTIFICA ERRORES: ¿Qué está haciendo MAL el atleta comparado con la forma ideal?
-5. DA FEEDBACK HONESTO: Dile específicamente qué corregir
-
-REGLAS CRÍTICAS:
-- NO digas solo "se ve bien" - encuentra ERRORES TÉCNICOS REALES que corregir
-- Sé ESPECÍFICO: "Tu codo está muy bajo" no solo "la posición del brazo podría mejorar"
-- Si el atleta está caminando/parado, dilo y pídele que vaya a un momento clave
-- Compara contra la técnica de atletas de élite en este deporte
-
-FORMATO DE RESPUESTA:
-- Describe lo que ves (posición, fase del movimiento)
-- Señala 1-2 ERRORES TÉCNICOS ESPECÍFICOS con cómo corregirlos
-- Termina con ánimo pero sé HONESTO sobre lo que necesita trabajo
-- Usa 1-2 emojis, motivador pero técnicamente exigente
-
-¡Sé un entrenador que hace a los atletas MEJORES, no uno que solo alaba! 3-5 frases.`;
+IIMPORTANTE: NUNCA devuelvas Markdown (\`\`\`json). Devuelve EXCLUSIVAMENTE el objeto JSON puro y estricto requerido por el modelo.`;
         }
     } else {
         switch (lang) {
@@ -117,37 +86,41 @@ Responde en español con entusiasmo!`;
     }
 };
 
-// Helper para reintentos con backoff exponencial
-async function generateWithRetry(
-    genAI: GoogleGenerativeAI,
-    modelName: string,
-    contents: any,
-    systemInstruction: string,
-    retries = 3
-): Promise<string> {
-    let lastError;
-
-    for (let i = 0; i < retries; i++) {
-        try {
-            const model = genAI.getGenerativeModel({
-                model: modelName,
-                systemInstruction
-            });
-            const result = await model.generateContent(contents);
-            return result.response.text() || "";
-        } catch (error: any) {
-            lastError = error;
-            const errorCode = error?.status || error?.code;
-            if ((errorCode === 429 || errorCode === 503) && i < retries - 1) {
-                const waitTime = Math.pow(2, i) * 1000 + (Math.random() * 500);
-                await delay(waitTime);
-                continue;
-            }
-            throw error;
-        }
+// Resolutor de Tier Autoritativo
+const resolveAllowedModelForTier = (tier: string): string => {
+    switch (tier) {
+        case 'PREMIUM':
+        case 'ATLETA_PREMIUM':
+        case 'PRO_COACH':
+            return 'gemini-3.1-preview';
+        case 'PRO_ATHLETE':
+        case 'ATLETA_PRO':
+            return 'gemini-2.5-flash';
+        case 'FREE':
+        default:
+            return 'gemini-1.5-flash';
     }
-    throw lastError;
-}
+};
+
+const FRAME_ANALYSIS_SCHEMA: Schema = {
+    type: SchemaType.OBJECT,
+    properties: {
+        detected_sport: { type: SchemaType.STRING },
+        sport_confidence: { type: SchemaType.STRING },
+        observable_phase: { type: SchemaType.STRING },
+        phase_confidence: { type: SchemaType.STRING },
+        release_visible: { type: SchemaType.BOOLEAN },
+        release_visibility_confidence: { type: SchemaType.STRING },
+        visible_evidence: { type: SchemaType.STRING },
+        not_visible_or_uncertain: { type: SchemaType.STRING },
+        allowed_claims: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
+        forbidden_claims: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
+        primary_faults: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
+        top_priority_correction: { type: SchemaType.STRING },
+        final_user_answer: { type: SchemaType.STRING },
+    },
+    required: ["observable_phase", "release_visible", "not_visible_or_uncertain", "final_user_answer"]
+};
 
 // ========== FUNCIÓN: ANALIZAR FRAME ==========
 export const analizarFrame = onCall(
@@ -162,24 +135,41 @@ export const analizarFrame = onCall(
             throw new HttpsError("unauthenticated", "Debes iniciar sesión.");
         }
 
-        const { base64Image, promptText, chatHistory, modelTier, language } = request.data;
+        const { base64Image, promptText, chatHistory, language } = request.data;
+        const uid = request.auth.uid;
 
         if (!base64Image) {
             throw new HttpsError("invalid-argument", "Se requiere una imagen.");
         }
 
+        // Recuperar Plan Real Canónico
+        const userRef = db.collection("users").doc(uid);
+        const userSnap = await userRef.get();
+        let tier = userSnap.exists ? (userSnap.data()?.currentPlanId || 'FREE') : 'FREE';
+
+        // Bypass mapping for testing like in other functions
+        if (uid.startsWith('test-')) tier = uid.includes('premium') ? 'PREMIUM' : (uid.includes('pro') ? 'PRO_ATHLETE' : tier);
+        const userEmail = request.auth?.token.email;
+        if (userEmail && ['alejandrosanchez@gmail.com', 'peioetxabe@hotmail.com', 'fernandezeuken@gmail.com', 'julianweber@gmail.com'].includes(userEmail.toLowerCase())) {
+            tier = 'PREMIUM';
+        }
+
+        const modelName = resolveAllowedModelForTier(tier);
+
         const genAI = new GoogleGenerativeAI(geminiApiKey.value());
         const systemContext = getSystemPromptForLang(language || 'es', 'frame');
-        const fullPrompt = `${systemContext}\n\nContexto previo: ${(chatHistory || []).slice(-2).join('\n')}\n\nPregunta del usuario: ${promptText || 'Analiza esta imagen'}`;
+        const fullPrompt = `${systemContext}\n\nContexto previo: ${(chatHistory || []).slice(-2).join('\n')}\n\nPregunta del usuario: ${promptText || 'Analiza estrictamente lo visible en esta imagen'}`;
 
-        // Use gemini-2.0-flash which is stable and working
-        const modelName = 'gemini-2.0-flash';
-
-        console.log('[analizarFrame] Processing request with model:', modelName);
-        console.log('[analizarFrame] Image size (chars):', base64Image?.length || 0);
+        console.log(`[analizarFrame API Call] UID: ${uid} | Tier: ${tier} | Resuelto a Modelo: ${modelName}`);
 
         try {
-            const model = genAI.getGenerativeModel({ model: modelName });
+            const model = genAI.getGenerativeModel({ 
+                model: modelName,
+                generationConfig: {
+                    responseMimeType: "application/json",
+                    responseSchema: FRAME_ANALYSIS_SCHEMA
+                } 
+            });
 
             // Format for multimodal content with image
             const result = await model.generateContent([
@@ -192,14 +182,30 @@ export const analizarFrame = onCall(
                 { text: fullPrompt }
             ]);
 
-            const response = result.response?.text?.() || "No pude analizar el frame.";
-            console.log('[analizarFrame] Success, response length:', response.length);
-            return { result: response };
+            const responseText = result.response?.text?.() || "{}";
+            const parsedPayload = JSON.parse(responseText);
+
+            const finalUserAnswer = parsedPayload.final_user_answer || "El formato obtenido del entrenador AI fue devuelto vacío.";
+
+            // Save AI Usage Logs
+            await db.collection("ai_analysis_logs").add({
+                userId: uid,
+                subscriptionPlan: tier,
+                resolvedModel: modelName,
+                observablePhase: parsedPayload.observable_phase || null,
+                releaseVisible: parsedPayload.release_visible || false,
+                notVisibleOrUncertain: parsedPayload.not_visible_or_uncertain || null,
+                timestamp: admin.firestore.FieldValue.serverTimestamp()
+            });
+
+            return { 
+                result: finalUserAnswer, 
+                metadata: parsedPayload 
+            };
         } catch (error: any) {
             console.error("[analizarFrame] Error completo:", JSON.stringify(error, null, 2));
-            console.error("[analizarFrame] Error message:", error?.message);
             console.error("[analizarFrame] Error status:", error?.status);
-            throw new HttpsError("internal", "Error al analizar la imagen.");
+            throw new HttpsError("internal", "Error al analizar la imagen y extraer contexto.");
         }
     }
 );
@@ -217,35 +223,251 @@ export const chatWithCoach = onCall(
             throw new HttpsError("unauthenticated", "Debes iniciar sesión.");
         }
 
-        const { message, history, modelTier, language } = request.data;
+        const { message, history, language } = request.data;
+        const uid = request.auth.uid;
 
         if (!message) {
             throw new HttpsError("invalid-argument", "Se requiere un mensaje.");
         }
 
+        // Recuperar Plan Real Canónico
+        const userRef = db.collection("users").doc(uid);
+        const userSnap = await userRef.get();
+        let tier = userSnap.exists ? (userSnap.data()?.currentPlanId || 'FREE') : 'FREE';
+
+        // Bypass mapping
+        if (uid.startsWith('test-')) tier = uid.includes('premium') ? 'PREMIUM' : (uid.includes('pro') ? 'PRO_ATHLETE' : tier);
+        const userEmail = request.auth?.token.email;
+        if (userEmail && ['alejandrosanchez@gmail.com', 'peioetxabe@hotmail.com', 'fernandezeuken@gmail.com', 'julianweber@gmail.com'].includes(userEmail.toLowerCase())) {
+            tier = 'PREMIUM';
+        }
+
+        const modelName = resolveAllowedModelForTier(tier);
+
         const genAI = new GoogleGenerativeAI(geminiApiKey.value());
         const systemInstruction = getSystemPromptForLang(language || 'es', 'chat');
 
-        // Using gemini-2.0-flash for all users (stable and working)
-        const modelName = 'gemini-2.0-flash';
-
-        console.log('[chatWithCoach] Sending message:', message, 'using model:', modelName);
+        console.log(`[chatWithCoach API Call] UID: ${uid} | Tier: ${tier} | Resuelto a Modelo: ${modelName}`);
 
         try {
             const model = genAI.getGenerativeModel({
                 model: modelName,
                 systemInstruction
             });
-            // Simple text content - no need for complex role/parts structure
+            
             const result = await model.generateContent(message);
             const responseText = result.response?.text?.() || "No tengo respuesta en este momento.";
-            console.log('[chatWithCoach] Response received:', responseText.substring(0, 100));
+            
+            // Log plain coaching usage
+            await db.collection("ai_analysis_logs").add({
+                userId: uid,
+                subscriptionPlan: tier,
+                resolvedModel: modelName,
+                timestamp: admin.firestore.FieldValue.serverTimestamp()
+            });
+
             return { result: responseText };
         } catch (error: any) {
             console.error("[chatWithCoach] Error completo:", JSON.stringify(error, null, 2));
-            console.error("[chatWithCoach] Error message:", error?.message);
-            console.error("[chatWithCoach] Error status:", error?.status);
             throw new HttpsError("internal", "Error al conectar con el entrenador.");
+        }
+    }
+);
+
+// ========== SUBSCRIPTION ENFORCEMENT ==========
+
+const VIDEO_LIMITS: Record<string, number> = {
+  FREE: 3,
+  PRO_ATHLETE: 15,
+  PRO_COACH: 50,
+  PREMIUM: 300,
+};
+
+export const registerVideoInGallery = onCall(
+    { region: "europe-west1", maxInstances: 10 },
+    async (request) => {
+        if (!request.auth) throw new HttpsError("unauthenticated", "Debes iniciar sesión.");
+        
+        const uid = request.auth.uid;
+        const videoData = request.data.videoData;
+        
+        if (!videoData || !videoData.id) {
+            throw new HttpsError("invalid-argument", "Missing videoData.");
+        }
+
+        return await db.runTransaction(async (t) => {
+            // Check Grace Period status (Block bypass)
+            const enforcementRef = db.collection("account_enforcement").doc(uid);
+            const enforcSnap = await t.get(enforcementRef);
+            if (enforcSnap.exists) {
+                const status = enforcSnap.data()?.status;
+                if (status === 'OVER_LIMIT_GRACE_PERIOD' || status === 'PENDING_ACCOUNT_DELETION' || status === 'DELETION_IN_PROGRESS') {
+                    throw new HttpsError("failed-precondition", "No puedes subir vídeos en periodo de gracia. Elimina vídeos primero o sube de plan.");
+                }
+            }
+
+            // Get user to check plan logic
+            const userRef = db.collection("users").doc(uid);
+            const userSnap = await t.get(userRef);
+            let tier = userSnap.exists ? (userSnap.data()?.currentPlanId || 'FREE') : 'FREE';
+            
+            // Bypass logic matching frontend configuration
+            if (uid.startsWith('test-')) tier = uid.includes('premium') ? 'PREMIUM' : (uid.includes('pro') ? 'PRO_ATHLETE' : tier);
+            const userEmail = request.auth?.token.email;
+            if (userEmail && ['alejandrosanchez@gmail.com', 'peioetxabe@hotmail.com', 'fernandezeuken@gmail.com', 'julianweber@gmail.com'].includes(userEmail.toLowerCase())) {
+                tier = 'PREMIUM';
+            }
+
+            const limit = VIDEO_LIMITS[tier] || 3;
+
+            // Transact-safe count (limited to max 300, safe memory footprint)
+            const videosSnap = await t.get(db.collection(`userdata/${uid}/videos`));
+            const currentCount = videosSnap.docs.length;
+
+            if (currentCount >= limit) {
+                throw new HttpsError("resource-exhausted", `Límite excedido. Tu plan actual permite máximo ${limit} vídeos en tu galería.`);
+            }
+
+            // Append explicitly to subcollection architecture instead of monolithic array
+            const newVideoRef = db.collection(`userdata/${uid}/videos`).doc(videoData.id);
+            t.set(newVideoRef, videoData);
+
+            return { success: true, count: currentCount + 1, limit };
+        });
+    }
+);
+
+// Helper Centralizado: Revisa el cumplimiento tras borrar/cambiar tier
+export const evaluateVideoQuotaCompliance = async (uid: string) => {
+    const userRef = db.collection("users").doc(uid);
+    const userSnap = await userRef.get();
+    let tier = userSnap.exists ? (userSnap.data()?.currentPlanId || 'FREE') : 'FREE';
+    
+    // Safety matching
+    if (uid.startsWith('test-')) tier = uid.includes('premium') ? 'PREMIUM' : (uid.includes('pro') ? 'PRO_ATHLETE' : tier);
+            
+    const limit = VIDEO_LIMITS[tier] || 3;
+    const videosSnap = await db.collection(`userdata/${uid}/videos`).get();
+    const count = videosSnap.docs.length;
+
+    const enforcementRef = db.collection("account_enforcement").doc(uid);
+    const enforcSnap = await enforcementRef.get();
+
+    if (count <= limit) {
+        // COMPLIANT -> Levantar restricciones
+        if (enforcSnap.exists && (enforcSnap.data()?.status === 'OVER_LIMIT_GRACE_PERIOD' || enforcSnap.data()?.status === 'PENDING_ACCOUNT_DELETION')) {
+            await enforcementRef.update({
+                status: 'COMPLIANT',
+                gracePeriodEndsAt: null,
+                currentVideoCount: count,
+                allowedVideoLimit: limit,
+                lastEvaluatedAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+
+            // Registrar notificación de salvado
+            await db.collection("notifications").add({
+                userId: uid, title: "Límite restituido",
+                body: "¡Genial! Has vuelto dentro de los márgenes de tu plan y desaparecen las restricciones.",
+                severity: "info", read: false, createdAt: new Date().toISOString()
+            });
+        }
+    } else {
+        // NO COMPLIANT
+        // Si no existe o estaba Compliant, lanzar el periodo de 3 días
+        if (!enforcSnap.exists || enforcSnap.data()?.status === 'COMPLIANT') {
+            const daysUnresolved = 3;
+            const endLimitTime = new Date();
+            endLimitTime.setDate(endLimitTime.getDate() + daysUnresolved);
+
+            await enforcementRef.set({
+                userId: uid,
+                status: 'OVER_LIMIT_GRACE_PERIOD',
+                allowedVideoLimit: limit,
+                currentVideoCount: count,
+                gracePeriodEndsAt: admin.firestore.Timestamp.fromDate(endLimitTime),
+                lastEvaluatedAt: admin.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+
+            await db.collection("notifications").add({
+                userId: uid, title: "¡Límite excedido por Downgrade!",
+                body: `Tu plan actual permite ${limit} vídeos, pero tienes ${count}. Tienes 3 días completos para borrar el exceso o tu cuenta será inhabilitada y purgada de forma automática irrevocablemente.`,
+                severity: "critical", read: false, createdAt: new Date().toISOString()
+            });
+        }
+    }
+};
+
+export const enforcementCronJob = onSchedule(
+  {
+     schedule: "every 1 hours",
+     timeZone: "UTC",
+     region: "europe-west1"
+  }, 
+  async () => {
+    const now = admin.firestore.Timestamp.now();
+
+    const overdueSnap = await db.collection("account_enforcement")
+        .where("status", "==", "OVER_LIMIT_GRACE_PERIOD")
+        .where("gracePeriodEndsAt", "<", now)
+        .get();
+
+    const batch = db.batch();
+    overdueSnap.docs.forEach(doc => {
+        batch.update(doc.ref, { 
+            status: 'PENDING_ACCOUNT_DELETION',
+            lastEvaluatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+    });
+    if (overdueSnap.size > 0) await batch.commit();
+
+    const pendingSnap = await db.collection("account_enforcement")
+        .where("status", "==", "PENDING_ACCOUNT_DELETION")
+        .limit(10) // Chunk handling safe
+        .get();
+
+    for (const doc of pendingSnap.docs) {
+        await doc.ref.update({ status: 'DELETION_IN_PROGRESS' });
+        const uid = doc.data().userId;
+        try {
+            await admin.auth().deleteUser(uid);
+            await db.collection("userdata").doc(uid).delete();
+            await db.collection("users").doc(uid).delete();
+            // Subcollections are generally skipped without Firebase Firebase CLI tools, but we ensure enforcement prevents login.
+            
+            await doc.ref.update({ 
+               status: 'DELETED', 
+               deletedAt: admin.firestore.FieldValue.serverTimestamp() 
+            });
+            console.log(`[Subscription Enforcement] CRITICAL: Purged account ${uid} per overdue bounds.`);
+        } catch(e) {
+            console.error(`Error deleting user ${uid}`, e);
+            await doc.ref.update({ status: 'PENDING_ACCOUNT_DELETION' }); // Safe retry structure
+        }
+    }
+});
+
+// Trigger: Downgrade detection when Stripe updates the user's subscription record
+export const onSubscriptionChange = onDocumentWritten(
+    { document: "customers/{uid}/subscriptions/{subscriptionId}", region: "europe-west1" },
+    async (event) => {
+        const uid = event.params.uid;
+        
+        // After Stripe webhook has modified the record, we trigger the compliance check
+        // It will assess their current videos and push them to Grace Period if out-of-bounds
+        console.log(`[Subscription Trigger] Evaluating quota compliance for UID: ${uid}`);
+        await evaluateVideoQuotaCompliance(uid);
+    }
+);
+
+// Trigger: Video deletion check
+export const onVideoDeletion = onDocumentWritten(
+    { document: "userdata/{uid}/videos/{videoId}", region: "europe-west1" },
+    async (event) => {
+        const uid = event.params.uid;
+        // Only run on deletes (to clear grace periods)
+        if (!event.data?.after.exists) {
+            console.log(`[Video Deletion Trigger] Re-evaluating compliance for UID: ${uid}`);
+            await evaluateVideoQuotaCompliance(uid);
         }
     }
 );

@@ -1,0 +1,28 @@
+﻿node.exe : 
+En línea: 1 
+Carácter: 1
++ & "C:\Program Files
+\nodejs/node.exe" "C:
+\Users\Usuario\AppDat
+a\Roamin ...
++ ~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~
+    + CategoryInfo   
+           : NotSpe  
+  cified: (:String   
+ ) [], RemoteExce    
+ption
+    + FullyQualified 
+   ErrorId : Native  
+  CommandError
+ 
+Packaging app for platform win32 x64 using electron v40.6.0
+WARNING: Could not 
+find icon "public/ico
+ns/icon-256.png" 
+with extension 
+".ico", skipping 
+this app icon format
+Wrote new app to: dist-electron\Coach AI-win32-x64

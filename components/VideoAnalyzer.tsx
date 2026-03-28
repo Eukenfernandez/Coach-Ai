@@ -94,7 +94,7 @@ interface VideoAnalyzerProps {
 interface DualScrubberProps {
    curr: number;
    dur: number;
-   setTime: (t: number) => void;
+   setTime: (t: number, isDragging?: boolean) => void;
    onScrubStart: () => void;
    onScrubEnd: () => void;
    label?: string;
@@ -106,12 +106,15 @@ const DualScrubber: React.FC<DualScrubberProps> = ({
 }) => {
    const fastRef = useRef<HTMLDivElement>(null);
    const slowRef = useRef<HTMLDivElement>(null);
-   const [isDraggingFast, setIsDraggingFast] = useState(false);
-   const [isDraggingSlow, setIsDraggingSlow] = useState(false);
-   const [dragStartX, setDragStartX] = useState(0);
-   const [timeStartDrag, setTimeStartDrag] = useState(0);
+   
+   // High-performance scrubbing state
+   const [localTime, setLocalTime] = useState<number | null>(null);
+   const dragState = useRef({ startX: 0, startTime: 0, fast: false, slow: false, activePointerId: null as number | null });
+
    const [containerWidth, setContainerWidth] = useState(1000);
    const rafRef = useRef<number | null>(null);
+
+   const pendingClientX = useRef<number | null>(null);
 
    const TICK_GAP = 10;
    const TICKS_PER_GROUP = 10;
@@ -121,87 +124,112 @@ const DualScrubber: React.FC<DualScrubberProps> = ({
    useEffect(() => {
       const updateWidth = () => { if (slowRef.current) setContainerWidth(slowRef.current.clientWidth); };
       updateWidth();
+      
+      let observer: ResizeObserver | null = null;
+      if (slowRef.current) {
+         observer = new ResizeObserver(() => updateWidth());
+         observer.observe(slowRef.current);
+      }
+
       window.addEventListener('resize', updateWidth);
-      return () => window.removeEventListener('resize', updateWidth);
+      return () => {
+         window.removeEventListener('resize', updateWidth);
+         if (observer) observer.disconnect();
+      };
    }, []);
 
-   const handleFastMove = useCallback((clientX: number) => {
+   const handlePointerDownFast = (e: React.PointerEvent) => {
+      e.currentTarget.setPointerCapture(e.pointerId);
+      dragState.current = { ...dragState.current, fast: true, activePointerId: e.pointerId };
+      setLocalTime(curr);
+      onScrubStart();
+      
       if (!fastRef.current || dur <= 0) return;
       const rect = fastRef.current.getBoundingClientRect();
-      const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-      setTime(pct * dur);
-   }, [dur, setTime]);
+      const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      const t = pct * dur;
+      setLocalTime(t);
+      setTime(t, true);
+   };
 
-   const handleSlowMove = useCallback((clientX: number) => {
-      const deltaX = clientX - dragStartX;
-      const timeDelta = -deltaX / PIXELS_PER_SECOND;
-      const newTime = Math.max(0, Math.min(dur, timeStartDrag + timeDelta));
-      setTime(newTime);
-   }, [dragStartX, timeStartDrag, dur, setTime]);
+   const handlePointerDownSlow = (e: React.PointerEvent) => {
+      e.currentTarget.setPointerCapture(e.pointerId);
+      dragState.current = { ...dragState.current, slow: true, startX: e.clientX, startTime: curr, activePointerId: e.pointerId };
+      setLocalTime(curr);
+      onScrubStart();
+   };
 
-   // Desktop Handlers
-   const startFast = (e: React.MouseEvent) => { setIsDraggingFast(true); onScrubStart(); handleFastMove(e.clientX); };
-   const startSlow = (e: React.MouseEvent) => { setIsDraggingSlow(true); setDragStartX(e.clientX); setTimeStartDrag(curr); onScrubStart(); };
+   const handlePointerMove = (e: React.PointerEvent) => {
+      if (dragState.current.activePointerId !== e.pointerId) return;
+      const state = dragState.current;
+      if (!state.fast && !state.slow) return;
 
-   // Touch Handlers
-   const touchStartFast = (e: React.TouchEvent) => { setIsDraggingFast(true); onScrubStart(); handleFastMove(e.touches[0].clientX); };
-   const touchStartSlow = (e: React.TouchEvent) => { setIsDraggingSlow(true); setDragStartX(e.touches[0].clientX); setTimeStartDrag(curr); onScrubStart(); };
+      // DIAGNÓSTICO DEL BUG RESUELTO:
+      // Anteriormente, if (rafRef.current) cancelAnimationFrame(rafRef.current) RECHAZABA el RAF en cada movimiento del puntero.
+      // Dado que los ratones/pantallas arrojan eventos `pointermove` a >120Hz, el RAF (60Hz) se cancelaba perpetuamente y el vídeo NUNCA se sincronizaba hasta frenar en seco.
+      // SOLUCIÓN: Solo guardamos el dato real y NO cancelamos el callback en curso; si la ventana está despejada, despachamos el cuadro.
+      pendingClientX.current = e.clientX;
 
-   useEffect(() => {
-      const onEnd = () => {
-         if (isDraggingFast || isDraggingSlow) {
-            setIsDraggingFast(false);
-            setIsDraggingSlow(false);
-            if (rafRef.current) cancelAnimationFrame(rafRef.current);
-            onScrubEnd();
-         }
-      };
-
-      const onMove = (e: MouseEvent | TouchEvent) => {
-         if (!isDraggingFast && !isDraggingSlow) return;
-
-         // Use requestAnimationFrame for smoother UI updates during drag
-         if (rafRef.current) cancelAnimationFrame(rafRef.current);
-
+      if (!rafRef.current) {
          rafRef.current = requestAnimationFrame(() => {
-            const clientX = 'touches' in e ? e.touches[0].clientX : (e as MouseEvent).clientX;
-            if (isDraggingFast) handleFastMove(clientX);
-            if (isDraggingSlow) handleSlowMove(clientX);
+            // Liberamos el ticket inmediatamente para que se emita otro frame el ciclo siguiente y nada se atonte
+            rafRef.current = null;
+            
+            const clientX = pendingClientX.current;
+            if (clientX === null) return;
+
+            if (state.fast && fastRef.current && dur > 0) {
+               const rect = fastRef.current.getBoundingClientRect();
+               const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+               const t = pct * dur;
+               setLocalTime(t);
+               setTime(t, true);
+            } else if (state.slow) {
+               const timeDelta = -(clientX - state.startX) / PIXELS_PER_SECOND;
+               const newTime = Math.max(0, Math.min(dur, state.startTime + timeDelta));
+               setLocalTime(newTime);
+               setTime(newTime, true);
+            }
          });
-      };
-
-      if (isDraggingFast || isDraggingSlow) {
-         window.addEventListener('mousemove', onMove);
-         window.addEventListener('mouseup', onEnd);
-         window.addEventListener('touchmove', onMove, { passive: false });
-         window.addEventListener('touchend', onEnd);
       }
-      return () => {
-         window.removeEventListener('mousemove', onMove);
-         window.removeEventListener('mouseup', onEnd);
-         window.removeEventListener('touchmove', onMove);
-         window.removeEventListener('touchend', onEnd);
-         if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      };
-   }, [isDraggingFast, isDraggingSlow, handleFastMove, handleSlowMove, onScrubEnd]);
+   };
 
-   const progress = dur > 0 ? (curr / dur) * 100 : 0;
+   const handlePointerUp = (e: React.PointerEvent) => {
+      if (dragState.current.activePointerId === e.pointerId) {
+         if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+             e.currentTarget.releasePointerCapture(e.pointerId);
+         }
+         dragState.current = { ...dragState.current, fast: false, slow: false, activePointerId: null };
+         setLocalTime(null);
+         pendingClientX.current = null;
+         
+         if (rafRef.current) cancelAnimationFrame(rafRef.current);
+         rafRef.current = null;
+         
+         onScrubEnd();
+      }
+   };
+
+   const activeTime = localTime !== null ? localTime : curr;
+   const progress = dur > 0 ? (activeTime / dur) * 100 : 0;
    const numPatterns = Math.ceil(containerWidth / PATTERN_WIDTH) + 3;
-   const scrollOffset = (curr * PIXELS_PER_SECOND) % PATTERN_WIDTH;
+   const scrollOffset = (activeTime * PIXELS_PER_SECOND) % PATTERN_WIDTH;
 
    return (
       <div className="flex flex-col w-full select-none relative group mb-1 touch-none">
          <div className="flex justify-between items-end mb-1.5 px-0.5">
             <span className="text-[10px] text-neutral-500 uppercase font-black tracking-widest">{label || (isSecondary ? 'CAM B' : 'CAM A')}</span>
-            <div className="font-mono text-sm font-bold text-orange-500 tabular-nums">{curr.toFixed(3)}s</div>
+            <div className="font-mono text-sm font-bold text-orange-500 tabular-nums">{activeTime.toFixed(3)}s</div>
          </div>
 
          {/* Fast Scrubber */}
          <div
             ref={fastRef}
-            onMouseDown={startFast}
-            onTouchStart={touchStartFast}
-            className="relative h-2.5 w-full cursor-pointer flex items-center bg-neutral-900 rounded-full mb-1.5 overflow-hidden"
+            onPointerDown={handlePointerDownFast}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerUp}
+            className="relative h-2.5 w-full cursor-pointer flex items-center bg-neutral-900 rounded-full mb-1.5 overflow-hidden touch-none"
          >
             <div className="absolute h-full bg-neutral-700 rounded-full" style={{ width: `${progress}%` }}></div>
             <div className="absolute inset-0 hover:bg-white/5 transition-colors"></div>
@@ -210,9 +238,11 @@ const DualScrubber: React.FC<DualScrubberProps> = ({
          {/* Slow Precision Ruler */}
          <div
             ref={slowRef}
-            onMouseDown={startSlow}
-            onTouchStart={touchStartSlow}
-            className="relative h-12 w-full bg-black border-y border-neutral-900 overflow-hidden flex items-center justify-center cursor-default hover:cursor-grab active:cursor-grabbing"
+            onPointerDown={handlePointerDownSlow}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerUp}
+            className="relative h-12 w-full bg-black border-y border-neutral-900 overflow-hidden flex items-center justify-center cursor-default hover:cursor-grab active:cursor-grabbing touch-none"
          >
             <div className="flex absolute top-0 bottom-0 items-center left-1/2 opacity-40" style={{ transform: `translateX(calc(-50% - ${scrollOffset}px))` }}>
                <div className="flex" style={{ width: numPatterns * PATTERN_WIDTH, justifyContent: 'center' }}>
@@ -316,7 +346,8 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
    const [chatMessages, setChatMessages] = useState<ChatMessage[]>([{ id: 'intro', role: 'model', text: t.chatIntro, timestamp: new Date() }]);
    const [isChatLoading, setIsChatLoading] = useState(false);
 
-   const [isVideoLoaded, setIsVideoLoaded] = useState(false);
+   const [videoLoadState, setVideoLoadState] = useState<'loading' | 'ready' | 'error'>('loading');
+   const isVideoLoaded = videoLoadState === 'ready';
    const [videoError, setVideoError] = useState<string | null>(null);
    const videoRef = useRef<HTMLVideoElement>(null);
    const canvasRef1 = useRef<HTMLCanvasElement>(null);
@@ -400,28 +431,42 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
    }, [compareVideo, hasSeenSyncTip, canCompare]);
 
    useEffect(() => {
-      setIsVideoLoaded(false);
+      setVideoLoadState('loading');
       setVideoError(null);
       setCurrentTime(0);
-      if (!activeUrl) setVideoError("Error: URL de video no encontrada.");
+      if (!activeUrl) {
+         setVideoError("Error: URL de video no encontrada.");
+         setVideoLoadState('error');
+      }
 
       // Check if video is already ready (e.g., from cache)
-      if (videoRef.current && videoRef.current.readyState >= 2) { // HAVE_CURRENT_DATA
-         setIsVideoLoaded(true);
+      if (videoRef.current && videoRef.current.readyState >= 2) {
+         setVideoLoadState('ready');
          setDuration(videoRef.current.duration);
          setIsVertical(videoRef.current.videoHeight > videoRef.current.videoWidth);
       }
    }, [video.id, activeUrl]);
 
+   // ÚNICA FUENTE DE VERDAD PARA ESTADO DE CARGA
+   const handleLoadStart = () => setVideoLoadState('loading');
+
    const handleLoadedData = () => {
-      setIsVideoLoaded(true);
+      setVideoLoadState('ready');
       if (videoRef.current) {
          setDuration(videoRef.current.duration);
          const ratio = videoRef.current.videoWidth / videoRef.current.videoHeight;
          setAspectRatio1(ratio);
-         // Check aspect ratio (Height > Width = Vertical)
          setIsVertical(videoRef.current.videoHeight > videoRef.current.videoWidth);
       }
+   };
+
+   // Respaldos extra por si el navegador prioriza o retrasa eventos
+   const handleCanPlay = () => setVideoLoadState('ready');
+   const handlePlaying = () => setVideoLoadState('ready');
+
+   const handleError = () => {
+      setVideoError(t.connectionError || "Error Loading Video");
+      setVideoLoadState('error');
    };
 
    // --- SYNC LOGIC ---
@@ -580,9 +625,16 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
       // Also update on orientation change for mobile
       window.addEventListener('orientationchange', updateVideoDimensions);
 
+      let observer: ResizeObserver | null = null;
+      if (wrapperRef.current) {
+         observer = new ResizeObserver(() => updateVideoDimensions());
+         observer.observe(wrapperRef.current);
+      }
+
       return () => {
          window.removeEventListener('resize', updateVideoDimensions);
          window.removeEventListener('orientationchange', updateVideoDimensions);
+         if (observer) observer.disconnect();
       };
    }, [isVideoLoaded, compareVideo, zoom1, pan1, zoom2, pan2]);
 
@@ -825,47 +877,38 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
       setIsPlaying(!isPlaying);
    };
 
-   const seek = (time: number) => {
-      // Update UI state immediately for responsiveness
-      setCurrentTime(time);
+   const seek = (time: number, isDragging: boolean = false) => {
+      // Solo actualizamos el estado completo (con rerenders pesados) fuera del scrubbing rápido
+      if (!isDragging) {
+         setCurrentTime(time);
+      }
 
       if (!videoRef.current) return;
 
-      const now = performance.now();
-      // Throttle video seeks to ~15fps (66ms) during scrubbing to prevent lag
-      // While still providing visual feedback of video movement
-      const THROTTLE_MS = 66;
-
-      if (isScrubbing) {
-         if (now - lastSeekTimeRef.current >= THROTTLE_MS) {
-            lastSeekTimeRef.current = now;
-            videoRef.current.currentTime = time;
-            if (compareVideo && isSynced && videoRef2.current) {
-               videoRef2.current.currentTime = time + syncOffset;
-            }
-         }
-      } else {
-         // Direct seek when not scrubbing (e.g., frame step buttons)
-         videoRef.current.currentTime = time;
-         if (compareVideo && isSynced && videoRef2.current) {
-            videoRef2.current.currentTime = time + syncOffset;
-         }
+      // Scrubbing de vídeo a máximo rendimiento: actualización directa al nodo del DOM sin throttling ni lags asíncronos.
+      videoRef.current.currentTime = time;
+      if (compareVideo && isSynced && videoRef2.current) {
+         videoRef2.current.currentTime = time + syncOffset;
       }
    };
 
-   // Final seek when scrubbing ends to ensure we land exactly on the target time
+   // Final seek when scrubbing ends to ensure we land exactly on the target time and sync global state
    const flushPendingSeek = useCallback(() => {
-      // Perform one final seek to ensure video is at the exact position the user wanted
       if (videoRef.current) {
-         videoRef.current.currentTime = videoRef.current.currentTime; // Force refresh
+         setCurrentTime(videoRef.current.currentTime);
+      }
+      if (videoRef2.current) {
+         setCompareTime(videoRef2.current.currentTime);
       }
    }, []);
 
-   const seek2 = (time: number) => {
+   const seek2 = (time: number, isDragging: boolean = false) => {
+      if (!isDragging) {
+         setCompareTime(time);
+      }
+
       if (videoRef2.current) {
          videoRef2.current.currentTime = time;
-         setCompareTime(time);
-         // If synced, moving scrubber 2 adjusts the offset, it doesn't move scrubber 1
          if (isSynced && videoRef.current) {
             setSyncOffset(time - videoRef.current.currentTime);
          }
@@ -1158,7 +1201,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
          </div>
 
          {/* Main Workspace */}
-         <div className="flex-1 flex flex-col relative bg-black overflow-y-auto">
+         <div className="flex-1 flex flex-col relative bg-black overflow-hidden min-w-0">
 
             {/* Video Container Area - Dynamic layout based on aspect ratio (Mobile) / Always SxS (Desktop) */}
             <div className={`flex-1 relative overflow-hidden flex ${compareVideo ? (isVertical ? 'flex-row gap-0.5 md:gap-0' : 'flex-col gap-0.5 md:flex-row md:gap-0') : 'items-center justify-center'} bg-black`}
@@ -1179,11 +1222,14 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
                   onTouchStart={(e) => { e.stopPropagation(); handleMouseDown(e, 1); }}
                   style={{ cursor: isDrawingMode ? 'crosshair' : (zoom1 > 1 ? 'grab' : 'default') }}
                >
-                  {!isVideoLoaded && !videoError && (
-                     <div className="absolute inset-0 flex items-center justify-center z-50 pointer-events-none">
-                        <Loader2 size={40} className="animate-spin text-orange-500" />
-                     </div>
-                  )}
+                  {/* Overlay Loader Premium - Única Fuente de Verdad */}
+                   {videoLoadState === 'loading' && (
+                      <div className="absolute inset-0 flex items-center justify-center z-50 bg-black/40 backdrop-blur-[2px] transition-opacity duration-300 pointer-events-none">
+                         <div className="bg-black/80 p-4 rounded-2xl border border-white/5 shadow-2xl flex flex-col items-center gap-3">
+                            <Loader2 size={40} className="animate-spin text-orange-500 drop-shadow-md" role="status" aria-busy="true" />
+                         </div>
+                      </div>
+                   )}
                   <div
                      ref={!compareVideo ? wrapperRef : undefined}
                      className={`relative flex items-center justify-center flex-1 transition-transform duration-75 ease-linear ${!compareVideo ? 'w-full h-full' : 'p-4'}`}
@@ -1207,8 +1253,11 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
                               className="w-full h-full object-contain pointer-events-none select-none block"
                               playsInline
                               onLoadedData={handleLoadedData}
-                              onCanPlay={() => setIsVideoLoaded(true)} // Fallback ensuring state update
-                              onTimeUpdate={handleTimeUpdatePrimary}
+                               onLoadStart={handleLoadStart}
+                               onCanPlay={handleCanPlay}
+                               onPlaying={handlePlaying}
+                               onError={handleError}
+                               onTimeUpdate={handleTimeUpdatePrimary}
                            />
                            {/* Pose Detection Canvas Overlay */}
                            {isPoseEnabled && (
@@ -1383,7 +1432,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack, usa
          {/* Chat Sidebar */}
          {
             isChatOpen && (
-               <div className="w-80 border-l border-neutral-800 bg-neutral-900 flex flex-col animate-in slide-in-from-right duration-300 z-40 absolute right-0 top-0 bottom-0 shadow-2xl">
+               <div className="w-[85vw] md:w-80 border-l border-neutral-800 bg-neutral-900 flex flex-col animate-in slide-in-from-right duration-300 z-50 absolute right-0 top-0 bottom-0 md:relative md:h-full shadow-2xl">
                   <div className="p-4 border-b border-neutral-800 flex justify-between items-center bg-neutral-950">
                      <h3 className="font-bold text-white flex items-center gap-2"><Sparkles size={16} className="text-purple-500" /> {t.coachIA}</h3>
                      <button onClick={() => setIsChatOpen(false)}><X size={18} className="text-neutral-500" /></button>

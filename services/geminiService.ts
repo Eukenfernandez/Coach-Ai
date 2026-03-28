@@ -32,7 +32,6 @@ export const analyzeFrame = async (
       base64Image,
       promptText,
       chatHistory,
-      modelTier,
       language
     });
 
@@ -64,7 +63,6 @@ export const chatWithCoach = async (
     const payload = {
       message,
       history,
-      modelTier,
       language
     };
 

@@ -7,8 +7,13 @@
  * - Los prompts secretos del entrenador
  */
 import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { onSchedule } from "firebase-functions/v2/scheduler";
+import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import { defineSecret } from "firebase-functions/params";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import * as admin from 'firebase-admin';
+admin.initializeApp();
+const db = admin.firestore();
 // La API Key se guarda de forma segura en Firebase Secrets
 const geminiApiKey = defineSecret("GEMINI_API_KEY");
 // Delay helper para retry
@@ -216,5 +221,168 @@ export const chatWithCoach = onCall({
         console.error("[chatWithCoach] Error message:", error?.message);
         console.error("[chatWithCoach] Error status:", error?.status);
         throw new HttpsError("internal", "Error al conectar con el entrenador.");
+    }
+});
+// ========== SUBSCRIPTION ENFORCEMENT ==========
+const VIDEO_LIMITS = {
+    FREE: 3,
+    PRO_ATHLETE: 15,
+    PRO_COACH: 50,
+    PREMIUM: 300,
+};
+export const registerVideoInGallery = onCall({ region: "europe-west1", maxInstances: 10 }, async (request) => {
+    if (!request.auth)
+        throw new HttpsError("unauthenticated", "Debes iniciar sesión.");
+    const uid = request.auth.uid;
+    const videoData = request.data.videoData;
+    if (!videoData || !videoData.id) {
+        throw new HttpsError("invalid-argument", "Missing videoData.");
+    }
+    return await db.runTransaction(async (t) => {
+        // Check Grace Period status (Block bypass)
+        const enforcementRef = db.collection("account_enforcement").doc(uid);
+        const enforcSnap = await t.get(enforcementRef);
+        if (enforcSnap.exists) {
+            const status = enforcSnap.data()?.status;
+            if (status === 'OVER_LIMIT_GRACE_PERIOD' || status === 'PENDING_ACCOUNT_DELETION' || status === 'DELETION_IN_PROGRESS') {
+                throw new HttpsError("failed-precondition", "No puedes subir vídeos en periodo de gracia. Elimina vídeos primero o sube de plan.");
+            }
+        }
+        // Get user to check plan logic
+        const userRef = db.collection("users").doc(uid);
+        const userSnap = await t.get(userRef);
+        let tier = userSnap.exists ? (userSnap.data()?.currentPlanId || 'FREE') : 'FREE';
+        // Bypass logic matching frontend configuration
+        if (uid.startsWith('test-'))
+            tier = uid.includes('premium') ? 'PREMIUM' : (uid.includes('pro') ? 'PRO_ATHLETE' : tier);
+        const userEmail = request.auth?.token.email;
+        if (userEmail && ['alejandrosanchez@gmail.com', 'peioetxabe@hotmail.com', 'fernandezeuken@gmail.com', 'julianweber@gmail.com'].includes(userEmail.toLowerCase())) {
+            tier = 'PREMIUM';
+        }
+        const limit = VIDEO_LIMITS[tier] || 3;
+        // Transact-safe count (limited to max 300, safe memory footprint)
+        const videosSnap = await t.get(db.collection(`userdata/${uid}/videos`));
+        const currentCount = videosSnap.docs.length;
+        if (currentCount >= limit) {
+            throw new HttpsError("resource-exhausted", `Límite excedido. Tu plan actual permite máximo ${limit} vídeos en tu galería.`);
+        }
+        // Append explicitly to subcollection architecture instead of monolithic array
+        const newVideoRef = db.collection(`userdata/${uid}/videos`).doc(videoData.id);
+        t.set(newVideoRef, videoData);
+        return { success: true, count: currentCount + 1, limit };
+    });
+});
+// Helper Centralizado: Revisa el cumplimiento tras borrar/cambiar tier
+export const evaluateVideoQuotaCompliance = async (uid) => {
+    const userRef = db.collection("users").doc(uid);
+    const userSnap = await userRef.get();
+    let tier = userSnap.exists ? (userSnap.data()?.currentPlanId || 'FREE') : 'FREE';
+    // Safety matching
+    if (uid.startsWith('test-'))
+        tier = uid.includes('premium') ? 'PREMIUM' : (uid.includes('pro') ? 'PRO_ATHLETE' : tier);
+    const limit = VIDEO_LIMITS[tier] || 3;
+    const videosSnap = await db.collection(`userdata/${uid}/videos`).get();
+    const count = videosSnap.docs.length;
+    const enforcementRef = db.collection("account_enforcement").doc(uid);
+    const enforcSnap = await enforcementRef.get();
+    if (count <= limit) {
+        // COMPLIANT -> Levantar restricciones
+        if (enforcSnap.exists && (enforcSnap.data()?.status === 'OVER_LIMIT_GRACE_PERIOD' || enforcSnap.data()?.status === 'PENDING_ACCOUNT_DELETION')) {
+            await enforcementRef.update({
+                status: 'COMPLIANT',
+                gracePeriodEndsAt: null,
+                currentVideoCount: count,
+                allowedVideoLimit: limit,
+                lastEvaluatedAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+            // Registrar notificación de salvado
+            await db.collection("notifications").add({
+                userId: uid, title: "Límite restituido",
+                body: "¡Genial! Has vuelto dentro de los márgenes de tu plan y desaparecen las restricciones.",
+                severity: "info", read: false, createdAt: new Date().toISOString()
+            });
+        }
+    }
+    else {
+        // NO COMPLIANT
+        // Si no existe o estaba Compliant, lanzar el periodo de 3 días
+        if (!enforcSnap.exists || enforcSnap.data()?.status === 'COMPLIANT') {
+            const daysUnresolved = 3;
+            const endLimitTime = new Date();
+            endLimitTime.setDate(endLimitTime.getDate() + daysUnresolved);
+            await enforcementRef.set({
+                userId: uid,
+                status: 'OVER_LIMIT_GRACE_PERIOD',
+                allowedVideoLimit: limit,
+                currentVideoCount: count,
+                gracePeriodEndsAt: admin.firestore.Timestamp.fromDate(endLimitTime),
+                lastEvaluatedAt: admin.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+            await db.collection("notifications").add({
+                userId: uid, title: "¡Límite excedido por Downgrade!",
+                body: `Tu plan actual permite ${limit} vídeos, pero tienes ${count}. Tienes 3 días completos para borrar el exceso o tu cuenta será inhabilitada y purgada de forma automática irrevocablemente.`,
+                severity: "critical", read: false, createdAt: new Date().toISOString()
+            });
+        }
+    }
+};
+export const enforcementCronJob = onSchedule({
+    schedule: "every 1 hours",
+    timeZone: "UTC",
+    region: "europe-west1"
+}, async () => {
+    const now = admin.firestore.Timestamp.now();
+    const overdueSnap = await db.collection("account_enforcement")
+        .where("status", "==", "OVER_LIMIT_GRACE_PERIOD")
+        .where("gracePeriodEndsAt", "<", now)
+        .get();
+    const batch = db.batch();
+    overdueSnap.docs.forEach(doc => {
+        batch.update(doc.ref, {
+            status: 'PENDING_ACCOUNT_DELETION',
+            lastEvaluatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+    });
+    if (overdueSnap.size > 0)
+        await batch.commit();
+    const pendingSnap = await db.collection("account_enforcement")
+        .where("status", "==", "PENDING_ACCOUNT_DELETION")
+        .limit(10) // Chunk handling safe
+        .get();
+    for (const doc of pendingSnap.docs) {
+        await doc.ref.update({ status: 'DELETION_IN_PROGRESS' });
+        const uid = doc.data().userId;
+        try {
+            await admin.auth().deleteUser(uid);
+            await db.collection("userdata").doc(uid).delete();
+            await db.collection("users").doc(uid).delete();
+            // Subcollections are generally skipped without Firebase Firebase CLI tools, but we ensure enforcement prevents login.
+            await doc.ref.update({
+                status: 'DELETED',
+                deletedAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+            console.log(`[Subscription Enforcement] CRITICAL: Purged account ${uid} per overdue bounds.`);
+        }
+        catch (e) {
+            console.error(`Error deleting user ${uid}`, e);
+            await doc.ref.update({ status: 'PENDING_ACCOUNT_DELETION' }); // Safe retry structure
+        }
+    }
+});
+// Trigger: Downgrade detection when Stripe updates the user's subscription record
+export const onSubscriptionChange = onDocumentWritten({ document: "customers/{uid}/subscriptions/{subscriptionId}", region: "europe-west1" }, async (event) => {
+    const uid = event.params.uid;
+    // After Stripe webhook has modified the record, we trigger the compliance check
+    // It will assess their current videos and push them to Grace Period if out-of-bounds
+    console.log(`[Subscription Trigger] Evaluating quota compliance for UID: ${uid}`);
+    await evaluateVideoQuotaCompliance(uid);
+});
+// Trigger: Video deletion check
+export const onVideoDeletion = onDocumentWritten({ document: "userdata/{uid}/videos/{videoId}", region: "europe-west1" }, async (event) => {
+    const uid = event.params.uid;
+    // Only run on deletes (to clear grace periods)
+    if (!event.data?.after.exists) {
+        console.log(`[Video Deletion Trigger] Re-evaluating compliance for UID: ${uid}`);
+        await evaluateVideoQuotaCompliance(uid);
     }
 });

@@ -1,0 +1,362 @@
+﻿  ÔÇó electron-builder  version=26.8.1 os=10.0.26200
+  ÔÇó loaded configuration  file=package.json ("build" field)
+  ÔÇó effective config  config=directories:
+  output: dist-electron
+  buildResources: build
+appId: com.coachai.app
+productName: Coach AI
+files:
+  - filter:
+      - dist/**/*
+      - electron/**/*
+      - public/icons/**/*
+win:
+  target:
+    - target: dir
+      arch:
+        - x64
+  icon: public/icons/icon-256.png
+
+  ÔÇó description is missed in the package.json  appPackageFile=C:\Users\Usuario\Downloads\pruebak-coach-ai (3)\package.json
+  ÔÇó author is missed in the package.json  appPackageFile=C:\Users\Usuario\Downloads\pruebak-coach-ai (3)\package.json
+  ÔÇó no event listeners found  event=beforePack
+  ÔÇó spawning        command=npm prefix -w cwd=C:\Users\Usuario\Downloads\pruebak-coach-ai (3)
+  ÔÇó exited          command=npm code=1 pid=44028
+  ÔÇó executing @electron/rebuild  electronVersion=40.6.0 arch=x64 buildFromSource=false workspaceRoot=C:\Users\Usuario\Downloads\pruebak-coach-ai (3) projectDir=./ appDir=./
+  ÔÇó installing native dependencies  arch=x64
+  ÔÇó completed installing native dependencies
+  ÔÇó packaging       platform=win32 arch=x64 electron=40.6.0 appOutDir=dist-electron\win-unpacked
+  ÔÇó no custom electronDist provided, unpacking default Electron distribution
+  ÔÇó spawning        command=C:\Users\Usuario\Downloads\pruebak-coach-ai (3)\node_modules\app-builder-bin\win\x64\app-builder.exe unpack-electron --configuration [{"platform":"win32","arch":"x64","version":"40.6.0"}] --output C:\Users\Usuario\Downloads\pruebak-coach-ai (3)\dist-electron\win-unpacked --distMacOsAppName Electron.app
+  ÔÇó map async       taskCount=2
+  ÔÇó map async       taskCount=1
+  ÔÇó map async       taskCount=75
+  ÔÇó exited          command=app-builder.exe code=0 pid=32452
+  ÔÇó no event listeners found  event=afterExtract
+  ÔÇó searching for node modules  pm=npm searchDir=C:\Users\Usuario\Downloads\pruebak-coach-ai (3)
+node.exe : 
+(node:48272) 
+[DEP0190] 
+DeprecationWarning: 
+Passing args to a 
+child process with 
+shell option true 
+can lead to security 
+vulnerabilities, as 
+the arguments are 
+not escaped, only 
+concatenated.
+En línea: 1 
+Carácter: 1
++ & "C:\Program Files
+\nodejs/node.exe" "C:
+\Users\Usuario\AppDat
+a\Roamin ...
++ ~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~
+    + CategoryInfo   
+           : NotSpe  
+  cified: ((node:4   
+ 8272) [D...y con    
+catenated.:Strin    
+g) [], RemoteExc    
+eption
+    + FullyQualified 
+   ErrorId : Native  
+  CommandError
+ 
+(Use `node 
+--trace-deprecation 
+...` to show where 
+the warning was 
+created)
+  ÔÇó node modules collection complete  packageName=coach-ai depCount=120
+  ÔÇó collected node modules  pm=npm nodeModules=[{"name":"@firebase/analytics","version":"0.10.8","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@firebase\\analytics"},{"name":"@firebase/analytics-compat","version":"0.2.14","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@firebase\\analytics-compat"},{"name":"@firebase/analytics-types","version":"0.8.2","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@firebase\\analytics-types"},{"name":"@firebase/app","version":"0.10.13","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@firebase\\app"},{"name":"@firebase/app-check","version":"0.8.8","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@firebase\\app-check"},{"name":"@firebase/app-check-compat","version":"0.3.15","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@firebase\\app-check-compat"},{"name":"@firebase/app-check-interop-types","version":"0.3.2","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@firebase\\app-check-interop-types"},{"name":"@firebase/app-check-types","version":"0.5.2","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@firebase\\app-check-types"},{"name":"@firebase/app-compat","version":"0.2.43","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@firebase\\app-compat"},{"name":"@firebase/app-types","version":"0.9.2","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@firebase\\app-types"},{"name":"@firebase/auth","version":"1.7.9","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\firebase\\node_modules\\@firebase\\auth"},{"name":"@firebase/auth-compat","version":"0.5.14","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@firebase\\auth-compat"},{"name":"@firebase/auth-interop-types","version":"0.2.3","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@firebase\\auth-interop-types"},{"name":"@firebase/auth-types","version":"0.12.2","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@firebase\\auth-types"},{"name":"@firebase/component","version":"0.6.9","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@firebase\\component"},{"name":"@firebase/data-connect","version":"0.1.0","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@firebase\\data-connect"},{"name":"@firebase/database","version":"1.0.8","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@firebase\\database"},{"name":"@firebase/database-compat","version":"1.0.8","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@firebase\\database-compat"},{"name":"@firebase/database-types","version":"1.0.5","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@firebase\\database-types"},{"name":"@firebase/firestore","version":"4.7.3","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@firebase\\firestore"},{"name":"@firebase/firestore-compat","version":"0.3.38","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@firebase\\firestore-compat"},{"name":"@firebase/firestore-types","version":"3.0.2","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@firebase\\firestore-types"},{"name":"@firebase/functions","version":"0.11.8","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@firebase\\functions"},{"name":"@firebase/functions-compat","version":"0.3.14","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@firebase\\functions-compat"},{"name":"@firebase/functions-types","version":"0.6.2","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@firebase\\functions-types"},{"name":"@firebase/installations","version":"0.6.9","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@firebase\\installations"},{"name":"@firebase/installations-compat","version":"0.2.9","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@firebase\\installations-compat"},{"name":"@firebase/installations-types","version":"0.5.2","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@firebase\\installations-types"},{"name":"@firebase/logger","version":"0.4.2","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@firebase\\logger"},{"name":"@firebase/messaging","version":"0.12.12","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@firebase\\messaging"},{"name":"@firebase/messaging-compat","version":"0.2.12","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@firebase\\messaging-compat"},{"name":"@firebase/messaging-interop-types","version":"0.2.2","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@firebase\\messaging-interop-types"},{"name":"@firebase/performance","version":"0.6.9","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@firebase\\performance"},{"name":"@firebase/performance-compat","version":"0.2.9","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@firebase\\performance-compat"},{"name":"@firebase/performance-types","version":"0.2.2","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@firebase\\performance-types"},{"name":"@firebase/remote-config","version":"0.4.9","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@firebase\\remote-config"},{"name":"@firebase/remote-config-compat","version":"0.2.9","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@firebase\\remote-config-compat"},{"name":"@firebase/remote-config-types","version":"0.3.2","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@firebase\\remote-config-types"},{"name":"@firebase/storage","version":"0.13.2","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@firebase\\storage"},{"name":"@firebase/storage-compat","version":"0.3.12","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@firebase\\storage-compat"},{"name":"@firebase/storage-types","version":"0.8.2","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@firebase\\storage-types"},{"name":"@firebase/util","version":"1.10.0","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@firebase\\util"},{"name":"@firebase/vertexai-preview","version":"0.0.4","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@firebase\\vertexai-preview"},{"name":"@firebase/webchannel-wrapper","version":"1.0.1","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@firebase\\webchannel-wrapper"},{"name":"@google/genai","version":"0.2.0","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@google\\genai"},{"name":"@grpc/grpc-js","version":"1.9.15","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@grpc\\grpc-js"},{"name":"@grpc/proto-loader","version":"0.7.15","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@grpc\\proto-loader"},{"name":"@mediapipe/tasks-vision","version":"0.10.22-rc.20250304","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@mediapipe\\tasks-vision"},{"name":"@protobufjs/aspromise","version":"1.1.2","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@protobufjs\\aspromise"},{"name":"@protobufjs/base64","version":"1.1.2","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@protobufjs\\base64"},{"name":"@protobufjs/codegen","version":"2.0.4","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@protobufjs\\codegen"},{"name":"@protobufjs/eventemitter","version":"1.1.0","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@protobufjs\\eventemitter"},{"name":"@protobufjs/fetch","version":"1.1.0","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@protobufjs\\fetch"},{"name":"@protobufjs/float","version":"1.0.2","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@protobufjs\\float"},{"name":"@protobufjs/inquire","version":"1.1.0","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@protobufjs\\inquire"},{"name":"@protobufjs/path","version":"1.1.2","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@protobufjs\\path"},{"name":"@protobufjs/pool","version":"1.1.0","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@protobufjs\\pool"},{"name":"@protobufjs/utf8","version":"1.1.0","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@protobufjs\\utf8"},{"name":"@types/node","version":"25.0.3","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\@types\\node"},{"name":"agent-base","version":"7.1.4","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\agent-base"},{"name":"ansi-regex","version":"5.0.1","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\ansi-regex"},{"name":"ansi-styles","version":"4.3.0","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\ansi-styles"},{"name":"base64-js","version":"1.5.1","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\base64-js"},{"name":"bignumber.js","version":"9.3.1","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\bignumber.js"},{"name":"buffer-equal-constant-time","version":"1.0.1","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\buffer-equal-constant-time"},{"name":"cliui","version":"8.0.1","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\cliui"},{"name":"clsx","version":"2.1.1","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\clsx"},{"name":"color-convert","version":"2.0.1","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\color-convert"},{"name":"color-name","version":"1.1.4","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\color-name"},{"name":"debug","version":"4.4.3","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\debug"},{"name":"ecdsa-sig-formatter","version":"1.0.11","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\ecdsa-sig-formatter"},{"name":"emoji-regex","version":"8.0.0","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\emoji-regex"},{"name":"escalade","version":"3.2.0","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\escalade"},{"name":"extend","version":"3.0.2","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\extend"},{"name":"faye-websocket","version":"0.11.4","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\faye-websocket"},{"name":"firebase","version":"10.14.1","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\firebase"},{"name":"gaxios","version":"6.7.1","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\gaxios"},{"name":"gcp-metadata","version":"6.1.1","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\gcp-metadata"},{"name":"get-caller-file","version":"2.0.5","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\get-caller-file"},{"name":"google-auth-library","version":"9.15.1","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\google-auth-library"},{"name":"google-logging-utils","version":"0.0.2","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\google-logging-utils"},{"name":"gtoken","version":"7.1.0","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\gtoken"},{"name":"http-parser-js","version":"0.5.10","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\http-parser-js"},{"name":"https-proxy-agent","version":"7.0.6","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\https-proxy-agent"},{"name":"idb","version":"7.1.1","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\idb"},{"name":"is-fullwidth-code-point","version":"3.0.0","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\is-fullwidth-code-point"},{"name":"is-stream","version":"2.0.1","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\is-stream"},{"name":"js-tokens","version":"4.0.0","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\js-tokens"},{"name":"json-bigint","version":"1.0.0","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\json-bigint"},{"name":"jwa","version":"2.0.1","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\jwa"},{"name":"jws","version":"4.0.1","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\jws"},{"name":"lodash.camelcase","version":"4.3.0","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\lodash.camelcase"},{"name":"long","version":"5.3.2","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\long"},{"name":"loose-envify","version":"1.4.0","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\loose-envify"},{"name":"lucide-react","version":"0.344.0","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\lucide-react"},{"name":"ms","version":"2.1.3","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\ms"},{"name":"node-fetch","version":"2.7.0","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\node-fetch"},{"name":"protobufjs","version":"7.5.4","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\protobufjs"},{"name":"react","version":"18.3.1","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\react"},{"name":"react-dom","version":"18.3.1","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\react-dom"},{"name":"require-directory","version":"2.1.1","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\require-directory"},{"name":"safe-buffer","version":"5.2.1","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\safe-buffer"},{"name":"scheduler","version":"0.23.2","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\scheduler"},{"name":"string-width","version":"4.2.3","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\string-width"},{"name":"strip-ansi","version":"6.0.1","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\strip-ansi"},{"name":"tailwind-merge","version":"2.6.0","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\tailwind-merge"},{"name":"tr46","version":"0.0.3","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\tr46"},{"name":"tslib","version":"2.8.1","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\tslib"},{"name":"undici","version":"6.19.7","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\undici"},{"name":"undici-types","version":"7.16.0","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\undici-types"},{"name":"uuid","version":"9.0.1","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\uuid"},{"name":"webidl-conversions","version":"3.0.1","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\webidl-conversions"},{"name":"websocket-driver","version":"0.7.4","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\websocket-driver"},{"name":"websocket-extensions","version":"0.1.4","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\websocket-extensions"},{"name":"whatwg-url","version":"5.0.0","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\whatwg-url"},{"name":"wrap-ansi","version":"7.0.0","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\wrap-ansi"},{"name":"ws","version":"8.18.3","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\ws"},{"name":"y18n","version":"5.0.8","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\y18n"},{"name":"yargs","version":"17.7.2","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\yargs"},{"name":"yargs-parser","version":"21.1.1","dir":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\node_modules\\yargs-parser"}]
+  ÔÇó duplicate dependency references  dependencies=["gaxios@6.7.1","gaxios@6.7.1","jws@4.0.1","ecdsa-sig-formatter@1.0.11","@firebase/analytics@0.10.8","@firebase/app-compat@0.2.43","@firebase/util@1.10.0","@firebase/util@1.10.0","@firebase/app@0.10.13","@firebase/component@0.6.9","@firebase/installations@0.6.9","@firebase/util@1.10.0","@firebase/app-check@0.8.8","@firebase/app-compat@0.2.43","@firebase/component@0.6.9","@firebase/logger@0.4.2","@firebase/util@1.10.0","@firebase/app@0.10.13","@firebase/component@0.6.9","@firebase/logger@0.4.2","@firebase/util@1.10.0","@firebase/app@0.10.13","@firebase/component@0.6.9","@firebase/logger@0.4.2","@firebase/util@1.10.0","@firebase/component@0.6.9","@firebase/logger@0.4.2","@firebase/util@1.10.0","@firebase/app-compat@0.2.43","@firebase/util@1.10.0","@firebase/app@0.10.13","@firebase/component@0.6.9","@firebase/logger@0.4.2","@firebase/util@1.10.0","@firebase/component@0.6.9","@firebase/util@1.10.0","@firebase/app@0.10.13","@firebase/component@0.6.9","@firebase/logger@0.4.2","@firebase/util@1.10.0","@firebase/app@0.10.13","@firebase/component@0.6.9","@firebase/logger@0.4.2","@firebase/util@1.10.0","@firebase/component@0.6.9","@firebase/util@1.10.0","@firebase/database@1.0.8","@firebase/logger@0.4.2","@firebase/util@1.10.0","@firebase/component@0.6.9","@firebase/logger@0.4.2","@firebase/util@1.10.0","@firebase/app-compat@0.2.43","@firebase/component@0.6.9","@firebase/util@1.10.0","@firebase/firestore@4.7.3","@firebase/util@1.10.0","@firebase/app@0.10.13","@firebase/component@0.6.9","@firebase/logger@0.4.2","@firebase/util@1.10.0","@grpc/proto-loader@0.7.15","@types/node@25.0.3","string-width@4.2.3","string-width@4.2.3","strip-ansi@6.0.1","strip-ansi@6.0.1","@firebase/app-compat@0.2.43","@firebase/component@0.6.9","@firebase/functions@0.11.8","@firebase/util@1.10.0","@firebase/app@0.10.13","@firebase/component@0.6.9","@firebase/util@1.10.0","@firebase/app-compat@0.2.43","@firebase/component@0.6.9","@firebase/installations@0.6.9","@firebase/util@1.10.0","@firebase/app@0.10.13","@firebase/component@0.6.9","@firebase/util@1.10.0","@firebase/app-compat@0.2.43","@firebase/component@0.6.9","@firebase/messaging@0.12.12","@firebase/util@1.10.0","@firebase/app@0.10.13","@firebase/component@0.6.9","@firebase/installations@0.6.9","@firebase/util@1.10.0","@firebase/app-compat@0.2.43","@firebase/component@0.6.9","@firebase/logger@0.4.2","@firebase/performance@0.6.9","@firebase/util@1.10.0","@firebase/app@0.10.13","@firebase/component@0.6.9","@firebase/installations@0.6.9","@firebase/logger@0.4.2","@firebase/util@1.10.0","@firebase/app-compat@0.2.43","@firebase/component@0.6.9","@firebase/logger@0.4.2","@firebase/remote-config@0.4.9","@firebase/util@1.10.0","@firebase/app@0.10.13","@firebase/component@0.6.9","@firebase/installations@0.6.9","@firebase/logger@0.4.2","@firebase/util@1.10.0","@firebase/app-compat@0.2.43","@firebase/component@0.6.9","@firebase/util@1.10.0","@firebase/storage@0.13.2","@firebase/util@1.10.0","@firebase/app@0.10.13","@firebase/component@0.6.9","@firebase/util@1.10.0","@firebase/app@0.10.13","@firebase/component@0.6.9","@firebase/logger@0.4.2","@firebase/util@1.10.0","react@18.3.1","react@18.3.1","loose-envify@1.4.0","loose-envify@1.4.0"]
+  ÔÇó identified module  dep=@firebase/analytics from=node_modules\@firebase\analytics to=dist-electron\win-unpacked\resources\app\node_modules\@firebase\analytics filesCount=9
+  ÔÇó identified module  dep=@firebase/analytics-compat from=node_modules\@firebase\analytics-compat to=dist-electron\win-unpacked\resources\app\node_modules\@firebase\analytics-compat filesCount=8
+  ÔÇó identified module  dep=@firebase/analytics-types from=node_modules\@firebase\analytics-types to=dist-electron\win-unpacked\resources\app\node_modules\@firebase\analytics-types filesCount=1
+  ÔÇó identified module  dep=@firebase/app from=node_modules\@firebase\app to=dist-electron\win-unpacked\resources\app\node_modules\@firebase\app filesCount=9
+  ÔÇó identified module  dep=@firebase/app-check from=node_modules\@firebase\app-check to=dist-electron\win-unpacked\resources\app\node_modules\@firebase\app-check filesCount=9
+  ÔÇó identified module  dep=@firebase/app-check-compat from=node_modules\@firebase\app-check-compat to=dist-electron\win-unpacked\resources\app\node_modules\@firebase\app-check-compat filesCount=8
+  ÔÇó identified module  dep=@firebase/app-check-interop-types from=node_modules\@firebase\app-check-interop-types to=dist-electron\win-unpacked\resources\app\node_modules\@firebase\app-check-interop-types filesCount=1
+  ÔÇó identified module  dep=@firebase/app-check-types from=node_modules\@firebase\app-check-types to=dist-electron\win-unpacked\resources\app\node_modules\@firebase\app-check-types filesCount=1
+  ÔÇó identified module  dep=@firebase/app-compat from=node_modules\@firebase\app-compat to=dist-electron\win-unpacked\resources\app\node_modules\@firebase\app-compat filesCount=13
+  ÔÇó identified module  dep=@firebase/app-types from=node_modules\@firebase\app-types to=dist-electron\win-unpacked\resources\app\node_modules\@firebase\app-types filesCount=1
+  ÔÇó identified module  dep=@firebase/auth from=node_modules\firebase\node_modules\@firebase\auth to=dist-electron\win-unpacked\resources\app\node_modules\@firebase\auth filesCount=65
+  ÔÇó identified module  dep=@firebase/auth-compat from=node_modules\@firebase\auth-compat to=dist-electron\win-unpacked\resources\app\node_modules\@firebase\auth-compat filesCount=14
+  ÔÇó identified module  dep=@firebase/auth-interop-types from=node_modules\@firebase\auth-interop-types to=dist-electron\win-unpacked\resources\app\node_modules\@firebase\auth-interop-types filesCount=1
+  ÔÇó identified module  dep=@firebase/auth-types from=node_modules\@firebase\auth-types to=dist-electron\win-unpacked\resources\app\node_modules\@firebase\auth-types filesCount=1
+  ÔÇó identified module  dep=@firebase/component from=node_modules\@firebase\component to=dist-electron\win-unpacked\resources\app\node_modules\@firebase\component filesCount=8
+  ÔÇó identified module  dep=@firebase/data-connect from=node_modules\@firebase\data-connect to=dist-electron\win-unpacked\resources\app\node_modules\@firebase\data-connect filesCount=13
+  ÔÇó identified module  dep=@firebase/database from=node_modules\@firebase\database to=dist-electron\win-unpacked\resources\app\node_modules\@firebase\database filesCount=15
+  ÔÇó identified module  dep=@firebase/database-compat from=node_modules\@firebase\database-compat to=dist-electron\win-unpacked\resources\app\node_modules\@firebase\database-compat filesCount=13
+  ÔÇó identified module  dep=@firebase/database-types from=node_modules\@firebase\database-types to=dist-electron\win-unpacked\resources\app\node_modules\@firebase\database-types filesCount=1
+  ÔÇó identified module  dep=@firebase/firestore from=node_modules\@firebase\firestore to=dist-electron\win-unpacked\resources\app\node_modules\@firebase\firestore filesCount=27
+  ÔÇó identified module  dep=@firebase/firestore-compat from=node_modules\@firebase\firestore-compat to=dist-electron\win-unpacked\resources\app\node_modules\@firebase\firestore-compat filesCount=14
+  ÔÇó identified module  dep=@firebase/firestore-types from=node_modules\@firebase\firestore-types to=dist-electron\win-unpacked\resources\app\node_modules\@firebase\firestore-types filesCount=1
+  ÔÇó identified module  dep=@firebase/functions from=node_modules\@firebase\functions to=dist-electron\win-unpacked\resources\app\node_modules\@firebase\functions filesCount=13
+  ÔÇó identified module  dep=@firebase/functions-compat from=node_modules\@firebase\functions-compat to=dist-electron\win-unpacked\resources\app\node_modules\@firebase\functions-compat filesCount=12
+  ÔÇó identified module  dep=@firebase/functions-types from=node_modules\@firebase\functions-types to=dist-electron\win-unpacked\resources\app\node_modules\@firebase\functions-types filesCount=1
+  ÔÇó identified module  dep=@firebase/installations from=node_modules\@firebase\installations to=dist-electron\win-unpacked\resources\app\node_modules\@firebase\installations filesCount=9
+  ÔÇó identified module  dep=@firebase/installations-compat from=node_modules\@firebase\installations-compat to=dist-electron\win-unpacked\resources\app\node_modules\@firebase\installations-compat filesCount=8
+  ÔÇó identified module  dep=@firebase/installations-types from=node_modules\@firebase\installations-types to=dist-electron\win-unpacked\resources\app\node_modules\@firebase\installations-types filesCount=1
+  ÔÇó identified module  dep=@firebase/logger from=node_modules\@firebase\logger to=dist-electron\win-unpacked\resources\app\node_modules\@firebase\logger filesCount=8
+  ÔÇó identified module  dep=@firebase/messaging from=node_modules\@firebase\messaging to=dist-electron\win-unpacked\resources\app\node_modules\@firebase\messaging filesCount=14
+  ÔÇó identified module  dep=@firebase/messaging-compat from=node_modules\@firebase\messaging-compat to=dist-electron\win-unpacked\resources\app\node_modules\@firebase\messaging-compat filesCount=8
+  ÔÇó identified module  dep=@firebase/messaging-interop-types from=node_modules\@firebase\messaging-interop-types to=dist-electron\win-unpacked\resources\app\node_modules\@firebase\messaging-interop-types filesCount=1
+  ÔÇó identified module  dep=@firebase/performance from=node_modules\@firebase\performance to=dist-electron\win-unpacked\resources\app\node_modules\@firebase\performance filesCount=9
+  ÔÇó identified module  dep=@firebase/performance-compat from=node_modules\@firebase\performance-compat to=dist-electron\win-unpacked\resources\app\node_modules\@firebase\performance-compat filesCount=8
+  ÔÇó identified module  dep=@firebase/performance-types from=node_modules\@firebase\performance-types to=dist-electron\win-unpacked\resources\app\node_modules\@firebase\performance-types filesCount=1
+  ÔÇó identified module  dep=@firebase/remote-config from=node_modules\@firebase\remote-config to=dist-electron\win-unpacked\resources\app\node_modules\@firebase\remote-config filesCount=9
+  ÔÇó identified module  dep=@firebase/remote-config-compat from=node_modules\@firebase\remote-config-compat to=dist-electron\win-unpacked\resources\app\node_modules\@firebase\remote-config-compat filesCount=8
+  ÔÇó identified module  dep=@firebase/remote-config-types from=node_modules\@firebase\remote-config-types to=dist-electron\win-unpacked\resources\app\node_modules\@firebase\remote-config-types filesCount=1
+  ÔÇó identified module  dep=@firebase/storage from=node_modules\@firebase\storage to=dist-electron\win-unpacked\resources\app\node_modules\@firebase\storage filesCount=15
+  ÔÇó identified module  dep=@firebase/storage-compat from=node_modules\@firebase\storage-compat to=dist-electron\win-unpacked\resources\app\node_modules\@firebase\storage-compat filesCount=8
+  ÔÇó identified module  dep=@firebase/storage-types from=node_modules\@firebase\storage-types to=dist-electron\win-unpacked\resources\app\node_modules\@firebase\storage-types filesCount=1
+  ÔÇó identified module  dep=@firebase/util from=node_modules\@firebase\util to=dist-electron\win-unpacked\resources\app\node_modules\@firebase\util filesCount=13
+  ÔÇó identified module  dep=@firebase/vertexai-preview from=node_modules\@firebase\vertexai-preview to=dist-electron\win-unpacked\resources\app\node_modules\@firebase\vertexai-preview filesCount=7
+  ÔÇó identified module  dep=@firebase/webchannel-wrapper from=node_modules\@firebase\webchannel-wrapper to=dist-electron\win-unpacked\resources\app\node_modules\@firebase\webchannel-wrapper filesCount=14
+  ÔÇó identified module  dep=@google/genai from=node_modules\@google\genai to=dist-electron\win-unpacked\resources\app\node_modules\@google\genai filesCount=12
+  ÔÇó identified module  dep=@grpc/grpc-js from=node_modules\@grpc\grpc-js to=dist-electron\win-unpacked\resources\app\node_modules\@grpc\grpc-js filesCount=324
+  ÔÇó identified module  dep=@grpc/proto-loader from=node_modules\@grpc\proto-loader to=dist-electron\win-unpacked\resources\app\node_modules\@grpc\proto-loader filesCount=8
+  ÔÇó identified module  dep=@mediapipe/tasks-vision from=node_modules\@mediapipe\tasks-vision to=dist-electron\win-unpacked\resources\app\node_modules\@mediapipe\tasks-vision filesCount=9
+  ÔÇó identified module  dep=@protobufjs/aspromise from=node_modules\@protobufjs\aspromise to=dist-electron\win-unpacked\resources\app\node_modules\@protobufjs\aspromise filesCount=3
+  ÔÇó identified module  dep=@protobufjs/base64 from=node_modules\@protobufjs\base64 to=dist-electron\win-unpacked\resources\app\node_modules\@protobufjs\base64 filesCount=3
+  ÔÇó identified module  dep=@protobufjs/codegen from=node_modules\@protobufjs\codegen to=dist-electron\win-unpacked\resources\app\node_modules\@protobufjs\codegen filesCount=3
+  ÔÇó identified module  dep=@protobufjs/eventemitter from=node_modules\@protobufjs\eventemitter to=dist-electron\win-unpacked\resources\app\node_modules\@protobufjs\eventemitter filesCount=3
+  ÔÇó identified module  dep=@protobufjs/fetch from=node_modules\@protobufjs\fetch to=dist-electron\win-unpacked\resources\app\node_modules\@protobufjs\fetch filesCount=3
+  ÔÇó identified module  dep=@protobufjs/float from=node_modules\@protobufjs\float to=dist-electron\win-unpacked\resources\app\node_modules\@protobufjs\float filesCount=5
+  ÔÇó identified module  dep=@protobufjs/inquire from=node_modules\@protobufjs\inquire to=dist-electron\win-unpacked\resources\app\node_modules\@protobufjs\inquire filesCount=3
+  ÔÇó identified module  dep=@protobufjs/path from=node_modules\@protobufjs\path to=dist-electron\win-unpacked\resources\app\node_modules\@protobufjs\path filesCount=3
+  ÔÇó identified module  dep=@protobufjs/pool from=node_modules\@protobufjs\pool to=dist-electron\win-unpacked\resources\app\node_modules\@protobufjs\pool filesCount=3
+  ÔÇó identified module  dep=@protobufjs/utf8 from=node_modules\@protobufjs\utf8 to=dist-electron\win-unpacked\resources\app\node_modules\@protobufjs\utf8 filesCount=3
+  ÔÇó identified module  dep=@types/node from=node_modules\@types\node to=dist-electron\win-unpacked\resources\app\node_modules\@types\node filesCount=2
+  ÔÇó identified module  dep=agent-base from=node_modules\agent-base to=dist-electron\win-unpacked\resources\app\node_modules\agent-base filesCount=8
+  ÔÇó identified module  dep=ansi-regex from=node_modules\ansi-regex to=dist-electron\win-unpacked\resources\app\node_modules\ansi-regex filesCount=3
+  ÔÇó identified module  dep=ansi-styles from=node_modules\ansi-styles to=dist-electron\win-unpacked\resources\app\node_modules\ansi-styles filesCount=3
+  ÔÇó identified module  dep=base64-js from=node_modules\base64-js to=dist-electron\win-unpacked\resources\app\node_modules\base64-js filesCount=4
+  ÔÇó identified module  dep=bignumber.js from=node_modules\bignumber.js to=dist-electron\win-unpacked\resources\app\node_modules\bignumber.js filesCount=6
+  ÔÇó identified module  dep=buffer-equal-constant-time from=node_modules\buffer-equal-constant-time to=dist-electron\win-unpacked\resources\app\node_modules\buffer-equal-constant-time filesCount=4
+  ÔÇó identified module  dep=cliui from=node_modules\cliui to=dist-electron\win-unpacked\resources\app\node_modules\cliui filesCount=7
+  ÔÇó identified module  dep=clsx from=node_modules\clsx to=dist-electron\win-unpacked\resources\app\node_modules\clsx filesCount=8
+  ÔÇó identified module  dep=color-convert from=node_modules\color-convert to=dist-electron\win-unpacked\resources\app\node_modules\color-convert filesCount=5
+  ÔÇó identified module  dep=color-name from=node_modules\color-name to=dist-electron\win-unpacked\resources\app\node_modules\color-name filesCount=3
+  ÔÇó identified module  dep=debug from=node_modules\debug to=dist-electron\win-unpacked\resources\app\node_modules\debug filesCount=6
+  ÔÇó identified module  dep=ecdsa-sig-formatter from=node_modules\ecdsa-sig-formatter to=dist-electron\win-unpacked\resources\app\node_modules\ecdsa-sig-formatter filesCount=5
+  ÔÇó identified module  dep=emoji-regex from=node_modules\emoji-regex to=dist-electron\win-unpacked\resources\app\node_modules\emoji-regex filesCount=6
+  ÔÇó identified module  dep=escalade from=node_modules\escalade to=dist-electron\win-unpacked\resources\app\node_modules\escalade filesCount=8
+  ÔÇó identified module  dep=extend from=node_modules\extend to=dist-electron\win-unpacked\resources\app\node_modules\extend filesCount=6
+  ÔÇó identified module  dep=faye-websocket from=node_modules\faye-websocket to=dist-electron\win-unpacked\resources\app\node_modules\faye-websocket filesCount=8
+  ÔÇó identified module  dep=firebase from=node_modules\firebase to=dist-electron\win-unpacked\resources\app\node_modules\firebase filesCount=314
+  ÔÇó identified module  dep=gaxios from=node_modules\gaxios to=dist-electron\win-unpacked\resources\app\node_modules\gaxios filesCount=14
+  ÔÇó identified module  dep=gcp-metadata from=node_modules\gcp-metadata to=dist-electron\win-unpacked\resources\app\node_modules\gcp-metadata filesCount=6
+  ÔÇó identified module  dep=get-caller-file from=node_modules\get-caller-file to=dist-electron\win-unpacked\resources\app\node_modules\get-caller-file filesCount=4
+  ÔÇó identified module  dep=google-auth-library from=node_modules\google-auth-library to=dist-electron\win-unpacked\resources\app\node_modules\google-auth-library filesCount=39
+  ÔÇó identified module  dep=google-logging-utils from=node_modules\google-logging-utils to=dist-electron\win-unpacked\resources\app\node_modules\google-logging-utils filesCount=10
+  ÔÇó identified module  dep=gtoken from=node_modules\gtoken to=dist-electron\win-unpacked\resources\app\node_modules\gtoken filesCount=3
+  ÔÇó identified module  dep=http-parser-js from=node_modules\http-parser-js to=dist-electron\win-unpacked\resources\app\node_modules\http-parser-js filesCount=3
+  ÔÇó identified module  dep=https-proxy-agent from=node_modules\https-proxy-agent to=dist-electron\win-unpacked\resources\app\node_modules\https-proxy-agent filesCount=8
+  ÔÇó identified module  dep=idb from=node_modules\idb to=dist-electron\win-unpacked\resources\app\node_modules\idb filesCount=12
+  ÔÇó identified module  dep=is-fullwidth-code-point from=node_modules\is-fullwidth-code-point to=dist-electron\win-unpacked\resources\app\node_modules\is-fullwidth-code-point filesCount=3
+  ÔÇó identified module  dep=is-stream from=node_modules\is-stream to=dist-electron\win-unpacked\resources\app\node_modules\is-stream filesCount=3
+  ÔÇó identified module  dep=js-tokens from=node_modules\js-tokens to=dist-electron\win-unpacked\resources\app\node_modules\js-tokens filesCount=3
+  ÔÇó identified module  dep=json-bigint from=node_modules\json-bigint to=dist-electron\win-unpacked\resources\app\node_modules\json-bigint filesCount=5
+  ÔÇó identified module  dep=jwa from=node_modules\jwa to=dist-electron\win-unpacked\resources\app\node_modules\jwa filesCount=4
+  ÔÇó identified module  dep=jws from=node_modules\jws to=dist-electron\win-unpacked\resources\app\node_modules\jws filesCount=8
+  ÔÇó identified module  dep=lodash.camelcase from=node_modules\lodash.camelcase to=dist-electron\win-unpacked\resources\app\node_modules\lodash.camelcase filesCount=3
+  ÔÇó identified module  dep=long from=node_modules\long to=dist-electron\win-unpacked\resources\app\node_modules\long filesCount=5
+  ÔÇó identified module  dep=loose-envify from=node_modules\loose-envify to=dist-electron\win-unpacked\resources\app\node_modules\loose-envify filesCount=7
+  ÔÇó identified module  dep=lucide-react from=node_modules\lucide-react to=dist-electron\win-unpacked\resources\app\node_modules\lucide-react filesCount=3050
+  ÔÇó identified module  dep=ms from=node_modules\ms to=dist-electron\win-unpacked\resources\app\node_modules\ms filesCount=3
+  ÔÇó identified module  dep=node-fetch from=node_modules\node-fetch to=dist-electron\win-unpacked\resources\app\node_modules\node-fetch filesCount=6
+  ÔÇó identified module  dep=protobufjs from=node_modules\protobufjs to=dist-electron\win-unpacked\resources\app\node_modules\protobufjs filesCount=72
+  ÔÇó identified module  dep=react from=node_modules\react to=dist-electron\win-unpacked\resources\app\node_modules\react filesCount=19
+  ÔÇó identified module  dep=react-dom from=node_modules\react-dom to=dist-electron\win-unpacked\resources\app\node_modules\react-dom filesCount=31
+  ÔÇó identified module  dep=require-directory from=node_modules\require-directory to=dist-electron\win-unpacked\resources\app\node_modules\require-directory filesCount=4
+  ÔÇó identified module  dep=safe-buffer from=node_modules\safe-buffer to=dist-electron\win-unpacked\resources\app\node_modules\safe-buffer filesCount=3
+  ÔÇó identified module  dep=scheduler from=node_modules\scheduler to=dist-electron\win-unpacked\resources\app\node_modules\scheduler filesCount=16
+  ÔÇó identified module  dep=string-width from=node_modules\string-width to=dist-electron\win-unpacked\resources\app\node_modules\string-width filesCount=3
+  ÔÇó identified module  dep=strip-ansi from=node_modules\strip-ansi to=dist-electron\win-unpacked\resources\app\node_modules\strip-ansi filesCount=3
+  ÔÇó identified module  dep=tailwind-merge from=node_modules\tailwind-merge to=dist-electron\win-unpacked\resources\app\node_modules\tailwind-merge filesCount=25
+  ÔÇó identified module  dep=tr46 from=node_modules\tr46 to=dist-electron\win-unpacked\resources\app\node_modules\tr46 filesCount=3
+  ÔÇó identified module  dep=tslib from=node_modules\tslib to=dist-electron\win-unpacked\resources\app\node_modules\tslib filesCount=11
+  ÔÇó identified module  dep=undici from=node_modules\undici to=dist-electron\win-unpacked\resources\app\node_modules\undici filesCount=133
+  ÔÇó identified module  dep=undici-types from=node_modules\undici-types to=dist-electron\win-unpacked\resources\app\node_modules\undici-types filesCount=2
+  ÔÇó identified module  dep=uuid from=node_modules\uuid to=dist-electron\win-unpacked\resources\app\node_modules\uuid filesCount=74
+  ÔÇó identified module  dep=webidl-conversions from=node_modules\webidl-conversions to=dist-electron\win-unpacked\resources\app\node_modules\webidl-conversions filesCount=3
+  ÔÇó identified module  dep=websocket-driver from=node_modules\websocket-driver to=dist-electron\win-unpacked\resources\app\node_modules\websocket-driver filesCount=16
+  ÔÇó identified module  dep=websocket-extensions from=node_modules\websocket-extensions to=dist-electron\win-unpacked\resources\app\node_modules\websocket-extensions filesCount=10
+  ÔÇó identified module  dep=whatwg-url from=node_modules\whatwg-url to=dist-electron\win-unpacked\resources\app\node_modules\whatwg-url filesCount=7
+  ÔÇó identified module  dep=wrap-ansi from=node_modules\wrap-ansi to=dist-electron\win-unpacked\resources\app\node_modules\wrap-ansi filesCount=3
+  ÔÇó identified module  dep=ws from=node_modules\ws to=dist-electron\win-unpacked\resources\app\node_modules\ws filesCount=18
+  ÔÇó identified module  dep=y18n from=node_modules\y18n to=dist-electron\win-unpacked\resources\app\node_modules\y18n filesCount=7
+  ÔÇó identified module  dep=yargs from=node_modules\yargs to=dist-electron\win-unpacked\resources\app\node_modules\yargs filesCount=60
+  ÔÇó identified module  dep=yargs-parser from=node_modules\yargs-parser to=dist-electron\win-unpacked\resources\app\node_modules\yargs-parser filesCount=9
+  ÔÇó updating asar integrity executable resource  executablePath=dist-electron\win-unpacked\Coach AI.exe
+  ÔÇó spawning        command=C:\Users\Usuario\Downloads\pruebak-coach-ai (3)\node_modules\app-builder-bin\win\x64\app-builder.exe icon --format ico --root C:\Users\Usuario\Downloads\pruebak-coach-ai (3)\build --root C:\Users\Usuario\Downloads\pruebak-coach-ai (3) --out C:\Users\Usuario\Downloads\pruebak-coach-ai (3)\dist-electron\.icon-ico --input public/icons/icon-256.png
+  ÔÇó path doesn't exist  path=C:\Users\Usuario\Downloads\pruebak-coach-ai (3)\build\public\icons\icon-256.png
+  ÔÇó path resolved   path=C:\Users\Usuario\Downloads\pruebak-coach-ai (3)\public\icons\icon-256.png outputFormat=ico
+  ÔÇó exited          command=app-builder.exe code=0 pid=54036 out={"icons":[{"file":"C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\dist-electron\\.icon-ico\\icon.ico","size":256}],"isFallback":false}
+  ÔÇó spawning        command=C:\Users\Usuario\Downloads\pruebak-coach-ai (3)\node_modules\app-builder-bin\win\x64\app-builder.exe rcedit --args ["C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\dist-electron\\win-unpacked\\Coach AI.exe","--set-version-string","FileDescription","Coach AI","--set-version-string","ProductName","Coach AI","--set-version-string","LegalCopyright","Copyright ┬® 2026 Coach AI","--set-file-version","1.0.0","--set-p 5be8cc698dc154d52724921aa6f5a0e03b3c06708acb66e91c81a48d06dc8349 (sha256 hash) (sha256 hash) AI","--set-version-string","OriginalFilename","","--set-icon","C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\dist-electron\\.icon-ico\\icon.ico"]
+  ÔÇó computing effective URL  initialUrl=https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z
+                             currentUrl=https://release-assets.githubusercontent.com/github-production-release-asset/65527128/f73f2200-5d53-11ea-8264-ddd345f11ee4?sp=r&sv=2018-11-09&sr=b&spr=https&se=2026-02-22T13%3A28%3A51Z&rscd=attachment%3B+filename%3DwinCodeSign-2.6.0.7z&rsct=application%2Foctet-stream&skoid=96c2d410-5711-43a1-aedd-ab1947aa7ab0&sktid=398a6654-997b-47e9-b12b-9515b896b4de&skt=2026-02-22T12%3A28%3A07Z&ske=2026-02-22T13%3A28%3A51Z&sks=b&skv=2018-11-09&sig=KKH%2F4QWlrlPZ%2FRjRziTEI2tnFul6HD7aide6ZoF%2BYjE%3D&jwt=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmVsZWFzZS1hc3NldHMuZ2l0aHVidXNlcmNvbnRlbnQuY29tIiwia2V5Ijoia2V5MSIsImV4cCI6MTc3MTc2NDI1OSwibmJmIjoxNzcxNzYzOTU5LCJwYXRoIjoicmVsZWFzZWFzc2V0cHJvZHVjdGlvbi5ibG9iLmNvcmUud2luZG93cy5uZXQifQ.dLw2EeXlaJT_pHA43rmrmZKFsneMQss4D8onuPag940&response-content-disposition=attachment%3B%20filename%3DwinCodeSign-2.6.0.7z&response-content-type=application%2Foctet-stream
+  ÔÇó downloading     url=https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z length=5635384 contentType=application/octet-stream
+  ÔÇó downloading     url=https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z size=5.6 MB parts=1
+  ÔÇó map async       taskCount=1
+  ÔÇó download part   range=bytes=0-5635383 index=0
+  ÔÇó downloaded      url=https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z duration=1.042s
+  ÔÇó execute command  command='C:\Users\Usuario\Downloads\pruebak-coach-ai (3)\node_modules\7zip-bin\win\x64\7za.exe' x -snld -bd 'C:\Users\Usuario\AppData\Local\electron-builder\Cache\winCodeSign\627996291.7z' '-oC:\Users\Usuario\AppData\Local\electron-builder\Cache\winCodeSign\627996291'
+                     workingDirectory=C:\Users\Usuario\AppData\Local\electron-builder\Cache\winCodeSign
+  Ô¿» cannot execute  cause=exit status 2
+                    out=
+    7-Zip (a) 21.07 (x64) : Copyright (c) 1999-2021 Igor Pavlov : 2021-12-26
+    
+    Scanning the drive for archives:
+    1 file, 5635384 bytes (5504 KiB)
+    
+    Extracting archive: C:\Users\Usuario\AppData\Local\electron-builder\Cache\winCodeSign\627996291.7z
+    --
+    Path = C:\Users\Usuario\AppData\Local\electron-builder\Cache\winCodeSign\627996291.7z
+    Type = 7z
+    Physical Size = 5635384
+    Headers Size = 1492
+    Method = LZMA2:24m LZMA:20 BCJ2
+    Solid = +
+    Blocks = 2
+    
+    
+    Sub items Errors: 2
+    
+    Archives with Errors: 1
+    
+    Sub items Errors: 2
+    
+                    errorOut=ERROR: Cannot create symbolic link : El cliente no dispone de un privilegio requerido. : C:\Users\Usuario\AppData\Local\electron-builder\Cache\winCodeSign\627996291\darwin\10.12\lib\libcrypto.dylib
+    ERROR: Cannot create symbolic link : El cliente no dispone de un privilegio requerido. : C:\Users\Usuario\AppData\Local\electron-builder\Cache\winCodeSign\627996291\darwin\10.12\lib\libssl.dylib
+    
+                    command='C:\Users\Usuario\Downloads\pruebak-coach-ai (3)\node_modules\7zip-bin\win\x64\7za.exe' x -snld -bd 'C:\Users\Usuario\AppData\Local\electron-builder\Cache\winCodeSign\627996291.7z' '-oC:\Users\Usuario\AppData\Local\electron-builder\Cache\winCodeSign\627996291'
+                    workingDir=C:\Users\Usuario\AppData\Local\electron-builder\Cache\winCodeSign
+  ÔÇó exited          command=app-builder.exe code=2 pid=10668
+  ÔÇó spawning        command=C:\Users\Usuario\Downloads\pruebak-coach-ai (3)\node_modules\app-builder-bin\win\x64\app-builder.exe rcedit --args ["C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\dist-electron\\win-unpacked\\Coach AI.exe","--set-version-string","FileDescription","Coach AI","--set-version-string","ProductName","Coach AI","--set-version-string","LegalCopyright","Copyright ┬® 2026 Coach AI","--set-file-version","1.0.0","--set-p 5be8cc698dc154d52724921aa6f5a0e03b3c06708acb66e91c81a48d06dc8349 (sha256 hash) (sha256 hash) AI","--set-version-string","OriginalFilename","","--set-icon","C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\dist-electron\\.icon-ico\\icon.ico"]
+  ÔÇó computing effective URL  initialUrl=https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z
+                             currentUrl=https://release-assets.githubusercontent.com/github-production-release-asset/65527128/f73f2200-5d53-11ea-8264-ddd345f11ee4?sp=r&sv=2018-11-09&sr=b&spr=https&se=2026-02-22T13%3A28%3A51Z&rscd=attachment%3B+filename%3DwinCodeSign-2.6.0.7z&rsct=application%2Foctet-stream&skoid=96c2d410-5711-43a1-aedd-ab1947aa7ab0&sktid=398a6654-997b-47e9-b12b-9515b896b4de&skt=2026-02-22T12%3A28%3A07Z&ske=2026-02-22T13%3A28%3A51Z&sks=b&skv=2018-11-09&sig=KKH%2F4QWlrlPZ%2FRjRziTEI2tnFul6HD7aide6ZoF%2BYjE%3D&jwt=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmVsZWFzZS1hc3NldHMuZ2l0aHVidXNlcmNvbnRlbnQuY29tIiwia2V5Ijoia2V5MSIsImV4cCI6MTc3MTc2NDI1OSwibmJmIjoxNzcxNzYzOTU5LCJwYXRoIjoicmVsZWFzZWFzc2V0cHJvZHVjdGlvbi5ibG9iLmNvcmUud2luZG93cy5uZXQifQ.dLw2EeXlaJT_pHA43rmrmZKFsneMQss4D8onuPag940&response-content-disposition=attachment%3B%20filename%3DwinCodeSign-2.6.0.7z&response-content-type=application%2Foctet-stream
+  ÔÇó downloading     url=https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z length=5635384 contentType=application/octet-stream
+  ÔÇó downloading     url=https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z size=5.6 MB parts=1
+  ÔÇó map async       taskCount=1
+  ÔÇó download part   range=bytes=0-5635383 index=0
+  ÔÇó downloaded      url=https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z duration=934ms
+  ÔÇó execute command  command='C:\Users\Usuario\Downloads\pruebak-coach-ai (3)\node_modules\7zip-bin\win\x64\7za.exe' x -snld -bd 'C:\Users\Usuario\AppData\Local\electron-builder\Cache\winCodeSign\354506219.7z' '-oC:\Users\Usuario\AppData\Local\electron-builder\Cache\winCodeSign\354506219'
+                     workingDirectory=C:\Users\Usuario\AppData\Local\electron-builder\Cache\winCodeSign
+  Ô¿» cannot execute  cause=exit status 2
+                    out=
+    7-Zip (a) 21.07 (x64) : Copyright (c) 1999-2021 Igor Pavlov : 2021-12-26
+    
+    Scanning the drive for archives:
+    1 file, 5635384 bytes (5504 KiB)
+    
+    Extracting archive: C:\Users\Usuario\AppData\Local\electron-builder\Cache\winCodeSign\354506219.7z
+    --
+    Path = C:\Users\Usuario\AppData\Local\electron-builder\Cache\winCodeSign\354506219.7z
+    Type = 7z
+    Physical Size = 5635384
+    Headers Size = 1492
+    Method = LZMA2:24m LZMA:20 BCJ2
+    Solid = +
+    Blocks = 2
+    
+    
+    Sub items Errors: 2
+    
+    Archives with Errors: 1
+    
+    Sub items Errors: 2
+    
+                    errorOut=ERROR: Cannot create symbolic link : El cliente no dispone de un privilegio requerido. : C:\Users\Usuario\AppData\Local\electron-builder\Cache\winCodeSign\354506219\darwin\10.12\lib\libcrypto.dylib
+    ERROR: Cannot create symbolic link : El cliente no dispone de un privilegio requerido. : C:\Users\Usuario\AppData\Local\electron-builder\Cache\winCodeSign\354506219\darwin\10.12\lib\libssl.dylib
+    
+                    command='C:\Users\Usuario\Downloads\pruebak-coach-ai (3)\node_modules\7zip-bin\win\x64\7za.exe' x -snld -bd 'C:\Users\Usuario\AppData\Local\electron-builder\Cache\winCodeSign\354506219.7z' '-oC:\Users\Usuario\AppData\Local\electron-builder\Cache\winCodeSign\354506219'
+                    workingDir=C:\Users\Usuario\AppData\Local\electron-builder\Cache\winCodeSign
+  ÔÇó exited          command=app-builder.exe code=2 pid=27376
+  ÔÇó spawning        command=C:\Users\Usuario\Downloads\pruebak-coach-ai (3)\node_modules\app-builder-bin\win\x64\app-builder.exe rcedit --args ["C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\dist-electron\\win-unpacked\\Coach AI.exe","--set-version-string","FileDescription","Coach AI","--set-version-string","ProductName","Coach AI","--set-version-string","LegalCopyright","Copyright ┬® 2026 Coach AI","--set-file-version","1.0.0","--set-p 5be8cc698dc154d52724921aa6f5a0e03b3c06708acb66e91c81a48d06dc8349 (sha256 hash) (sha256 hash) AI","--set-version-string","OriginalFilename","","--set-icon","C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\dist-electron\\.icon-ico\\icon.ico"]
+  ÔÇó computing effective URL  initialUrl=https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z
+                             currentUrl=https://release-assets.githubusercontent.com/github-production-release-asset/65527128/f73f2200-5d53-11ea-8264-ddd345f11ee4?sp=r&sv=2018-11-09&sr=b&spr=https&se=2026-02-22T13%3A28%3A51Z&rscd=attachment%3B+filename%3DwinCodeSign-2.6.0.7z&rsct=application%2Foctet-stream&skoid=96c2d410-5711-43a1-aedd-ab1947aa7ab0&sktid=398a6654-997b-47e9-b12b-9515b896b4de&skt=2026-02-22T12%3A28%3A07Z&ske=2026-02-22T13%3A28%3A51Z&sks=b&skv=2018-11-09&sig=KKH%2F4QWlrlPZ%2FRjRziTEI2tnFul6HD7aide6ZoF%2BYjE%3D&jwt=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmVsZWFzZS1hc3NldHMuZ2l0aHVidXNlcmNvbnRlbnQuY29tIiwia2V5Ijoia2V5MSIsImV4cCI6MTc3MTc2NDI1OSwibmJmIjoxNzcxNzYzOTU5LCJwYXRoIjoicmVsZWFzZWFzc2V0cHJvZHVjdGlvbi5ibG9iLmNvcmUud2luZG93cy5uZXQifQ.dLw2EeXlaJT_pHA43rmrmZKFsneMQss4D8onuPag940&response-content-disposition=attachment%3B%20filename%3DwinCodeSign-2.6.0.7z&response-content-type=application%2Foctet-stream
+  ÔÇó downloading     url=https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z length=5635384 contentType=application/octet-stream
+  ÔÇó downloading     url=https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z size=5.6 MB parts=1
+  ÔÇó map async       taskCount=1
+  ÔÇó download part   range=bytes=0-5635383 index=0
+  ÔÇó downloaded      url=https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z duration=821ms
+  ÔÇó execute command  command='C:\Users\Usuario\Downloads\pruebak-coach-ai (3)\node_modules\7zip-bin\win\x64\7za.exe' x -snld -bd 'C:\Users\Usuario\AppData\Local\electron-builder\Cache\winCodeSign\397971551.7z' '-oC:\Users\Usuario\AppData\Local\electron-builder\Cache\winCodeSign\397971551'
+                     workingDirectory=C:\Users\Usuario\AppData\Local\electron-builder\Cache\winCodeSign
+  Ô¿» cannot execute  cause=exit status 2
+                    out=
+    7-Zip (a) 21.07 (x64) : Copyright (c) 1999-2021 Igor Pavlov : 2021-12-26
+    
+    Scanning the drive for archives:
+    1 file, 5635384 bytes (5504 KiB)
+    
+    Extracting archive: C:\Users\Usuario\AppData\Local\electron-builder\Cache\winCodeSign\397971551.7z
+    --
+    Path = C:\Users\Usuario\AppData\Local\electron-builder\Cache\winCodeSign\397971551.7z
+    Type = 7z
+    Physical Size = 5635384
+    Headers Size = 1492
+    Method = LZMA2:24m LZMA:20 BCJ2
+    Solid = +
+    Blocks = 2
+    
+    
+    Sub items Errors: 2
+    
+    Archives with Errors: 1
+    
+    Sub items Errors: 2
+    
+                    errorOut=ERROR: Cannot create symbolic link : El cliente no dispone de un privilegio requerido. : C:\Users\Usuario\AppData\Local\electron-builder\Cache\winCodeSign\397971551\darwin\10.12\lib\libcrypto.dylib
+    ERROR: Cannot create symbolic link : El cliente no dispone de un privilegio requerido. : C:\Users\Usuario\AppData\Local\electron-builder\Cache\winCodeSign\397971551\darwin\10.12\lib\libssl.dylib
+    
+                    command='C:\Users\Usuario\Downloads\pruebak-coach-ai (3)\node_modules\7zip-bin\win\x64\7za.exe' x -snld -bd 'C:\Users\Usuario\AppData\Local\electron-builder\Cache\winCodeSign\397971551.7z' '-oC:\Users\Usuario\AppData\Local\electron-builder\Cache\winCodeSign\397971551'
+                    workingDir=C:\Users\Usuario\AppData\Local\electron-builder\Cache\winCodeSign
+  ÔÇó exited          command=app-builder.exe code=2 pid=34096
+  ÔÇó spawning        command=C:\Users\Usuario\Downloads\pruebak-coach-ai (3)\node_modules\app-builder-bin\win\x64\app-builder.exe rcedit --args ["C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\dist-electron\\win-unpacked\\Coach AI.exe","--set-version-string","FileDescription","Coach AI","--set-version-string","ProductName","Coach AI","--set-version-string","LegalCopyright","Copyright ┬® 2026 Coach AI","--set-file-version","1.0.0","--set-p 5be8cc698dc154d52724921aa6f5a0e03b3c06708acb66e91c81a48d06dc8349 (sha256 hash) (sha256 hash) AI","--set-version-string","OriginalFilename","","--set-icon","C:\\Users\\Usuario\\Downloads\\pruebak-coach-ai (3)\\dist-electron\\.icon-ico\\icon.ico"]
+  ÔÇó computing effective URL  initialUrl=https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z
+                             currentUrl=https://release-assets.githubusercontent.com/github-production-release-asset/65527128/f73f2200-5d53-11ea-8264-ddd345f11ee4?sp=r&sv=2018-11-09&sr=b&spr=https&se=2026-02-22T13%3A28%3A51Z&rscd=attachment%3B+filename%3DwinCodeSign-2.6.0.7z&rsct=application%2Foctet-stream&skoid=96c2d410-5711-43a1-aedd-ab1947aa7ab0&sktid=398a6654-997b-47e9-b12b-9515b896b4de&skt=2026-02-22T12%3A28%3A07Z&ske=2026-02-22T13%3A28%3A51Z&sks=b&skv=2018-11-09&sig=KKH%2F4QWlrlPZ%2FRjRziTEI2tnFul6HD7aide6ZoF%2BYjE%3D&jwt=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmVsZWFzZS1hc3NldHMuZ2l0aHVidXNlcmNvbnRlbnQuY29tIiwia2V5Ijoia2V5MSIsImV4cCI6MTc3MTc2NDI1OSwibmJmIjoxNzcxNzYzOTU5LCJwYXRoIjoicmVsZWFzZWFzc2V0cHJvZHVjdGlvbi5ibG9iLmNvcmUud2luZG93cy5uZXQifQ.dLw2EeXlaJT_pHA43rmrmZKFsneMQss4D8onuPag940&response-content-disposition=attachment%3B%20filename%3DwinCodeSign-2.6.0.7z&response-content-type=application%2Foctet-stream
+  ÔÇó downloading     url=https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z length=5635384 contentType=application/octet-stream
+  ÔÇó downloading     url=https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z size=5.6 MB parts=1
+  ÔÇó map async       taskCount=1
+  ÔÇó download part   range=bytes=0-5635383 index=0
+  ÔÇó downloaded      url=https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z duration=725ms
+  ÔÇó execute command  command='C:\Users\Usuario\Downloads\pruebak-coach-ai (3)\node_modules\7zip-bin\win\x64\7za.exe' x -snld -bd 'C:\Users\Usuario\AppData\Local\electron-builder\Cache\winCodeSign\664744271.7z' '-oC:\Users\Usuario\AppData\Local\electron-builder\Cache\winCodeSign\664744271'
+                     workingDirectory=C:\Users\Usuario\AppData\Local\electron-builder\Cache\winCodeSign
+  Ô¿» cannot execute  cause=exit status 2
+                    out=
+    7-Zip (a) 21.07 (x64) : Copyright (c) 1999-2021 Igor Pavlov : 2021-12-26
+    
+    Scanning the drive for archives:
+    1 file, 5635384 bytes (5504 KiB)
+    
+    Extracting archive: C:\Users\Usuario\AppData\Local\electron-builder\Cache\winCodeSign\664744271.7z
+    --
+    Path = C:\Users\Usuario\AppData\Local\electron-builder\Cache\winCodeSign\664744271.7z
+    Type = 7z
+    Physical Size = 5635384
+    Headers Size = 1492
+    Method = LZMA2:24m LZMA:20 BCJ2
+    Solid = +
+    Blocks = 2
+    
+    
+    Sub items Errors: 2
+    
+    Archives with Errors: 1
+    
+    Sub items Errors: 2
+    
+                    errorOut=ERROR: Cannot create symbolic link : El cliente no dispone de un privilegio requerido. : C:\Users\Usuario\AppData\Local\electron-builder\Cache\winCodeSign\664744271\darwin\10.12\lib\libcrypto.dylib
+    ERROR: Cannot create symbolic link : El cliente no dispone de un privilegio requerido. : C:\Users\Usuario\AppData\Local\electron-builder\Cache\winCodeSign\664744271\darwin\10.12\lib\libssl.dylib
+    
+                    command='C:\Users\Usuario\Downloads\pruebak-coach-ai (3)\node_modules\7zip-bin\win\x64\7za.exe' x -snld -bd 'C:\Users\Usuario\AppData\Local\electron-builder\Cache\winCodeSign\664744271.7z' '-oC:\Users\Usuario\AppData\Local\electron-builder\Cache\winCodeSign\664744271'
+                    workingDir=C:\Users\Usuario\AppData\Local\electron-builder\Cache\winCodeSign
+  ÔÇó exited          command=app-builder.exe code=2 pid=36476

@@ -29,7 +29,8 @@ const TEXTS = {
     cancel: 'Cancelar',
     confirm: 'Sí, eliminar',
     uploading: 'Subiendo...',
-    usageLimit: 'Límite Mensual',
+    usageLimit: 'Análisis Mensuales',
+    videoLimit: 'Capacidad Galería',
     used: 'usados',
     limitReached: 'Límite alcanzado',
     upgradeAlert: 'Has alcanzado el límite de vídeos de tu plan actual. Mejora a Premium para subir más.',
@@ -49,7 +50,8 @@ const TEXTS = {
     cancel: 'Cancel',
     confirm: 'Yes, delete',
     uploading: 'Uploading...',
-    usageLimit: 'Monthly Limit',
+    usageLimit: 'Monthly Analysis',
+    videoLimit: 'Gallery Capacity',
     used: 'used',
     limitReached: 'Limit reached',
     upgradeAlert: 'You have reached the video limit for your current plan. Upgrade to Premium to upload more.',
@@ -69,7 +71,8 @@ const TEXTS = {
     cancel: 'Utzi',
     confirm: 'Bai, ezabatu',
     uploading: 'Igotzen...',
-    usageLimit: 'Hileko Muga',
+    usageLimit: 'Hileko Analisi',
+    videoLimit: 'Galeria Edukiera',
     used: 'erabilita',
     limitReached: 'Muga gaindituta',
     upgradeAlert: 'Zure uneko planaren bideo muga gainditu duzu. Igo Premium-era gehiago igotzeko.',
@@ -91,13 +94,12 @@ export const Gallery: React.FC<GalleryProps> = ({ videos, onSelectVideo, onUploa
   const [showCamera, setShowCamera] = useState(false);
   const [stream, setStream] = useState<MediaStream | null>(null);
 
-  const limitVal = limits.maxAnalysisPerMonth;
-  // maxAnalysisPerMonth is strictly a number in UserLimits, so no need to check for 'unlimited' string
-  const isUnlimited = false;
-  const isLimitReached = usage ? usage.analysisCount >= limitVal : false;
+  const limitVal = limits.maxStoredVideos || 3;
+  const currentCount = videos.length;
+  const isLimitReached = currentCount >= limitVal;
 
-  // Show usage only if not unlimited
-  const showUsage = usage;
+  // We show the capacity indicator at the top
+  const showUsage = true;
 
   useEffect(() => {
     let interval: any;
@@ -207,10 +209,10 @@ export const Gallery: React.FC<GalleryProps> = ({ videos, onSelectVideo, onUploa
             {/* Desktop Usage View */}
             <div className="hidden md:flex bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl p-4 items-center gap-4 animate-in fade-in slide-in-from-right-4 shadow-sm dark:shadow-none">
               <div className="flex flex-col items-end">
-                <span className="text-[10px] uppercase tracking-widest text-neutral-500 font-bold">{t.usageLimit}</span>
+                <span className="text-[10px] uppercase tracking-widest text-neutral-500 font-bold">{t.videoLimit}</span>
                 <div className="flex items-baseline gap-1">
                   <span className={`text-xl font-black ${isLimitReached ? 'text-red-500' : 'text-orange-500'}`}>
-                    {usage.analysisCount}
+                    {currentCount}
                   </span>
                   <span className="text-neutral-500 text-xs">/ {limitVal}</span>
                 </div>
@@ -218,7 +220,7 @@ export const Gallery: React.FC<GalleryProps> = ({ videos, onSelectVideo, onUploa
               <div className="w-12 h-12 rounded-full border-4 border-neutral-800 flex items-center justify-center relative overflow-hidden">
                 <div
                   className={`absolute bottom-0 left-0 w-full transition-all duration-1000 ${isLimitReached ? 'bg-red-500' : 'bg-orange-600'}`}
-                  style={{ height: `${Math.min(100, (usage.analysisCount / limitVal) * 100)}%` }}
+                  style={{ height: `${Math.min(100, (currentCount / limitVal) * 100)}%` }}
                 />
                 <Info size={16} className="relative z-10 text-white" />
               </div>
@@ -228,7 +230,7 @@ export const Gallery: React.FC<GalleryProps> = ({ videos, onSelectVideo, onUploa
             <div className="md:hidden absolute top-6 right-6 flex items-center gap-1.5 bg-white/80 dark:bg-neutral-900/80 backdrop-blur border border-neutral-200 dark:border-neutral-800 px-2.5 py-1 rounded-full shadow-lg">
               <div className={`w-2 h-2 rounded-full ${isLimitReached ? 'bg-red-500 animate-pulse' : 'bg-orange-500'}`}></div>
               <span className="text-xs font-mono font-bold text-neutral-900 dark:text-white">
-                {usage.analysisCount}/{limitVal}
+                {currentCount}/{limitVal}
               </span>
             </div>
           </div>

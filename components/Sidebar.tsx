@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { Screen, User, Language, TEAM_SPORTS, NON_COMPETITIVE_SPORTS, GYM_RELATED_SPORTS } from '../types';
-import { LayoutDashboard, Video, Dumbbell, Target, MessageSquareQuote, LogOut, Trophy, FileText, X, Calculator, Users, ChevronDown, User as UserIcon, Settings, Sun, Moon, Trash2, AlertTriangle, Star, Pill, PanelLeft, Dribbble } from 'lucide-react';
+import { LayoutDashboard, Video, Dumbbell, Target, MessageSquareQuote, LogOut, Trophy, FileText, X, Calculator, Users, ChevronDown, User as UserIcon, Settings, Sun, Moon, Trash2, AlertTriangle, Star, Pill, PanelLeft, Dribbble, Download } from 'lucide-react';
 import { StorageService } from '../services/storageService';
 import { useTheme } from '../hooks/useTheme';
 
@@ -49,7 +49,8 @@ const SIDEBAR_TEXTS = {
       light: 'Claro',
       coachRole: 'Entrenador',
       athleteRole: 'Atleta',
-      athletes: 'Atletas'
+      athletes: 'Atletas',
+      downloadApp: 'Descargar App'
    },
    ing: {
       dashboard: 'Dashboard',
@@ -79,7 +80,8 @@ const SIDEBAR_TEXTS = {
       light: 'Light',
       coachRole: 'Coach',
       athleteRole: 'Athlete',
-      athletes: 'Athletes'
+      athletes: 'Athletes',
+      downloadApp: 'Download App'
    },
    eus: {
       dashboard: 'Hasiera',
@@ -109,7 +111,8 @@ const SIDEBAR_TEXTS = {
       light: 'Argia',
       coachRole: 'Entrenatzailea',
       athleteRole: 'Atleta',
-      athletes: 'Atletak'
+      athletes: 'Atletak',
+      downloadApp: 'App Deskargatu'
    }
 };
 
@@ -355,6 +358,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   {item.label}
                </button>
             ))}
+
+            {/* Download App - only for fernandezeuken@gmail.com */}
+            {currentUser?.username?.toLowerCase() === 'fernandezeuken@gmail.com' && (
+               <>
+                  <div className="my-2 border-t border-neutral-200 dark:border-neutral-800 mx-2"></div>
+                  <button
+                     onClick={() => {
+                        onNavigate('app_downloads' as Screen);
+                        if (onClose && window.innerWidth < 768) onClose();
+                     }}
+                     className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-xl transition-all duration-200 ${currentScreen === 'app_downloads'
+                        ? 'bg-gradient-to-r from-orange-600 to-pink-600 text-white shadow-lg shadow-orange-600/30'
+                        : 'text-orange-400 hover:bg-orange-500/10 hover:text-orange-300'
+                        }`}
+                  >
+                     <Download size={20} />
+                     {t.downloadApp}
+                  </button>
+               </>
+            )}
 
          </nav>
 

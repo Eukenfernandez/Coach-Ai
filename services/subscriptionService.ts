@@ -181,6 +181,7 @@ export const getUserLimits = (tier: SubscriptionTier): UserLimits => {
         maxAnalysisPerMonth: 300,
         maxPdfUploads: 300,
         maxVideoDurationSeconds: 600, // 10 minutos
+        maxStoredVideos: 300,
         maxChatMessagesPerMonth: 500,
         maxManagedAthletes: 50,
         canCompareVideos: true,
@@ -192,6 +193,7 @@ export const getUserLimits = (tier: SubscriptionTier): UserLimits => {
         maxAnalysisPerMonth: 100,
         maxPdfUploads: 100,
         maxVideoDurationSeconds: 300, // 5 mins
+        maxStoredVideos: 50,
         maxChatMessagesPerMonth: 200,
         maxManagedAthletes: 20,
         canCompareVideos: true,
@@ -203,6 +205,7 @@ export const getUserLimits = (tier: SubscriptionTier): UserLimits => {
         maxAnalysisPerMonth: 15,
         maxPdfUploads: 15,
         maxVideoDurationSeconds: 120, // 2 mins
+        maxStoredVideos: 15,
         maxChatMessagesPerMonth: 100,
         maxManagedAthletes: 0,
         canCompareVideos: true,
@@ -214,6 +217,7 @@ export const getUserLimits = (tier: SubscriptionTier): UserLimits => {
         maxAnalysisPerMonth: 3,
         maxPdfUploads: 3,
         maxVideoDurationSeconds: 15,
+        maxStoredVideos: 3,
         maxChatMessagesPerMonth: 10,
         maxManagedAthletes: 0,
         canCompareVideos: false, // No comparisons
