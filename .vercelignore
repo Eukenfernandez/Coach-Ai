@@ -1,0 +1,11 @@
+.git
+.firebase
+android
+dist
+el-dist
+node_modules
+fns
+docs
+video
+electron
+*.log
