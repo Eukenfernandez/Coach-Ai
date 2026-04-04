@@ -12,6 +12,10 @@ dist
 dist-electron
 dist-ssr
 android
+.firebase/
+el-dist/
+.vercel/
+fns/output/
 *.local
 
 # Editor directories and files

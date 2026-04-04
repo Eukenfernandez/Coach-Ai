@@ -1,0 +1,57 @@
+{
+  "execution": {
+    "dryRun": false,
+    "logLevel": "info",
+    "progressEvery": 500
+  },
+  "firebase": {
+    "projectId": "entrenamientos-bfac2",
+    "databaseURL": "",
+    "serviceAccountPath": "C:/ruta/segura/service-account.json",
+    "serviceAccountJson": ""
+  },
+  "audit": {
+    "includeAuth": true,
+    "includeFirestore": true,
+    "includeRealtimeDatabase": false
+  },
+  "firestore": {
+    "rootCollections": ["users", "requests", "customers", "userdata"],
+    "includeCollectionNames": [],
+    "excludeCollectionNames": ["ai_analysis_logs", "quota_counters", "account_enforcement", "mail"],
+    "includePathPrefixes": [],
+    "excludePathPrefixes": [],
+    "pageSize": 250,
+    "maxDocuments": 50000,
+    "maxDepth": 8
+  },
+  "rtdb": {
+    "paths": ["/users"],
+    "includePathPrefixes": [],
+    "excludePathPrefixes": [],
+    "maxNodes": 25000,
+    "maxDepth": 12
+  },
+  "extraction": {
+    "emailFieldHints": [
+      "email",
+      "emails",
+      "userEmail",
+      "contactEmail",
+      "emailAddress",
+      "owner.email",
+      "profile.email",
+      "contact.email",
+      "athleteEmail",
+      "username"
+    ],
+    "includeUsernameAsEmailFallback": true,
+    "maxStringLength": 8000,
+    "maxMatchesPerString": 20
+  },
+  "output": {
+    "directory": "C:/Users/Usuario/Downloads/pruebak-coach-ai (3) - copia/fns/output/email-audit",
+    "csvBaseName": "all-registered-emails",
+    "summaryBaseName": "all-registered-emails-summary"
+  }
+}

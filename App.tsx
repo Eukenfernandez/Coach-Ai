@@ -1,26 +1,26 @@
 import React, { useEffect, useMemo, useState, useRef } from "react";
-import { LandingPage } from "./components/LandingPage";
-import { Login } from "./components/Login";
-import { Onboarding } from "./components/Onboarding";
-import { Sidebar } from "./components/Sidebar";
-import { Dashboard } from "./components/Dashboard";
-import { Gallery } from "./components/Gallery";
-import { VideoAnalyzer } from "./components/VideoAnalyzer";
-import { StrengthTracker } from "./components/StrengthTracker";
-import { JavelinTracker } from "./components/JavelinTracker";
-import { TrainingTracker } from "./components/TrainingTracker";
-import { MatchTracker } from "./components/MatchTracker";
-import { PlanGallery } from "./components/PlanGallery";
-import { PdfViewer } from "./components/PdfViewer";
-import { CoachChat } from "./components/CoachChat";
-import { PlateCalculator } from "./components/PlateCalculator";
-import { SupplementsTracker } from "./components/SupplementsTracker";
-import { AdminPanel } from "./components/AdminPanel";
-import { CoachTeamManagement } from "./components/CoachTeamManagement";
-import { Notifications } from "./components/Notifications";
-import { PricingSection } from "./components/PricingSection";
-import { Profile } from "./components/Profile";
-import { AppDownloads } from "./components/AppDownloads";
+import { LandingPage } from "./comps/LandingPage";
+import { Login } from "./comps/Login";
+import { Onboarding } from "./comps/Onboarding";
+import { Sidebar } from "./comps/Sidebar";
+import { Dashboard } from "./comps/Dashboard";
+import { Gallery } from "./comps/Gallery";
+import { VideoAnalyzer } from "./comps/VideoAnalyzer";
+import { StrengthTracker } from "./comps/StrengthTracker";
+import { JavelinTracker } from "./comps/JavelinTracker";
+import { TrainingTracker } from "./comps/TrainingTracker";
+import { MatchTracker } from "./comps/MatchTracker";
+import { PlanGallery } from "./comps/PlanGallery";
+import { PdfViewer } from "./comps/PdfViewer";
+import { CoachChat } from "./comps/CoachChat";
+import { PlateCalculator } from "./comps/PlateCalculator";
+import { SupplementsTracker } from "./comps/SupplementsTracker";
+import { AdminPanel } from "./comps/AdminPanel";
+import { CoachTeamManagement } from "./comps/CoachTeamManagement";
+import { Notifications } from "./comps/Notifications";
+import { PricingSection } from "./comps/PricingSection";
+import { Profile } from "./comps/Profile";
+import { AppDownloads } from "./comps/AppDownloads";
 import {
   Screen,
   VideoFile,
@@ -36,13 +36,14 @@ import {
   UserLimits,
   SupplementItem
 } from "./types";
-import { StorageService, VideoStorage, PlanStorage, db } from "./services/storageService";
-import { getSubscriptionTier, getUserLimits, waitForSubscriptionActive } from "./services/subscriptionService";
-import { GracePeriodBanner } from "./components/GracePeriodBanner";
+import { StorageService, VideoStorage, PlanStorage, db } from "./svcs/storageService";
+import { getSubscriptionTier, getUserLimits, waitForSubscriptionActive } from "./svcs/subscriptionService";
+import { VideoIntelligenceService } from "./svcs/videoIntelligenceService";
+import { GracePeriodBanner } from "./comps/GracePeriodBanner";
 import { Menu, PanelLeft, Loader2, CheckCircle, XCircle, AlertTriangle, Clock } from "lucide-react";
 
 // Preload pose detection model as early as possible for instant activation
-import { preloadPoseModel } from "./hooks/usePoseDetection";
+import { preloadPoseModel } from "./hks/usePoseDetection";
 preloadPoseModel();
 
 function toErrorMessage(err: unknown): string {
@@ -98,6 +99,7 @@ export default function App() {
   const [trainingRecords, setTrainingRecords] = useState<ThrowRecord[]>([]);
   const [matchRecords, setMatchRecords] = useState<MatchRecord[]>([]);
   const [customExercises, setCustomExercises] = useState<ExerciseDef[]>([]);
+  const [coachGlobalUsage, setCoachGlobalUsage] = useState<{ videosUsed: number, videosLimit: number, pdfsUsed: number, pdfsLimit: number } | null>(null);
   const [supplements, setSupplements] = useState<SupplementItem[]>([]);
 
   // Track videos that are currently uploading - used to prevent counter increment if deleted during upload
@@ -113,6 +115,12 @@ export default function App() {
     const tier = currentUser?.profile?.subscriptionTier || 'FREE';
     return getUserLimits(tier);
   }, [currentUser]);
+
+  const activeAnalysisProfile = useMemo(() => {
+    if (!currentUser?.profile) return undefined;
+    if (!viewedUserId || viewedUserId === currentUser.id) return currentUser.profile;
+    return managedAthletes.find((athlete) => athlete.id === viewedUserId)?.profile || currentUser.profile;
+  }, [currentUser, managedAthletes, viewedUserId]);
 
   useEffect(() => {
     try {
@@ -164,14 +172,19 @@ export default function App() {
   // Load MY usage whenever I log in or update
   useEffect(() => {
     if (currentUser) {
-      void loadMyUsage(currentUser.id);
+      void loadMyUsage(currentUser);
     }
   }, [currentUser]);
 
-  const loadMyUsage = async (myId: string) => {
+  const loadMyUsage = async (userData: User) => {
     try {
-      const data = await StorageService.getUserData(myId);
+      const data = await StorageService.getUserData(userData.id);
       setMyUsage(data.usage);
+      
+      // If coach, fetch global quota usage
+      if (userData.profile?.role === 'coach') {
+        refreshCoachGlobalUsage();
+      }
     } catch (e) {
       console.error("Failed to load own usage", e);
     }
@@ -331,6 +344,15 @@ export default function App() {
       setViewedUserId(null);
       setCurrentScreen("login");
       setIsProcessingPayment(false);
+    }
+  };
+
+  const refreshCoachGlobalUsage = async () => {
+    try {
+      const usage = await StorageService.getCoachQuotaUsage();
+      if (usage) setCoachGlobalUsage(usage);
+    } catch (e) {
+      console.warn("Failed to fetch coach global usage", e);
     }
   };
 
@@ -529,10 +551,13 @@ export default function App() {
 
     if (!effectiveUsage) return;
 
-    const limit = userLimits.maxAnalysisPerMonth;
+    const monthlyAnalysisLimit = userLimits.maxAnalysisPerMonth;
+    const storedVideoLimit = isCoach && coachGlobalUsage
+      ? coachGlobalUsage.videosLimit
+      : userLimits.maxStoredVideos;
 
     // Check monthly analysis limit
-    if (effectiveUsage.analysisCount >= limit) {
+    if (effectiveUsage.analysisCount >= monthlyAnalysisLimit) {
       alert(language === 'ing'
         ? 'You have reached your monthly analysis limit. Upgrade your plan or wait for the reset.'
         : language === 'eus'
@@ -542,12 +567,12 @@ export default function App() {
     }
 
     // Check TOTAL video storage limit - must delete old videos before uploading new ones
-    if (videos.length >= limit) {
+    if (videos.length >= storedVideoLimit) {
       alert(language === 'ing'
-        ? `You have ${limit} videos stored (maximum allowed). Delete some videos before uploading new ones.`
+        ? `You have ${storedVideoLimit} videos stored (maximum allowed). Delete some videos before uploading new ones.`
         : language === 'eus'
-          ? `${limit} bideo gordeta dituzu (gehienezko baimena). Ezabatu bideo batzuk berriak igo aurretik.`
-          : `Tienes ${limit} vídeos guardados (máximo permitido). Elimina algunos vídeos antes de subir nuevos.`);
+          ? `${storedVideoLimit} bideo gordeta dituzu (gehienezko baimena). Ezabatu bideo batzuk berriak igo aurretik.`
+          : `Tienes ${storedVideoLimit} vídeos guardados (máximo permitido). Elimina algunos vídeos antes de subir nuevos.`);
       return;
     }
 
@@ -579,16 +604,21 @@ export default function App() {
       const videoForDb: VideoFile = { ...videoForState, isLocal: !cloudUrl, isUploading: false, url: "" };
       if (cloudUrl) videoForDb.remoteUrl = cloudUrl;
 
-      // V3 Authoritative Video Storage
-      await StorageService.addVideoSafe(viewedUserId, videoForDb);
+      // V3 Authoritative Video Storage (Backend verifies global coach quota)
+      const success = await StorageService.addVideoSafe(viewedUserId, videoForDb);
 
-      // Only increment counter if video wasn't deleted during upload
+      if (!success) {
+        throw new Error("Límite de vídeos del plan excedido.");
+      }
+      
+      // Refresh global quota after successful upload
+      if (isCoach) refreshCoachGlobalUsage();
+
+      // Only increment AI analysis counter if video wasn't deleted during upload
       if (uploadingVideosRef.current.has(newId)) {
-        // Increment logic: Coach pays for coach's uploads, Athlete pays for athlete's uploads
         const payerId = isCoach ? currentUser.id : viewedUserId;
         await StorageService.incrementUsage(payerId, 'analysis');
 
-        // OPTIMIZATION 3: Update usage state locally instead of re-fetching (eliminates 1 query)
         if (isCoach) {
           setMyUsage(prev => prev ? { ...prev, analysisCount: prev.analysisCount + 1 } : prev);
         } else {
@@ -602,10 +632,23 @@ export default function App() {
       setVideos((prev) => prev.map((v) => v.id !== newId ? v : {
         ...v,
         isUploading: false,
+        processingStatus: 'queued',
         remoteUrl: cloudUrl || undefined,
         isLocal: true,
         url: localDisplayUrl
       }));
+
+      void VideoIntelligenceService.prepareVideoContext({
+        userId: viewedUserId,
+        videoId: newId,
+        videoName: file.name,
+        source: file,
+        remoteUrl: cloudUrl || undefined,
+        language,
+        userProfile: activeAnalysisProfile,
+      }).catch((processingError) => {
+        console.error("[Video upload] Background context processing failed", processingError);
+      });
     } catch (e) {
       uploadingVideosRef.current.delete(newId);
       setVideos((prev) => prev.map((v) => (v.id === newId ? { ...v, isUploading: false } : v)));
@@ -671,42 +714,38 @@ export default function App() {
 
       // If cloud upload failed in cloud mode, avoid saving a broken entry
       if (StorageService.isCloudMode() && !cloudUrl) {
-        // Silently keep local if it's just a cloud failure? Or revert? 
-        // User requested to fix the error where it "fails silently". 
-        // Let's at least keep it locally if possible, BUT if I revert, I must notify.
-        // Better to revert to avoid ghost files that only the coach sees.
         throw new Error("Cloud upload failed");
       }
 
-      // Increment logic
+      // V3: Authoritative PDF Storage (Backend verifies global coach quota)
+      const pdfForDb: PlanFile = {
+        ...planForState,
+        isLocal: !cloudUrl,
+        remoteUrl: cloudUrl || undefined,
+        storagePath,
+        file: undefined,
+        url: ""
+      };
+
+      const success = await StorageService.addPdfSafe(viewedUserId, pdfForDb);
+      if (!success) {
+        throw new Error("Límite de PDFs del plan excedido.");
+      }
+      
+      if (isCoach) refreshCoachGlobalUsage();
+
+      // Increment logic for AI/App usage analytics
       const payerId = isCoach ? currentUser.id : viewedUserId;
       await StorageService.incrementUsage(payerId, 'plan');
 
-      // Optimistic local state update (no re-fetch needed, incrementUsage already updates local storage)
       if (isCoach) {
         setMyUsage(prev => prev ? { ...prev, plansCount: (prev.plansCount || 0) + 1 } : prev);
       } else {
         setUsage(prev => prev ? { ...prev, plansCount: (prev.plansCount || 0) + 1 } : prev);
       }
 
-      // Update state and DB with final data
-      const planForDb: PlanFile = {
-        ...planForState,
-        isLocal: !cloudUrl,
-        remoteUrl: cloudUrl || undefined,
-        storagePath,
-        // We do NOT save the file object or blob url to DB/LocalStorage string
-        file: undefined,
-        url: ""
-      };
-
-      // Use current plans state instead of fetching from DB
-      const newPlanList = [...plans.map(p => ({ ...p, url: "", file: undefined })), planForDb];
-
-      await StorageService.updatePlans(viewedUserId, newPlanList);
-
-      // Update local state to have the remoteUrl but keep the local file/url for this session
-      setPlans((prev) => prev.map(p => p.id === id ? { ...p, remoteUrl: cloudUrl || undefined } : p));
+      // Update local state to show it's no longer just local
+      setPlans((prev) => prev.map(p => p.id === id ? { ...p, remoteUrl: cloudUrl || undefined, isLocal: false } : p));
 
     } catch (e) {
       console.error("Error uploading plan", e);
@@ -787,16 +826,27 @@ export default function App() {
   if (currentScreen === "onboarding") return <Onboarding user={currentUser} onComplete={(u) => handleLogin(u)} language={language} />;
 
   const isSidebarVisible = isDesktopSidebarOpen && !['analyzer', 'planViewer'].includes(currentScreen);
-  const showMobileMenuButton = !['analyzer', 'planViewer'].includes(currentScreen);
+  const showMobileMenuButton = !['analyzer', 'planViewer', 'onboarding'].includes(currentScreen);
   const isCoach = currentUser.profile?.role === 'coach';
 
-  // Determine usage passed to components:
-  // If I am a coach, the components should check MY limits (myUsage), not the athlete's.
-  // If I am an athlete, use normal 'usage' (viewed user).
+  // Logic for display-only stats (Global if Coach active)
+  const isCoachView = currentUser?.profile?.role === 'coach';
+  const finalUserLimits = { ...userLimits };
+  if (isCoachView && coachGlobalUsage) {
+    // Override with backend-authoritative global limits
+    finalUserLimits.maxStoredVideos = coachGlobalUsage.videosLimit;
+    finalUserLimits.maxPdfUploads = coachGlobalUsage.pdfsLimit;
+  }
+
+  // Gallery video count override for coach
+  const galleryVideoCount = (isCoachView && coachGlobalUsage) ? coachGlobalUsage.videosUsed : videos.length;
+  // PlanGallery count override
+  const galleryPlanCount = (isCoachView && coachGlobalUsage) ? coachGlobalUsage.pdfsUsed : plans.length;
+
   const displayedUsage = isCoach ? myUsage : usage;
 
   return (
-    <div className="flex h-[100dvh] w-full bg-neutral-950 text-white overflow-hidden relative">
+    <div className="flex h-screen w-screen bg-black text-white overflow-hidden transition-colors duration-300">
       {paymentMessage && (
         <div className={`absolute top-6 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-3 px-6 py-4 rounded-xl shadow-2xl animate-in slide-in-from-top-4 duration-500 ${paymentMessage.type === 'success' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'}`}>
           {paymentMessage.type === 'success' ? <CheckCircle size={24} /> : <XCircle size={24} />}
@@ -840,7 +890,8 @@ export default function App() {
         </div>
       )}
 
-      <div className={`hidden md:block h-full transition-all duration-300 ease-in-out border-r border-neutral-800 ${isSidebarVisible ? "w-64" : "w-0 overflow-hidden border-none"}`}>
+      {/* Desktop Sidebar */}
+      <div className={`hidden md:block transition-all duration-500 ease-in-out border-r border-neutral-200 dark:border-neutral-900 shadow-2xl z-30 ${isSidebarVisible ? 'w-80' : 'w-0 overflow-hidden opacity-0'}`}>
         <Sidebar currentScreen={currentScreen} onNavigate={navigateTo} onLogout={handleLogout} currentUser={currentUser} managedAthletes={managedAthletes} viewedUserId={viewedUserId} onSwitchAthlete={handleSwitchAthlete} language={language} onLanguageChange={handleLanguageChange} />
       </div>
 
@@ -855,7 +906,7 @@ export default function App() {
 
         <div className="absolute top-4 right-4 z-40 flex items-center gap-3"><Notifications currentUser={currentUser} onRefreshUser={() => void handleLogin(currentUser)} /></div>
 
-        {/* Global Grace Period Banner Banner - Highest Priority Warning */}
+        {/* Global Grace Period Banner - Highest Priority Warning */}
         <GracePeriodBanner />
 
         {showMobileMenuButton && (
@@ -868,10 +919,9 @@ export default function App() {
 
         <div className="flex-1 overflow-hidden relative">
           {currentScreen === "dashboard" && <Dashboard userProfile={currentUser.profile} videos={videos} strengthRecords={strengthRecords} throwRecords={competitionRecords} trainingRecords={trainingRecords} onNavigate={navigateTo} language={language} />}
-          {currentScreen === "gallery" && <Gallery videos={videos} onSelectVideo={(v) => { setSelectedVideo(v); setCurrentScreen("analyzer"); }} onUpload={handleUploadVideo} onDelete={handleDeleteVideo} language={language} usage={displayedUsage} limits={userLimits} onNavigate={navigateTo} />}
-          {/* Pass language to VideoAnalyzer */}
-          {currentScreen === "analyzer" && selectedVideo && <VideoAnalyzer video={selectedVideo} onBack={() => navigateTo("gallery")} usage={displayedUsage} limits={userLimits} onIncrementUsage={handleIncrementChat} language={language} onNavigate={navigateTo} userProfile={currentUser.profile} />}
-          {currentScreen === "planning" && <PlanGallery plans={plans} onSelectPlan={(p) => { setSelectedPlan(p); setCurrentScreen("planViewer"); }} onUpload={handleUploadPlan} onDelete={handleDeletePlan} language={language} usage={displayedUsage} limits={userLimits} onNavigate={navigateTo} />}
+          {currentScreen === "gallery" && <Gallery videos={videos} overrideCount={isCoachView ? galleryVideoCount : undefined} onSelectVideo={(v) => { setSelectedVideo(v); setCurrentScreen("analyzer"); }} onUpload={handleUploadVideo} onDelete={handleDeleteVideo} language={language} usage={displayedUsage} limits={finalUserLimits} onNavigate={navigateTo} />}
+          {currentScreen === "analyzer" && selectedVideo && <VideoAnalyzer video={selectedVideo} targetUserId={viewedUserId!} onBack={() => navigateTo("gallery")} usage={displayedUsage} limits={finalUserLimits} onIncrementUsage={handleIncrementChat} language={language} onNavigate={navigateTo} userProfile={activeAnalysisProfile} />}
+          {currentScreen === "planning" && <PlanGallery plans={plans} overrideCount={isCoachView ? galleryPlanCount : undefined} onSelectPlan={(p) => { setSelectedPlan(p); setCurrentScreen("planViewer"); }} onUpload={handleUploadPlan} onDelete={handleDeletePlan} language={language} usage={displayedUsage} limits={finalUserLimits} onNavigate={navigateTo} />}
           {currentScreen === "planViewer" && selectedPlan && <PdfViewer plan={selectedPlan} onBack={() => navigateTo("planning")} />}
           {currentScreen === "strength" && <StrengthTracker records={strengthRecords} onAddRecord={handleAddStrength} onDeleteRecord={handleDeleteStrength} exercises={customExercises} onUpdateExercises={(e) => { setCustomExercises(e); void StorageService.updateCustomExercises(viewedUserId!, e); }} language={language} />}
           {currentScreen === "competition" && <JavelinTracker profile={currentUser.profile!} records={competitionRecords} onAddRecord={handleAddCompetition} onDeleteRecord={handleDeleteCompetition} language={language} />}
@@ -879,7 +929,7 @@ export default function App() {
           {currentScreen === "matches" && <MatchTracker profile={currentUser.profile!} records={matchRecords} onAddRecord={handleAddMatch} onDeleteRecord={handleDeleteMatch} language={language} />}
           {currentScreen === "calculator" && <PlateCalculator language={language} />}
           {currentScreen === "supplements" && <SupplementsTracker supplements={supplements} onUpdate={handleUpdateSupplements} language={language} />}
-          {currentScreen === "coach" && <CoachChat language={language} usage={displayedUsage} limits={userLimits} onMessageSent={handleIncrementChat} />}
+          {currentScreen === "coach" && <CoachChat language={language} usage={displayedUsage} limits={finalUserLimits} onMessageSent={handleIncrementChat} />}
           {currentScreen === "team_management" && <CoachTeamManagement currentUser={currentUser} onSelectAthlete={handleSwitchAthlete} activeAthleteId={viewedUserId} language={language} onAthleteRemoved={(athleteId) => setManagedAthletes(prev => prev.filter(a => a.id !== athleteId))} />}
           {currentScreen === "pricing" && <PricingSection currentUser={currentUser} language={language} />}
           {currentScreen === "profile" && <Profile currentUser={currentUser} onUpdateUser={setCurrentUser} onLogout={handleLogout} language={language} onRefreshData={() => loadDataForUser(viewedUserId!)} />}

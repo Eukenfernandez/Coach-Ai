@@ -33,6 +33,9 @@ export interface VideoFile {
   isUploading?: boolean;
   remoteUrl?: string;
   analysis?: VideoAnalysisResult;
+  processingStatus?: VideoContextStatus;
+  contextVersion?: string;
+  lastContextUpdatedAt?: string;
 }
 
 export interface PlanFile {
@@ -51,6 +54,146 @@ export interface ChatMessage {
   role: 'user' | 'model';
   text: string;
   timestamp: Date;
+  contextTrace?: VideoResponseTrace;
+  contextSummary?: string;
+  activeTimestampSeconds?: number | null;
+  mode?: VideoQuestionMode;
+}
+
+export type ConfidenceLevel = 'low' | 'medium' | 'high';
+
+export type VideoContextStatus =
+  | 'not_started'
+  | 'queued'
+  | 'sampling'
+  | 'summarizing'
+  | 'partial'
+  | 'ready'
+  | 'failed';
+
+export type VideoQuestionMode = 'frame' | 'range' | 'summary';
+
+export type VideoContextSource =
+  | 'global_summary'
+  | 'active_segment'
+  | 'adjacent_segments'
+  | 'semantic_segments'
+  | 'key_moments'
+  | 'current_frame'
+  | 'window_frames'
+  | 'chat_history'
+  | 'biomechanics_rules'
+  | 'pose_snapshot'
+  | 'fallback_only';
+
+export interface VideoTechnicalMetadata {
+  durationSeconds: number;
+  width: number;
+  height: number;
+  estimatedFps?: number | null;
+  frameCountEstimate?: number | null;
+  aspectRatio?: number | null;
+  orientation: 'landscape' | 'portrait' | 'square';
+  mimeType?: string;
+  sizeBytes?: number;
+}
+
+export interface VideoFrameArtifact {
+  timestampSeconds: number;
+  label: string;
+  base64Jpeg: string;
+  width: number;
+  height: number;
+}
+
+export interface VideoSegmentPlan {
+  id: string;
+  startTimeSeconds: number;
+  endTimeSeconds: number;
+  representativeTimeSeconds: number;
+  label: string;
+}
+
+export interface VideoPoseSnapshot {
+  source: 'mediapipe';
+  joints: Record<string, { x: number; y: number; visibility?: number }>;
+}
+
+export interface VideoSegmentContext {
+  id: string;
+  startTimeSeconds: number;
+  endTimeSeconds: number;
+  representativeTimeSeconds: number;
+  phaseLabel: string;
+  summary: string;
+  visibleObservations: string[];
+  technicalFocus: string[];
+  probableErrors: string[];
+  coachingCues: string[];
+  confidence: ConfidenceLevel;
+  embedding?: number[];
+}
+
+export interface VideoKeyMoment {
+  id: string;
+  timestampSeconds: number;
+  label: string;
+  note: string;
+  phaseLabel?: string;
+  confidence: ConfidenceLevel;
+}
+
+export interface VideoContextDoc {
+  videoId: string;
+  userId: string;
+  status: VideoContextStatus;
+  processingVersion: string;
+  processingStage?: string;
+  lastError?: string | null;
+  metadata?: VideoTechnicalMetadata;
+  sport?: string;
+  discipline?: string;
+  globalSummary?: string;
+  globalTechnicalAssessment?: string;
+  timelineSummary?: string[];
+  keyMoments?: VideoKeyMoment[];
+  segmentCount?: number;
+  sampledFrameTimestamps?: number[];
+  recommendedQuestions?: string[];
+  updatedAt?: string;
+  createdAt?: string;
+}
+
+export interface VideoResponseTrace {
+  processingStatus: VideoContextStatus;
+  activeTimestampSeconds?: number | null;
+  windowRangeSeconds?: { start: number; end: number } | null;
+  windowFrameTimestamps?: number[];
+  activeSegmentId?: string | null;
+  adjacentSegmentIds?: string[];
+  semanticSegmentIds?: string[];
+  keyMomentIds?: string[];
+  contextSources: VideoContextSource[];
+  contextSummaryLabel: string;
+}
+
+export interface StructuredVideoAnswer {
+  momentOfGesture: string;
+  phase: string;
+  visibleObservations: string[];
+  technicalEvaluation: string[];
+  probableErrorsOrRisks: string[];
+  recommendations: string[];
+  confidence: ConfidenceLevel;
+  visualLimitations: string[];
+  probableInferences?: string[];
+}
+
+export interface VideoChatResponse {
+  sessionId: string;
+  answer: string;
+  structured: StructuredVideoAnswer;
+  trace: VideoResponseTrace;
 }
 
 export interface StrengthRecord {
@@ -210,7 +353,10 @@ export interface CoachRequest {
   id: string;
   coachId: string;
   coachName: string;
+  athleteId: string; // Cannonical relationship mapping
   athleteEmail: string;
+  athleteName?: string;
+  athleteDiscipline?: string;
   status: 'pending' | 'accepted' | 'rejected';
   createdAt: string;
 }
@@ -225,6 +371,26 @@ export interface SupplementItem {
   name: string;
   dosage: string;
   taken: boolean;
+}
+
+export interface GalleryProps {
+  language: Language;
+  usage: UserUsage | null;
+  limits: UserLimits;
+  onResetUsage?: () => void;
+  overrideCount?: number;
+}
+
+export interface PlanGalleryProps {
+  plans: PlanFile[];
+  onSelectPlan: (plan: PlanFile) => void;
+  onUpload: (file: File) => void;
+  onDelete: (id: string) => void;
+  onNavigate: (screen: Screen) => void;
+  language: Language;
+  usage: UserUsage | null;
+  limits: UserLimits;
+  overrideCount?: number;
 }
 
 export interface UserData {

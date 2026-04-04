@@ -8,6 +8,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "test": "npm --prefix fns test",
     "electron:dev": "vite build && electron .",
     "electron:build": "vite build && npx electron-builder --win --x64",
     "cap:sync": "vite build && npx cap sync android",
@@ -17,12 +18,12 @@
     "appId": "com.coachai.app",
     "productName": "Coach AI",
     "directories": {
-      "output": "dist-electron"
+      "output": "el-dist"
     },
     "files": [
       "dist/**/*",
       "electron/**/*",
-      "public/icons/**/*"
+      "pub/icons/**/*"
     ],
     "win": {
       "target": [
@@ -31,15 +32,15 @@
           "arch": ["x64"]
         }
       ],
-      "icon": "public/icons/icon.ico",
+      "icon": "pub/icons/icon.ico",
       "publisherName": "Coach AI"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "installerIcon": "public/icons/icon.ico",
-      "uninstallerIcon": "public/icons/icon.ico",
-      "installerHeaderIcon": "public/icons/icon.ico",
+      "installerIcon": "pub/icons/icon.ico",
+      "uninstallerIcon": "pub/icons/icon.ico",
+      "installerHeaderIcon": "pub/icons/icon.ico",
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Coach AI",

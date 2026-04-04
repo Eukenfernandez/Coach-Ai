@@ -1,0 +1,130 @@
+{
+  "execution": {
+    "dryRun": true,
+    "logLevel": "info",
+    "progressEvery": 500
+  },
+  "firebase": {
+    "projectId": "tu-proyecto-firebase",
+    "databaseURL": "https://tu-proyecto-default-rtdb.firebaseio.com",
+    "serviceAccountPath": "C:/ruta/segura/service-account.json",
+    "serviceAccountJson": ""
+  },
+  "sources": {
+    "firestore": {
+      "enabled": true,
+      "rootCollections": ["users", "leads", "contacts"],
+      "includeCollectionNames": [],
+      "excludeCollectionNames": ["logs", "mail", "audit"],
+      "includePathPrefixes": ["users", "leads"],
+      "excludePathPrefixes": ["users/private", "users/internal"],
+      "pageSize": 200,
+      "maxDocuments": 25000,
+      "maxDepth": 6
+    },
+    "realtimeDatabase": {
+      "enabled": true,
+      "paths": ["/users", "/marketingLeads"],
+      "includePathPrefixes": ["/users", "/marketingLeads"],
+      "excludePathPrefixes": ["/users/internal", "/tmp"],
+      "maxNodes": 25000,
+      "maxDepth": 12
+    }
+  },
+  "limits": {
+    "maxCandidates": 100000,
+    "maxUniqueEmails": 50000,
+    "maxMatchesPerString": 20,
+    "maxStringLength": 8000,
+    "maxRuntimeMs": 600000,
+    "allowPartialResults": false,
+    "stopOnFirstError": false
+  },
+  "output": {
+    "directory": "C:/Users/Usuario/Downloads/pruebak-coach-ai (3) - copia/fns/output/email-exports",
+    "csvBaseName": "marketing-contacts",
+    "firestoreCollection": "marketing_contacts",
+    "syncStateCollection": "marketing_sync_state",
+    "triggerEmailCollection": "mail",
+    "writeSuppressedCsv": true,
+    "writeSummaryJson": true
+  },
+  "consent": {
+    "required": true,
+    "ancestorSearchDepth": 4,
+    "objectSearchDepth": 4,
+    "genericPositiveIsConsent": false,
+    "marketingPositiveKeys": [
+      "marketingConsent",
+      "acceptedMarketing",
+      "newsletterOptIn",
+      "newsletterAccepted",
+      "emailMarketingConsent",
+      "preferences.marketing",
+      "communications.marketing"
+    ],
+    "marketingNegativeKeys": [
+      "unsubscribe",
+      "unsubscribed",
+      "marketingBlocked",
+      "doNotEmail",
+      "optOut",
+      "emailBlacklisted"
+    ],
+    "ambiguousPositiveKeys": [
+      "consent",
+      "optIn",
+      "subscribed",
+      "subscriptionStatus"
+    ],
+    "transactionalOnlyKeys": [
+      "acceptedTerms",
+      "privacyAccepted",
+      "serviceNotifications",
+      "receiptEmails"
+    ]
+  },
+  "integrations": {
+    "mailchimp": {
+      "enabled": false,
+      "purpose": "marketing",
+      "apiKey": "tu-mailchimp-key-us21",
+      "audienceId": "tu-audience-id",
+      "tags": ["firebase-export"],
+      "statusIfConsented": "subscribed",
+      "statusIfNoConsent": "skip",
+      "batchSize": 100,
+      "rateLimitMs": 300,
+      "maxPerRun": 5000,
+      "maxRetries": 3,
+      "retryBaseMs": 1000,
+      "syncNamespace": "mailchimp-main-audience"
+    },
+    "brevo": {
+      "enabled": false,
+      "purpose": "marketing",
+      "apiKey": "tu-brevo-api-key",
+      "listIds": [12],
+      "updateEnabled": true,
+      "emailBlacklistedIfNoConsent": true,
+      "batchSize": 100,
+      "rateLimitMs": 300,
+      "maxPerRun": 5000,
+      "maxRetries": 3,
+      "retryBaseMs": 1000,
+      "syncNamespace": "brevo-main-list"
+    },
+    "triggerEmail": {
+      "enabled": false,
+      "purpose": "transactional",
+      "campaignKey": "marketing-export-april-2026",
+      "subject": "Campaign from Firebase",
+      "text": "This message was prepared automatically from Firebase.",
+      "html": "<p>This message was prepared automatically from Firebase.</p>",
+      "onlyConsented": true,
+      "batchSize": 100,
+      "maxPerRun": 5000,
+      "syncNamespace": "trigger-email-april-2026"
+    }
+  }
+}

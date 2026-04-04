@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { User } from './types';
-import { StorageService } from './services/storageService';
+import { StorageService } from './svcs/storageService';
 import { User as UserIcon, Lock, ArrowRight, Loader2, AlertCircle, CloudOff, Cloud } from 'lucide-react';
 
 interface LoginProps {

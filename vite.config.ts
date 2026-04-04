@@ -10,6 +10,7 @@ const __dirname = path.dirname(__filename)
 export default defineConfig({
   base: './',
   plugins: [react()],
+  publicDir: 'pub',
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './'),
