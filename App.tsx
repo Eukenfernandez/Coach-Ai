@@ -46,6 +46,14 @@ import { Menu, PanelLeft, Loader2, CheckCircle, XCircle, AlertTriangle, Clock } 
 import { preloadPoseModel } from "./hks/usePoseDetection";
 preloadPoseModel();
 
+const DESKTOP_SIDEBAR_HINT_KEY = "coachai_desktop_sidebar_hint_seen_v1";
+
+const SIDEBAR_HINT_LABELS: Record<Language, string> = {
+  es: "Ocultar/mostrar menú",
+  ing: "Hide/show menu",
+  eus: "Menua ezkutatu/erakutsi",
+};
+
 function toErrorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   try {
@@ -76,6 +84,7 @@ export default function App() {
   const [currentScreen, setCurrentScreen] = useState<Screen>("dashboard");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isDesktopSidebarOpen, setIsDesktopSidebarOpen] = useState(true);
+  const [showDesktopSidebarHint, setShowDesktopSidebarHint] = useState(false);
   const [showLanding, setShowLanding] = useState(!window.location.hash.includes('login'));
 
   useEffect(() => {
@@ -828,6 +837,34 @@ export default function App() {
   const isSidebarVisible = isDesktopSidebarOpen && !['analyzer', 'planViewer'].includes(currentScreen);
   const showMobileMenuButton = !['analyzer', 'planViewer', 'onboarding'].includes(currentScreen);
   const isCoach = currentUser.profile?.role === 'coach';
+  const sidebarHintLabel = SIDEBAR_HINT_LABELS[language] || SIDEBAR_HINT_LABELS.es;
+
+  useEffect(() => {
+    if (!currentUser || !showMobileMenuButton) return;
+    if (typeof window === "undefined" || window.innerWidth < 768) return;
+
+    let hintAlreadySeen = false;
+    try {
+      hintAlreadySeen = localStorage.getItem(DESKTOP_SIDEBAR_HINT_KEY) === "1";
+    } catch {
+      hintAlreadySeen = false;
+    }
+
+    if (hintAlreadySeen) return;
+
+    setShowDesktopSidebarHint(true);
+    try {
+      localStorage.setItem(DESKTOP_SIDEBAR_HINT_KEY, "1");
+    } catch {
+      // Ignore storage write failures and keep current UX.
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setShowDesktopSidebarHint(false);
+    }, 3000);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [currentUser?.id, showMobileMenuButton]);
 
   // Logic for display-only stats (Global if Coach active)
   const isCoachView = currentUser?.profile?.role === 'coach';
@@ -897,10 +934,30 @@ export default function App() {
 
       <main className="flex-1 h-full overflow-hidden relative flex flex-col">
         {showMobileMenuButton && (
-          <div className="hidden md:flex absolute top-0 left-0 z-40 w-24 h-24 items-center justify-center group pointer-events-auto">
-            <button onClick={() => setIsDesktopSidebarOpen(!isDesktopSidebarOpen)} className="p-2 text-neutral-400 hover:text-white bg-black/50 hover:bg-black/80 rounded-full transition-all duration-300 opacity-0 group-hover:opacity-100 backdrop-blur-md border border-neutral-800 absolute top-4 left-4" title="Toggle Sidebar">
-              <PanelLeft size={20} />
-            </button>
+          <div className="hidden md:block absolute top-0 left-0 z-40">
+            <div className="group relative flex items-center p-4">
+              <button
+                onClick={() => setIsDesktopSidebarOpen(!isDesktopSidebarOpen)}
+                className={`relative z-10 p-2 bg-black/50 hover:bg-black/80 rounded-full backdrop-blur-md transition-all duration-300 ${
+                  showDesktopSidebarHint
+                    ? 'opacity-100 text-white border border-white shadow-[0_0_0_1px_rgba(255,255,255,0.45)]'
+                    : 'opacity-0 group-hover:opacity-100 text-neutral-400 hover:text-white border border-neutral-800'
+                }`}
+                title={sidebarHintLabel}
+              >
+                <PanelLeft size={20} />
+              </button>
+
+              <div
+                className={`absolute left-16 top-1/2 -translate-y-1/2 whitespace-nowrap rounded-full border border-white/20 bg-black/85 px-3 py-1.5 text-xs font-semibold text-white shadow-xl transition-all duration-300 ${
+                  showDesktopSidebarHint
+                    ? 'translate-x-0 opacity-100'
+                    : '-translate-x-2 opacity-0 pointer-events-none'
+                }`}
+              >
+                {sidebarHintLabel}
+              </div>
+            </div>
           </div>
         )}
 
