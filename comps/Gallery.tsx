@@ -30,6 +30,11 @@ const TEXTS = {
     cancel: 'Cancelar',
     confirm: 'Sí, eliminar',
     uploading: 'Subiendo...',
+    processing: 'Procesando',
+    ready: 'Listo',
+    uploadError: 'Error',
+    fileMissing: 'No encontrado',
+    unplayable: 'Formato no reproducible',
     usageLimit: 'Análisis Mensuales',
     videoLimit: 'Capacidad Galería',
     used: 'usados',
@@ -51,6 +56,11 @@ const TEXTS = {
     cancel: 'Cancel',
     confirm: 'Yes, delete',
     uploading: 'Uploading...',
+    processing: 'Processing',
+    ready: 'Ready',
+    uploadError: 'Error',
+    fileMissing: 'Missing',
+    unplayable: 'Unplayable format',
     usageLimit: 'Monthly Analysis',
     videoLimit: 'Gallery Capacity',
     used: 'used',
@@ -72,6 +82,11 @@ const TEXTS = {
     cancel: 'Utzi',
     confirm: 'Bai, ezabatu',
     uploading: 'Igotzen...',
+    processing: 'Prozesatzen',
+    ready: 'Prest',
+    uploadError: 'Errorea',
+    fileMissing: 'Ez dago fitxategirik',
+    unplayable: 'Formatua ezin da erreproduzitu',
     usageLimit: 'Hileko Analisi',
     videoLimit: 'Galeria Edukiera',
     used: 'erabilita',
@@ -80,6 +95,51 @@ const TEXTS = {
     upgradeBtn: 'Plana Hobetu',
     unlimited: 'Mugagabea'
   }
+};
+
+const getVideoStatusBadge = (
+  video: VideoFile,
+  t: typeof TEXTS.es,
+): { label: string; className: string } => {
+  if (video.isUploading || video.status === 'uploading') {
+    return {
+      label: t.uploading,
+      className: 'bg-black/60 text-orange-200 border border-orange-500/30',
+    };
+  }
+
+  if (video.errorCode === 'storage/object-not-found') {
+    return {
+      label: t.fileMissing,
+      className: 'bg-red-950/80 text-red-200 border border-red-500/30',
+    };
+  }
+
+  if (video.playbackStatus === 'unplayable' || video.errorCode === 'video/unplayable') {
+    return {
+      label: t.unplayable,
+      className: 'bg-amber-950/80 text-amber-100 border border-amber-500/30',
+    };
+  }
+
+  if (video.processingStatus && !['ready', 'failed'].includes(video.processingStatus)) {
+    return {
+      label: t.processing,
+      className: 'bg-sky-950/80 text-sky-100 border border-sky-500/30',
+    };
+  }
+
+  if (video.status === 'error' || video.processingStatus === 'failed') {
+    return {
+      label: t.uploadError,
+      className: 'bg-red-950/80 text-red-200 border border-red-500/30',
+    };
+  }
+
+  return {
+    label: t.ready,
+    className: 'bg-emerald-950/80 text-emerald-100 border border-emerald-500/30',
+  };
 };
 
 export const Gallery: React.FC<GalleryProps> = ({ videos, onSelectVideo, onUpload, onDelete, onNavigate, language, usage, limits, onResetUsage, overrideCount }) => {
@@ -228,7 +288,7 @@ export const Gallery: React.FC<GalleryProps> = ({ videos, onSelectVideo, onUploa
             </div>
 
             {/* Mobile Usage View (Discrete) */}
-            <div className="md:hidden absolute top-6 right-6 flex items-center gap-1.5 bg-white/80 dark:bg-neutral-900/80 backdrop-blur border border-neutral-200 dark:border-neutral-800 px-2.5 py-1 rounded-full shadow-lg">
+            <div className="md:hidden absolute safe-top-6 safe-right-6 flex items-center gap-1.5 bg-white/80 dark:bg-neutral-900/80 backdrop-blur border border-neutral-200 dark:border-neutral-800 px-2.5 py-1 rounded-full shadow-lg">
               <div className={`w-2 h-2 rounded-full ${isLimitReached ? 'bg-red-500 animate-pulse' : 'bg-orange-500'}`}></div>
               <span className="text-xs font-mono font-bold text-neutral-900 dark:text-white">
                 {currentCount}/{limitVal}
@@ -263,46 +323,54 @@ export const Gallery: React.FC<GalleryProps> = ({ videos, onSelectVideo, onUploa
       ) : (
         <>
           <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-3 md:gap-4 mb-24">
-            {videos.map((video) => (
-              <div
-                key={video.id}
-                className="group relative aspect-square bg-black rounded-2xl overflow-hidden cursor-pointer shadow-md hover:shadow-2xl border border-neutral-800 transition-all duration-500 ease-out hover:scale-105"
-                onClick={() => !video.isUploading && onSelectVideo(video)}
-              >
-                {video.thumbnail && (
-                  <img
-                    src={video.thumbnail}
-                    alt={video.name}
-                    className={`w-full h-full object-cover transition-all duration-700 group-hover:scale-110 ${video.isUploading ? 'opacity-40' : 'opacity-90 group-hover:opacity-100'}`}
-                  />
-                )}
-                <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent opacity-80 group-hover:opacity-100 transition-opacity p-3 flex flex-col justify-end pointer-events-none">
-                  <h4 className="text-[10px] md:text-xs font-bold text-white truncate">{video.name}</h4>
-                  <p className="text-[8px] md:text-[10px] text-neutral-300 mt-0.5">{video.date.split(',')[0]}</p>
-                </div>
-                {!video.isUploading && (
-                  <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-md px-1.5 py-0.5 rounded text-[9px] text-white font-mono flex items-center gap-1 z-10 pointer-events-none">
-                    <Film size={10} /> {video.duration || '00:00'}
-                  </div>
-                )}
-                {video.isUploading && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 backdrop-blur-[2px] z-20 pointer-events-none">
-                    <Loader2 className="animate-spin text-orange-500 mb-2" size={28} />
-                    <span className="text-[10px] text-white font-bold uppercase tracking-widest">{t.uploading}</span>
-                  </div>
-                )}
-                <button
-                  onClick={(e) => { e.stopPropagation(); setShowDeleteConfirm(video.id); }}
-                  className="absolute top-0 right-0 p-3 bg-red-600 text-white opacity-0 group-hover:opacity-100 transition-all rounded-bl-2xl shadow-lg hover:bg-red-500 z-50 cursor-pointer"
+            {videos.map((video) => {
+              const statusBadge = getVideoStatusBadge(video, t);
+              return (
+                <div
+                  key={video.id}
+                  className="group relative aspect-square bg-black rounded-2xl overflow-hidden cursor-pointer shadow-md hover:shadow-2xl border border-neutral-800 transition-all duration-500 ease-out hover:scale-105"
+                  onClick={() => !video.isUploading && onSelectVideo(video)}
                 >
-                  <Trash2 size={16} fill="currentColor" />
-                </button>
-                <div className="absolute bottom-0 left-0 h-[5px] w-0 bg-orange-600 transition-all duration-500 ease-out group-hover:w-full z-50 pointer-events-none"></div>
-              </div>
-            ))}
+                  {video.thumbnail && (
+                    <img
+                      src={video.thumbnail}
+                      alt={video.name}
+                      className={`w-full h-full object-cover transition-all duration-700 group-hover:scale-110 ${video.isUploading ? 'opacity-40' : 'opacity-90 group-hover:opacity-100'}`}
+                    />
+                  )}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent opacity-80 group-hover:opacity-100 transition-opacity p-3 flex flex-col justify-end pointer-events-none">
+                    <h4 className="text-[10px] md:text-xs font-bold text-white truncate">{video.name}</h4>
+                    <p className="text-[8px] md:text-[10px] text-neutral-300 mt-0.5">{video.date.split(',')[0]}</p>
+                  </div>
+                  {!video.isUploading && (
+                    <>
+                      <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-md px-1.5 py-0.5 rounded text-[9px] text-white font-mono flex items-center gap-1 z-10 pointer-events-none">
+                        <Film size={10} /> {video.duration || '00:00'}
+                      </div>
+                      <div className={`absolute top-2 left-2 px-2 py-1 rounded-full text-[9px] font-semibold z-10 pointer-events-none ${statusBadge.className}`}>
+                        {statusBadge.label}
+                      </div>
+                    </>
+                  )}
+                  {video.isUploading && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 backdrop-blur-[2px] z-20 pointer-events-none">
+                      <Loader2 className="animate-spin text-orange-500 mb-2" size={28} />
+                      <span className="text-[10px] text-white font-bold uppercase tracking-widest">{t.uploading}</span>
+                    </div>
+                  )}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setShowDeleteConfirm(video.id); }}
+                    className="absolute top-0 right-0 p-3 bg-red-600 text-white opacity-0 group-hover:opacity-100 transition-all rounded-bl-2xl shadow-lg hover:bg-red-500 z-50 cursor-pointer"
+                  >
+                    <Trash2 size={16} fill="currentColor" />
+                  </button>
+                  <div className="absolute bottom-0 left-0 h-[5px] w-0 bg-orange-600 transition-all duration-500 ease-out group-hover:w-full z-50 pointer-events-none"></div>
+                </div>
+              );
+            })}
           </div>
 
-          <div className="fixed bottom-8 right-8 z-20 flex flex-col gap-3">
+          <div className="fixed safe-bottom-8 safe-right-6 z-20 flex flex-col gap-3">
             <button
               onClick={startCamera}
               className="flex items-center justify-center w-14 h-14 md:w-auto md:h-auto md:px-4 md:py-3 font-bold rounded-2xl shadow-xl transition-all bg-white text-black hover:scale-105"
@@ -323,10 +391,10 @@ export const Gallery: React.FC<GalleryProps> = ({ videos, onSelectVideo, onUploa
         <div className="fixed inset-0 z-50 bg-black flex flex-col animate-in slide-in-from-bottom duration-300">
           <div className="relative flex-1 bg-black">
             <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
-            <button onClick={stopCamera} className="absolute top-6 right-6 p-2 bg-black/50 text-white rounded-full backdrop-blur-md z-10"><X size={24} /></button>
-            {isRecording && <div className="absolute top-6 left-1/2 -translate-x-1/2 bg-red-600/90 text-white px-4 py-1 rounded-full text-sm font-mono animate-pulse flex items-center gap-2"><div className="w-2 h-2 bg-white rounded-full"></div>{formatTime(recordingTime)}</div>}
+            <button onClick={stopCamera} className="absolute safe-top-6 safe-right-6 p-2 bg-black/50 text-white rounded-full backdrop-blur-md z-10"><X size={24} /></button>
+            {isRecording && <div className="absolute safe-top-6 left-1/2 -translate-x-1/2 bg-red-600/90 text-white px-4 py-1 rounded-full text-sm font-mono animate-pulse flex items-center gap-2"><div className="w-2 h-2 bg-white rounded-full"></div>{formatTime(recordingTime)}</div>}
           </div>
-          <div className="h-32 bg-black flex items-center justify-center gap-8">
+          <div className="h-32 safe-pb-4 bg-black flex items-center justify-center gap-8">
             {!isRecording ? (
               <button onClick={startRecording} className="w-16 h-16 rounded-full border-4 border-white flex items-center justify-center group"><div className="w-14 h-14 bg-red-600 rounded-full group-hover:scale-90 transition-transform"></div></button>
             ) : (

@@ -63,9 +63,9 @@ const TEXTS = {
         iphoneDesc: 'Aplicación iOS nativa. Requiere un Mac con Xcode y una cuenta de desarrollador de Apple.',
         iphoneSteps: [
             'Tener un Mac con Xcode instalado',
-            'Ejecutar: npx cap add ios',
-            'Ejecutar: npx cap sync ios',
-            'Abrir el proyecto en Xcode: npx cap open ios',
+            'Ejecutar: npm run cap:add:ios',
+            'Ejecutar: npm run cap:sync:ios',
+            'Abrir el proyecto en Xcode: npm run cap:open:ios',
             'Conectar tu iPhone y compilar desde Xcode'
         ],
         features: 'Todas las funcionalidades incluidas',
@@ -119,9 +119,9 @@ const TEXTS = {
         iphoneDesc: 'Native iOS app. Requires a Mac with Xcode and an Apple Developer account.',
         iphoneSteps: [
             'Have a Mac with Xcode installed',
-            'Run: npx cap add ios',
-            'Run: npx cap sync ios',
-            'Open project in Xcode: npx cap open ios',
+            'Run: npm run cap:add:ios',
+            'Run: npm run cap:sync:ios',
+            'Open project in Xcode: npm run cap:open:ios',
             'Connect your iPhone and build from Xcode'
         ],
         features: 'All features included',
@@ -175,9 +175,9 @@ const TEXTS = {
         iphoneDesc: 'iOS aplikazio natiboa. Mac bat behar da Xcode-rekin eta Apple Developer kontu bat.',
         iphoneSteps: [
             'Eduki Mac bat Xcode-rekin instalatuta',
-            'Exekutatu: npx cap add ios',
-            'Exekutatu: npx cap sync ios',
-            'Ireki proiektua Xcode-n: npx cap open ios',
+            'Exekutatu: npm run cap:add:ios',
+            'Exekutatu: npm run cap:sync:ios',
+            'Ireki proiektua Xcode-n: npm run cap:open:ios',
             'Konektatu zure iPhone-a eta konpilatu Xcode-tik'
         ],
         features: 'Funtzionalitate guztiak barne',

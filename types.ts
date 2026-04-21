@@ -3,6 +3,23 @@ export type Language = 'es' | 'ing' | 'eus';
 
 export type SubscriptionTier = 'FREE' | 'PRO_ATHLETE' | 'PRO_COACH' | 'PREMIUM';
 
+export type AssetStatus = 'uploading' | 'ready' | 'error';
+
+export type AssetPlaybackStatus = 'unknown' | 'playable' | 'unplayable';
+
+export interface StoredAssetMetadata {
+  storagePath?: string;
+  remoteUrl?: string;
+  downloadURL?: string;
+  contentType?: string;
+  size?: number;
+  createdAt?: string;
+  ownerId?: string;
+  status?: AssetStatus;
+  errorCode?: string;
+  errorMessage?: string;
+}
+
 export interface UserLimits {
   tier: SubscriptionTier;
   maxAnalysisPerMonth: number;
@@ -22,7 +39,7 @@ export interface VideoAnalysisResult {
   drawingPoints?: any[];
 }
 
-export interface VideoFile {
+export interface VideoFile extends StoredAssetMetadata {
   id: string;
   url: string;
   thumbnail?: string;
@@ -31,22 +48,20 @@ export interface VideoFile {
   duration?: string;
   isLocal?: boolean;
   isUploading?: boolean;
-  remoteUrl?: string;
+  playbackStatus?: AssetPlaybackStatus;
   analysis?: VideoAnalysisResult;
   processingStatus?: VideoContextStatus;
   contextVersion?: string;
   lastContextUpdatedAt?: string;
 }
 
-export interface PlanFile {
+export interface PlanFile extends StoredAssetMetadata {
   id: string;
   name: string;
   date: string;
   url?: string;
   file?: File | Blob;
   isLocal?: boolean;
-  remoteUrl?: string;
-  storagePath?: string;
 }
 
 export interface ChatMessage {

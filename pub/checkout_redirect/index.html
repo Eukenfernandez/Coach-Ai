@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="robots" content="noindex,nofollow,noarchive" />
+  <link rel="canonical" href="https://coachai.es/checkout_redirect/index.html" />
+  <title>Coach AI</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #09090b;
+      --panel: rgba(23, 23, 23, 0.92);
+      --border: rgba(255, 255, 255, 0.08);
+      --text: #fafafa;
+      --muted: #a1a1aa;
+      --accent: #ea580c;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100dvh;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      background:
+        radial-gradient(circle at top, rgba(234, 88, 12, 0.25), transparent 36%),
+        linear-gradient(180deg, #18181b 0%, #09090b 100%);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    .card {
+      width: min(100%, 420px);
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 28px;
+      padding: 28px;
+      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.45);
+      backdrop-filter: blur(18px);
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 14px;
+      border-radius: 999px;
+      background: rgba(234, 88, 12, 0.12);
+      color: #fdba74;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 18px 0 12px;
+      font-size: 30px;
+      line-height: 1.05;
+    }
+
+    p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    .actions {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-top: 24px;
+    }
+
+    a {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 52px;
+      padding: 14px 18px;
+      border-radius: 16px;
+      text-decoration: none;
+      font-weight: 700;
+    }
+
+    .primary {
+      background: var(--accent);
+      color: white;
+    }
+
+    .secondary {
+      border: 1px solid var(--border);
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.04);
+    }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <div class="pill">Coach AI</div>
+    <h1 id="title">Volviendo a la app...</h1>
+    <p id="description">Si no se abre automáticamente, usa el botón inferior para regresar a Coach AI.</p>
+    <div class="actions">
+      <a id="open-app" class="primary" href="/">Abrir la app</a>
+      <a id="continue-web" class="secondary" href="/">Seguir en la web</a>
+    </div>
+  </main>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const action = params.get('action') || 'payment';
+    const status = params.get('status') || 'success';
+    const target = params.get('target') || 'coachai://app-return?action=portal';
+    const title = document.getElementById('title');
+    const description = document.getElementById('description');
+    const openApp = document.getElementById('open-app');
+    const continueWeb = document.getElementById('continue-web');
+
+    const webFallback =
+      action === 'payment'
+        ? `/?payment=${status}`
+        : '/';
+
+    if (action === 'payment' && status === 'cancel') {
+      title.textContent = 'Pago cancelado';
+      description.textContent = 'Puedes volver a la app para revisar tu suscripción o continuar desde la web.';
+    } else if (action === 'payment') {
+      title.textContent = 'Pago confirmado';
+      description.textContent = 'Redirigiéndote de nuevo a Coach AI para actualizar tu cuenta.';
+    } else {
+      title.textContent = 'Suscripción actualizada';
+      description.textContent = 'Volviendo a la app para refrescar tu estado de suscripción.';
+    }
+
+    openApp.setAttribute('href', target);
+    continueWeb.setAttribute('href', webFallback);
+
+    window.setTimeout(() => {
+      window.location.replace(target);
+    }, 350);
+  </script>
+</body>
+</html>

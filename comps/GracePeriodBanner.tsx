@@ -10,8 +10,9 @@ export const GracePeriodBanner: React.FC = () => {
         if (!StorageService.isCloudMode() || !auth?.currentUser) return;
 
         const uid = auth.currentUser.uid;
-        const unsubscribe = db.collection('account_enforcement').doc(uid)
-            .onSnapshot(snap => {
+        const loadEnforcementState = async () => {
+            try {
+                const snap = await db.collection('account_enforcement').doc(uid).get();
                 if (snap.exists) {
                     const data = snap.data();
                     if (data?.status === 'OVER_LIMIT_GRACE_PERIOD') {
@@ -22,9 +23,17 @@ export const GracePeriodBanner: React.FC = () => {
                 } else {
                     setEnforcementState(null);
                 }
-            });
-            
-        return () => unsubscribe();
+            } catch {
+                // If Firestore is offline, keep the last known state instead of spamming the console.
+            }
+        };
+
+        void loadEnforcementState();
+        const interval = window.setInterval(() => {
+            void loadEnforcementState();
+        }, 60000);
+
+        return () => window.clearInterval(interval);
     }, []);
 
     useEffect(() => {

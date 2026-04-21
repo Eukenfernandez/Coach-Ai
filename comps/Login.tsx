@@ -207,7 +207,7 @@ export const Login: React.FC<LoginProps> = ({ onLogin, language, onLanguageChang
       </div>
 
       {/* Settings Panel */}
-      <div className="absolute top-4 left-4 z-40 flex flex-col items-start gap-2">
+      <div className="absolute safe-top-4 safe-left-4 z-40 flex flex-col items-start gap-2">
          <button 
             onClick={() => setShowSettings(!showSettings)}
             className="p-2.5 rounded-full bg-white/80 dark:bg-neutral-800/80 backdrop-blur border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:text-orange-600 dark:hover:text-orange-500 shadow-sm transition-all"
@@ -243,7 +243,7 @@ export const Login: React.FC<LoginProps> = ({ onLogin, language, onLanguageChang
       </div>
       
       {/* Cloud Indicator */}
-      <div className="absolute top-4 right-4 z-30">
+      <div className="absolute safe-top-4 safe-right-4 z-30">
         {isCloud ? (
           <div className="flex items-center gap-2 px-3 py-1.5 bg-green-100 dark:bg-green-900/40 border border-green-200 dark:border-green-500/30 rounded-full text-green-700 dark:text-green-400 text-xs font-mono">
             <Cloud size={14} />

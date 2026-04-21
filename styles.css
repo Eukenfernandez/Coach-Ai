@@ -3,10 +3,23 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    --safe-area-top: env(safe-area-inset-top, 0px);
+    --safe-area-right: env(safe-area-inset-right, 0px);
+    --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-area-left: env(safe-area-inset-left, 0px);
+  }
+
   html,
   body,
   #root {
     min-height: 100%;
+    height: 100%;
+  }
+
+  body {
+    min-height: 100dvh;
+    overscroll-behavior-y: none;
   }
 }
 
@@ -18,6 +31,49 @@
   .no-scrollbar {
     -ms-overflow-style: none;
     scrollbar-width: none;
+  }
+
+  .native-app-shell {
+    padding-top: var(--safe-area-top);
+    padding-right: var(--safe-area-right);
+    padding-bottom: var(--safe-area-bottom);
+    padding-left: var(--safe-area-left);
+  }
+
+  .safe-top-4 {
+    top: calc(1rem + var(--safe-area-top));
+  }
+
+  .safe-top-6 {
+    top: calc(1.5rem + var(--safe-area-top));
+  }
+
+  .safe-right-4 {
+    right: calc(1rem + var(--safe-area-right));
+  }
+
+  .safe-right-6 {
+    right: calc(1.5rem + var(--safe-area-right));
+  }
+
+  .safe-left-4 {
+    left: calc(1rem + var(--safe-area-left));
+  }
+
+  .safe-left-6 {
+    left: calc(1.5rem + var(--safe-area-left));
+  }
+
+  .safe-bottom-6 {
+    bottom: calc(1.5rem + var(--safe-area-bottom));
+  }
+
+  .safe-bottom-8 {
+    bottom: calc(2rem + var(--safe-area-bottom));
+  }
+
+  .safe-pb-4 {
+    padding-bottom: calc(1rem + var(--safe-area-bottom));
   }
 }
 
@@ -61,6 +117,10 @@ input[type=range]::-webkit-slider-runnable-track {
 * {
   scrollbar-width: thin;
   scrollbar-color: #404040 transparent;
+}
+
+html.native-app {
+  background: #000;
 }
 
 input::-webkit-outer-spin-button,

@@ -6,12 +6,17 @@
   "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "tsx scripts/generate-public-media.ts && vite build && tsx scripts/generate-seo-pages.tsx",
     "preview": "vite preview",
     "test": "npm --prefix fns test",
     "electron:dev": "vite build && electron .",
     "electron:build": "vite build && npx electron-builder --win --x64",
+    "cap:add:ios": "npx cap add ios",
     "cap:sync": "vite build && npx cap sync android",
+    "cap:sync:android": "vite build && npx cap sync android",
+    "cap:sync:ios": "vite build && npx cap sync ios",
+    "cap:open:ios": "npx cap open ios",
+    "cap:doctor": "npx cap doctor",
     "cap:build:android": "vite build && npx cap sync android && cd android && gradlew.bat assembleDebug"
   },
   "build": {
@@ -29,7 +34,9 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "pub/icons/icon.ico",
@@ -48,9 +55,12 @@
     }
   },
   "dependencies": {
-    "@capacitor/android": "^8.1.0",
-    "@capacitor/cli": "^8.1.0",
-    "@capacitor/core": "^8.1.0",
+    "@capacitor/android": "^8.3.0",
+    "@capacitor/app": "^8.1.0",
+    "@capacitor/browser": "^8.0.3",
+    "@capacitor/cli": "^8.3.0",
+    "@capacitor/core": "^8.3.0",
+    "@capacitor/ios": "^8.3.0",
     "@google/genai": "^0.2.0",
     "@mediapipe/tasks-vision": "^0.10.22-rc.20250304",
     "clsx": "^2.1.0",
@@ -72,6 +82,7 @@
     "sharp": "^0.34.5",
     "tailwindcss": "^3.4.1",
     "terser": "^5.44.1",
+    "tsx": "^4.21.0",
     "typescript": "^5.2.2",
     "vite": "^5.1.4"
   }

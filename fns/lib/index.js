@@ -316,6 +316,7 @@ export const registerVideoInGallery = onCall({ region: "europe-west1", maxInstan
             ...videoData,
             uploadedByCoachId: uid !== targetUserId ? uid : null,
             uploadedAt: FieldValue.serverTimestamp(),
+            quotaCounted: true,
         };
         // 6. Write video to the TARGET user's subcollection
         const newVideoRef = db.collection(`userdata/${targetUserId}/videos`).doc(videoData.id);
@@ -368,6 +369,7 @@ export const registerPdfInGallery = onCall({ region: "europe-west1", maxInstance
             ...pdfData,
             uploadedByCoachId: uid !== targetUserId ? uid : null,
             uploadedAt: FieldValue.serverTimestamp(),
+            quotaCounted: true,
         };
         // 6. Write to target's plans subcollection
         const newPdfRef = db.collection(`userdata/${targetUserId}/plans`).doc(pdfData.id);
@@ -502,12 +504,54 @@ export const onSubscriptionChange = onDocumentWritten({ document: "customers/{ui
     console.log(`[Subscription Trigger] Evaluating quota compliance for UID: ${uid}`);
     await evaluateVideoQuotaCompliance(uid);
 });
+// Trigger: count direct-write fallback video uploads when callable flow was unavailable
+export const onVideoCreatedFallback = onDocumentWritten({ document: "userdata/{uid}/videos/{videoId}", region: "europe-west1" }, async (event) => {
+    if (!event.data?.after.exists || event.data?.before.exists)
+        return;
+    const uid = event.params.uid;
+    const createdData = event.data.after.data();
+    if (createdData?.quotaCounted !== false)
+        return;
+    const quotaPayer = createdData?.uploadedByCoachId || uid;
+    await db.collection("quota_counters").doc(quotaPayer).set({
+        videosGlobal: FieldValue.increment(1),
+        lastUpdated: FieldValue.serverTimestamp()
+    }, { merge: true });
+    await event.data.after.ref.set({
+        quotaCounted: true,
+        fallbackCountedAt: FieldValue.serverTimestamp()
+    }, { merge: true });
+    console.log(`[Video Fallback Trigger] Counted direct-write upload for UID: ${quotaPayer}`);
+    await evaluateVideoQuotaCompliance(quotaPayer);
+});
+// Trigger: count direct-write fallback PDF uploads when callable flow was unavailable
+export const onPdfCreatedFallback = onDocumentWritten({ document: "userdata/{uid}/plans/{planId}", region: "europe-west1" }, async (event) => {
+    if (!event.data?.after.exists || event.data?.before.exists)
+        return;
+    const uid = event.params.uid;
+    const createdData = event.data.after.data();
+    if (createdData?.quotaCounted !== false)
+        return;
+    const quotaPayer = createdData?.uploadedByCoachId || uid;
+    await db.collection("quota_counters").doc(quotaPayer).set({
+        pdfsGlobal: FieldValue.increment(1),
+        lastUpdated: FieldValue.serverTimestamp()
+    }, { merge: true });
+    await event.data.after.ref.set({
+        quotaCounted: true,
+        fallbackCountedAt: FieldValue.serverTimestamp()
+    }, { merge: true });
+    console.log(`[PDF Fallback Trigger] Counted direct-write upload for UID: ${quotaPayer}`);
+});
 // Trigger: Video deletion check
 export const onVideoDeletion = onDocumentWritten({ document: "userdata/{uid}/videos/{videoId}", region: "europe-west1" }, async (event) => {
     const uid = event.params.uid;
     // Only run on deletes (to clear grace periods and decrement counters)
     if (!event.data?.after.exists) {
         const deletedData = event.data?.before.data();
+        if (deletedData?.quotaCounted === false) {
+            return;
+        }
         // Determine who "paid" for this video: the coach who uploaded it, or the profile owner
         const quotaPayer = deletedData?.uploadedByCoachId || uid;
         // Decrement the quota counter for the payer
@@ -531,6 +575,9 @@ export const onPdfDeletion = onDocumentWritten({ document: "userdata/{uid}/plans
     const uid = event.params.uid;
     if (!event.data?.after.exists) {
         const deletedData = event.data?.before.data();
+        if (deletedData?.quotaCounted === false) {
+            return;
+        }
         const quotaPayer = deletedData?.uploadedByCoachId || uid;
         const counterRef = db.collection("quota_counters").doc(quotaPayer);
         const counterSnap = await counterRef.get();

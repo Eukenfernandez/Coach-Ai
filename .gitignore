@@ -28,3 +28,5 @@ fns/output/
 *.njsproj
 *.sln
 *.sw?
+
+.vercel

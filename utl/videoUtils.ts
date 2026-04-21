@@ -101,3 +101,68 @@ export const formatDuration = (seconds: number): string => {
   const secs = Math.floor(seconds % 60);
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 };
+
+export const formatDurationLabel = (seconds: number): string => {
+  const totalSeconds = Math.max(0, Math.floor(seconds));
+  const mins = Math.floor(totalSeconds / 60);
+  const secs = totalSeconds % 60;
+  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+};
+
+export const getVideoDurationLabel = (source: string | Blob): Promise<string | undefined> => {
+  return new Promise((resolve) => {
+    const video = document.createElement('video');
+    let objectUrl: string | null = null;
+    let settled = false;
+
+    const cleanup = () => {
+      video.onloadedmetadata = null;
+      video.onerror = null;
+      video.removeAttribute('src');
+      video.load();
+      if (objectUrl) {
+        try {
+          URL.revokeObjectURL(objectUrl);
+        } catch {
+          // ignore cleanup failures
+        }
+      }
+    };
+
+    const safeResolve = (value?: string) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeoutId);
+      cleanup();
+      resolve(value);
+    };
+
+    const timeoutId = window.setTimeout(() => safeResolve(undefined), 10000);
+
+    video.preload = 'metadata';
+    video.muted = true;
+    video.playsInline = true;
+
+    if (typeof source === 'string') {
+      if (/^https?:/i.test(source)) {
+        video.crossOrigin = 'anonymous';
+      }
+      video.src = source;
+    } else {
+      objectUrl = URL.createObjectURL(source);
+      video.src = objectUrl;
+    }
+
+    video.onloadedmetadata = () => {
+      if (!Number.isFinite(video.duration) || video.duration <= 0) {
+        safeResolve(undefined);
+        return;
+      }
+
+      safeResolve(formatDurationLabel(video.duration));
+    };
+
+    video.onerror = () => safeResolve(undefined);
+    video.load();
+  });
+};

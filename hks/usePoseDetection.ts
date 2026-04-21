@@ -5,6 +5,14 @@ import {
     NormalizedLandmark,
 } from '@mediapipe/tasks-vision';
 
+const POSE_DEBUG = typeof import.meta !== 'undefined' && Boolean(import.meta.env?.DEV);
+const poseLog = (...args: any[]) => {
+    if (POSE_DEBUG) console.log(...args);
+};
+const poseWarn = (...args: any[]) => {
+    if (POSE_DEBUG) console.warn(...args);
+};
+
 // Keypoint connections for drawing skeleton lines
 // Based on MediaPipe Pose landmark indices
 export const POSE_CONNECTIONS: [number, number][] = [
@@ -88,7 +96,7 @@ async function createPoseLandmarkerInstance(): Promise<PoseLandmarker | null> {
                     numPoses: 1,
                 });
             } catch (gpuError) {
-                console.warn('[PoseDetection] GPU delegate failed, falling back to CPU:', gpuError);
+                poseWarn('[PoseDetection] GPU delegate failed, falling back to CPU:', gpuError);
                 return await PoseLandmarker.createFromOptions(vision, {
                     baseOptions: {
                         modelAssetPath: modelPath,
@@ -122,13 +130,13 @@ async function preloadModel(): Promise<PoseLandmarker | null> {
     isModelLoading = true;
     modelLoadError = null;
 
-    console.log('[PoseDetection] Starting PRIMARY model preload...');
+    poseLog('[PoseDetection] Starting PRIMARY model preload...');
 
     modelLoadPromise = (async () => {
         try {
             cachedPoseLandmarker = await createPoseLandmarkerInstance();
             if (cachedPoseLandmarker) {
-                console.log('[PoseDetection] PRIMARY model loaded successfully!');
+                poseLog('[PoseDetection] PRIMARY model loaded successfully!');
             } else {
                 modelLoadError = 'Error al cargar el modelo de detección';
             }
@@ -152,13 +160,13 @@ async function loadSecondaryModel(): Promise<PoseLandmarker | null> {
     if (model2LoadPromise) return model2LoadPromise;
 
     isModel2Loading = true;
-    console.log('[PoseDetection] Starting SECONDARY model load for dual video...');
+    poseLog('[PoseDetection] Starting SECONDARY model load for dual video...');
 
     model2LoadPromise = (async () => {
         try {
             cachedPoseLandmarker2 = await createPoseLandmarkerInstance();
             if (cachedPoseLandmarker2) {
-                console.log('[PoseDetection] SECONDARY model loaded successfully!');
+                poseLog('[PoseDetection] SECONDARY model loaded successfully!');
             }
             return cachedPoseLandmarker2;
         } catch (err) {
@@ -200,6 +208,38 @@ export function usePoseDetection(
 
     // Track if we have the secondary model loaded
     const [hasSecondaryModel, setHasSecondaryModel] = useState(!!cachedPoseLandmarker2);
+
+    // Keep the UI in sync with the primary model preload state even before the user enables detection.
+    useEffect(() => {
+        let cancelled = false;
+
+        if (cachedPoseLandmarker) {
+            setIsReady(true);
+            setIsLoading(false);
+            setError(null);
+            return;
+        }
+
+        setIsLoading(true);
+
+        preloadModel().then((model) => {
+            if (cancelled) return;
+
+            if (model) {
+                setIsReady(true);
+                setIsLoading(false);
+                setError(null);
+            } else {
+                setIsReady(false);
+                setIsLoading(false);
+                setError(modelLoadError || 'Error al cargar el modelo de detección');
+            }
+        });
+
+        return () => {
+            cancelled = true;
+        };
+    }, []);
 
     // Detection loop using SEPARATE model instances for each video
     const detectPose = useCallback(() => {
@@ -269,11 +309,11 @@ export function usePoseDetection(
     // Load secondary model when dual video mode is detected
     useEffect(() => {
         if (enabled && secondVideoRef?.current && !cachedPoseLandmarker2 && !isModel2Loading) {
-            console.log('[PoseDetection] Dual video mode detected, loading secondary model...');
+            poseLog('[PoseDetection] Dual video mode detected, loading secondary model...');
             loadSecondaryModel().then((model) => {
                 if (model) {
                     setHasSecondaryModel(true);
-                    console.log('[PoseDetection] Secondary model ready');
+                    poseLog('[PoseDetection] Secondary model ready');
                 }
             });
         }
@@ -282,24 +322,24 @@ export function usePoseDetection(
     // Start/stop detection based on enabled state
     useEffect(() => {
         if (enabled) {
-            console.log('[PoseDetection] Pose detection enabled, starting...');
+            poseLog('[PoseDetection] Pose detection enabled, starting...');
             // Reset time trackers
             lastTime1.current = -1;
             lastTime2.current = -1;
 
             // Check if primary model is already loaded
             if (cachedPoseLandmarker) {
-                console.log('[PoseDetection] Primary model ready, starting detection loop');
+                poseLog('[PoseDetection] Primary model ready, starting detection loop');
                 setIsReady(true);
                 setIsLoading(false);
                 animationFrameRef.current = requestAnimationFrame(detectPose);
             } else {
                 // Model still loading, wait for it
-                console.log('[PoseDetection] Waiting for primary model...');
+                poseLog('[PoseDetection] Waiting for primary model...');
                 setIsLoading(true);
                 preloadModel().then((model) => {
                     if (model && enabled) {
-                        console.log('[PoseDetection] Primary model loaded, starting detection');
+                        poseLog('[PoseDetection] Primary model loaded, starting detection');
                         setIsReady(true);
                         setIsLoading(false);
                         animationFrameRef.current = requestAnimationFrame(detectPose);

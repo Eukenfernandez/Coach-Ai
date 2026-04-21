@@ -9,10 +9,20 @@ service firebase.storage {
       allow write: if request.auth != null && request.auth.uid == 'MASTER_GOD_EUKEN';
     }
 
+    match /public/{allPaths=**} {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.uid == 'MASTER_GOD_EUKEN';
+    }
+
     // ========== USER VIDEOS ==========
     // Path pattern: videos/{userId}/{filename}
     match /videos/{userId}/{fileName} {
-      allow read: if request.auth != null;
+      allow read: if request.auth != null && (
+        request.auth.uid == userId ||
+        request.auth.uid == 'MASTER_GOD_EUKEN' ||
+        firestore.exists(/databases/(default)/documents/requests/$(request.auth.uid + '_' + userId))
+        && firestore.get(/databases/(default)/documents/requests/$(request.auth.uid + '_' + userId)).data.status == 'accepted'
+      );
       allow write: if request.auth != null && (
         request.auth.uid == userId ||
         request.auth.uid == 'MASTER_GOD_EUKEN' ||
@@ -43,8 +53,7 @@ service firebase.storage {
 
     // ========== CATCH-ALL: Deny everything else ==========
     match /{allPaths=**} {
-      allow read: if request.auth != null;
-      allow write: if false;
+      allow read, write: if false;
     }
   }
 }

@@ -1,5 +1,5 @@
 import React from "react";
-import { createRoot } from "react-dom/client";
+import { createRoot, hydrateRoot } from "react-dom/client";
 import App from "./App";
 import "./styles.css";
 
@@ -8,8 +8,27 @@ if (!rootElement) {
   throw new Error("Could not find root element to mount to");
 }
 
-createRoot(rootElement).render(
+const app = (
   <React.StrictMode>
     <App />
   </React.StrictMode>
 );
+
+function normalizePathname(pathname: string) {
+  if (!pathname || pathname === "/") return "/";
+  return pathname.endsWith("/") ? pathname.slice(0, -1) || "/" : pathname;
+}
+
+function isLoginRoute(pathname: string, hash: string) {
+  return normalizePathname(pathname) === "/login" || hash.includes("login");
+}
+
+const shouldHydrate =
+  rootElement.hasChildNodes() &&
+  !isLoginRoute(window.location.pathname, window.location.hash);
+
+if (shouldHydrate) {
+  hydrateRoot(rootElement, app);
+} else {
+  createRoot(rootElement).render(app);
+}

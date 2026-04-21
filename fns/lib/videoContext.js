@@ -1,6 +1,9 @@
+import { randomUUID } from 'node:crypto';
 import { getApps, initializeApp } from 'firebase-admin/app';
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
+import { getStorage } from 'firebase-admin/storage';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
+import * as logger from 'firebase-functions/logger';
 import { defineSecret } from 'firebase-functions/params';
 import { GoogleGenerativeAI, TaskType } from '@google/generative-ai';
 import { buildRetrievalTrace, formatCompactStructuredAnswer, pickKeyMomentsForQuestion, rankSegmentsForQuestion, } from './video-intelligence/core.js';
@@ -9,6 +12,7 @@ if (!getApps().length) {
     initializeApp();
 }
 const db = getFirestore();
+const storage = getStorage();
 const geminiApiKey = defineSecret('GEMINI_API_KEY');
 const PREMIUM_EMAILS = [
     'alejandrosanchez@gmail.com',
@@ -19,6 +23,8 @@ const PREMIUM_EMAILS = [
 const PROCESSING_VERSION = 'video-context-v1';
 const MAX_SAMPLE_FRAMES = 12;
 const MAX_QUERY_FRAMES = 7;
+const UPLOAD_IN_PROGRESS_STAGE = 'waiting_for_video';
+const isRecord = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 const resolveUserTier = (uid, userEmail, userData) => {
     if (userEmail && PREMIUM_EMAILS.includes(String(userEmail).toLowerCase()))
         return 'PREMIUM';
@@ -58,6 +64,10 @@ const sanitizeText = (value, fallback = '') => {
         return fallback;
     return value.trim();
 };
+const sanitizeOptionalText = (value) => {
+    const sanitized = sanitizeText(value);
+    return sanitized || null;
+};
 const ensureStringArray = (value) => {
     if (!Array.isArray(value))
         return [];
@@ -71,6 +81,345 @@ const clampNumber = (value, min = 0, max = Number.MAX_SAFE_INTEGER) => {
     if (!Number.isFinite(parsed))
         return min;
     return Number(Math.min(max, Math.max(min, parsed)).toFixed(3));
+};
+const sanitizeErrorMessage = (error, fallback = 'Unexpected error.') => {
+    if (error instanceof Error)
+        return sanitizeText(error.message, fallback);
+    if (isRecord(error))
+        return sanitizeText(error.message, fallback);
+    return fallback;
+};
+const parseBoolean = (value) => value === true || value === 'true';
+const normalizeMetadataPayload = (value) => {
+    if (!isRecord(value)) {
+        throw new HttpsError('invalid-argument', 'El campo metadata es obligatorio y debe ser un objeto.');
+    }
+    const durationSeconds = clampNumber(value.durationSeconds, 0);
+    const width = clampNumber(value.width, 0);
+    const height = clampNumber(value.height, 0);
+    if (durationSeconds <= 0) {
+        throw new HttpsError('invalid-argument', 'metadata.durationSeconds debe ser mayor que 0.');
+    }
+    if (width <= 0 || height <= 0) {
+        throw new HttpsError('invalid-argument', 'metadata.width y metadata.height deben ser mayores que 0.');
+    }
+    const mimeType = sanitizeText(value.mimeType);
+    return {
+        durationSeconds,
+        width,
+        height,
+        estimatedFps: value.estimatedFps === null || value.estimatedFps === undefined
+            ? null
+            : clampNumber(value.estimatedFps, 0),
+        frameCountEstimate: value.frameCountEstimate === null || value.frameCountEstimate === undefined
+            ? null
+            : clampNumber(value.frameCountEstimate, 0),
+        aspectRatio: value.aspectRatio === null || value.aspectRatio === undefined
+            ? width && height
+                ? Number((width / height).toFixed(4))
+                : null
+            : clampNumber(value.aspectRatio, 0),
+        orientation: width === height ? 'square' : width > height ? 'landscape' : 'portrait',
+        mimeType: mimeType || undefined,
+        sizeBytes: value.sizeBytes === null || value.sizeBytes === undefined
+            ? undefined
+            : clampNumber(value.sizeBytes, 0),
+    };
+};
+const normalizeSegmentPlanPayload = (value, durationSeconds) => {
+    if (!Array.isArray(value) || value.length === 0) {
+        throw new HttpsError('invalid-argument', 'El payload debe incluir segments con al menos un tramo.');
+    }
+    return value.slice(0, MAX_SAMPLE_FRAMES).map((rawSegment, index) => {
+        if (!isRecord(rawSegment)) {
+            throw new HttpsError('invalid-argument', `segments[${index}] no tiene un formato válido.`);
+        }
+        const startTimeSeconds = clampNumber(rawSegment.startTimeSeconds, 0, durationSeconds);
+        const endTimeSeconds = clampNumber(rawSegment.endTimeSeconds, startTimeSeconds, durationSeconds);
+        if (endTimeSeconds <= startTimeSeconds) {
+            throw new HttpsError('invalid-argument', `segments[${index}] tiene un rango temporal inválido.`);
+        }
+        return {
+            id: sanitizeText(rawSegment.id, `segment_${index + 1}`),
+            startTimeSeconds,
+            endTimeSeconds,
+            representativeTimeSeconds: clampNumber(rawSegment.representativeTimeSeconds ?? (startTimeSeconds + endTimeSeconds) / 2, startTimeSeconds, endTimeSeconds),
+            label: sanitizeText(rawSegment.label, `Segment ${index + 1}`),
+        };
+    });
+};
+const normalizeSampleFramesPayload = (value) => {
+    if (!Array.isArray(value) || value.length === 0) {
+        throw new HttpsError('invalid-argument', 'El payload debe incluir sampleFrames con al menos una captura.');
+    }
+    return value.slice(0, MAX_SAMPLE_FRAMES).map((rawFrame, index) => {
+        if (!isRecord(rawFrame)) {
+            throw new HttpsError('invalid-argument', `sampleFrames[${index}] no tiene un formato válido.`);
+        }
+        const base64Jpeg = sanitizeText(rawFrame.base64Jpeg);
+        if (!base64Jpeg) {
+            throw new HttpsError('invalid-argument', `sampleFrames[${index}].base64Jpeg es obligatorio.`);
+        }
+        return {
+            timestampSeconds: clampNumber(rawFrame.timestampSeconds, 0),
+            label: sanitizeText(rawFrame.label, `Frame ${index + 1}`),
+            base64Jpeg,
+            width: clampNumber(rawFrame.width, 1),
+            height: clampNumber(rawFrame.height, 1),
+        };
+    });
+};
+const normalizeSportContextPayload = (value) => {
+    if (!isRecord(value)) {
+        return {};
+    }
+    return {
+        sport: sanitizeText(value.sport),
+        discipline: sanitizeText(value.discipline),
+    };
+};
+const normalizeUpsertVideoContextInput = (data, callerId) => {
+    if (!isRecord(data)) {
+        throw new HttpsError('invalid-argument', 'El payload de upsertVideoContext es inválido.');
+    }
+    const videoId = sanitizeText(data.videoId);
+    if (!videoId) {
+        throw new HttpsError('invalid-argument', 'videoId es obligatorio.');
+    }
+    const videoUrl = sanitizeOptionalText(data.videoUrl);
+    const storagePath = sanitizeOptionalText(data.storagePath);
+    if (!videoUrl && !storagePath) {
+        throw new HttpsError('invalid-argument', 'Debes enviar al menos videoUrl o storagePath para verificar el vídeo.');
+    }
+    const metadata = normalizeMetadataPayload(data.metadata);
+    return {
+        targetUserId: sanitizeText(data.targetUserId, callerId),
+        videoId,
+        videoName: sanitizeText(data.videoName),
+        videoUrl,
+        storagePath,
+        metadata,
+        segmentPlan: normalizeSegmentPlanPayload(data.segments, metadata.durationSeconds),
+        sampleFrames: normalizeSampleFramesPayload(data.sampleFrames),
+        samplingProfile: sanitizeText(data.samplingProfile, 'standard'),
+        language: normalizeLanguage(sanitizeText(data.language)),
+        sportContext: normalizeSportContextPayload(data.sportContext),
+        force: parseBoolean(data.force),
+    };
+};
+const toLoggableVideoUrl = (value) => {
+    if (!value)
+        return null;
+    try {
+        const url = new URL(value);
+        url.search = '';
+        return url.toString();
+    }
+    catch {
+        return value;
+    }
+};
+const decodeStoragePath = (value) => {
+    try {
+        return decodeURIComponent(value);
+    }
+    catch {
+        return value;
+    }
+};
+const parseStorageLocationFromUrl = (value) => {
+    const rawValue = sanitizeText(value);
+    if (!rawValue)
+        return null;
+    if (rawValue.startsWith('gs://')) {
+        const withoutProtocol = rawValue.slice('gs://'.length);
+        const slashIndex = withoutProtocol.indexOf('/');
+        if (slashIndex <= 0)
+            return null;
+        return {
+            bucketName: withoutProtocol.slice(0, slashIndex),
+            storagePath: withoutProtocol.slice(slashIndex + 1),
+        };
+    }
+    try {
+        const parsedUrl = new URL(rawValue);
+        const firebaseMatch = parsedUrl.pathname.match(/^\/v0\/b\/([^/]+)\/o\/(.+)$/);
+        if (firebaseMatch) {
+            return {
+                bucketName: firebaseMatch[1],
+                storagePath: decodeStoragePath(firebaseMatch[2]),
+            };
+        }
+        const storageApiMatch = parsedUrl.pathname.match(/^\/download\/storage\/v1\/b\/([^/]+)\/o\/(.+)$/);
+        if (storageApiMatch) {
+            return {
+                bucketName: storageApiMatch[1],
+                storagePath: decodeStoragePath(storageApiMatch[2]),
+            };
+        }
+        if (parsedUrl.hostname === 'storage.googleapis.com') {
+            const segments = parsedUrl.pathname.split('/').filter(Boolean);
+            if (segments.length >= 2) {
+                return {
+                    bucketName: segments[0],
+                    storagePath: decodeStoragePath(segments.slice(1).join('/')),
+                };
+            }
+        }
+    }
+    catch {
+        return null;
+    }
+    return null;
+};
+const assertConsistentVideoReferences = ({ payloadVideoUrl, payloadStoragePath, firestoreVideoUrl, firestoreStoragePath, }) => {
+    const payloadUrlLocation = parseStorageLocationFromUrl(payloadVideoUrl);
+    const firestoreUrlLocation = parseStorageLocationFromUrl(firestoreVideoUrl);
+    if (payloadStoragePath &&
+        payloadUrlLocation?.storagePath &&
+        payloadStoragePath !== payloadUrlLocation.storagePath) {
+        throw new HttpsError('failed-precondition', 'El payload es inconsistente: videoUrl y storagePath apuntan a objetos distintos.');
+    }
+    if (firestoreStoragePath &&
+        firestoreUrlLocation?.storagePath &&
+        firestoreStoragePath !== firestoreUrlLocation.storagePath) {
+        throw new HttpsError('failed-precondition', 'Firestore contiene un videoUrl y un storagePath incoherentes para este vídeo.');
+    }
+    if (payloadStoragePath && firestoreStoragePath && payloadStoragePath !== firestoreStoragePath) {
+        throw new HttpsError('failed-precondition', 'El storagePath enviado no coincide con el registrado en Firestore.');
+    }
+    if (payloadUrlLocation?.storagePath &&
+        firestoreStoragePath &&
+        payloadUrlLocation.storagePath !== firestoreStoragePath) {
+        throw new HttpsError('failed-precondition', 'El videoUrl enviado no coincide con el storagePath registrado en Firestore.');
+    }
+};
+const getVideoDocRef = (userId, videoId) => db.collection('userdata').doc(userId).collection('videos').doc(videoId);
+const readVideoGalleryRecord = async (userId, videoId) => {
+    const subcollectionSnap = await getVideoDocRef(userId, videoId).get();
+    if (subcollectionSnap.exists) {
+        return {
+            source: 'subcollection',
+            record: subcollectionSnap.data(),
+        };
+    }
+    const userDataSnap = await db.collection('userdata').doc(userId).get();
+    const videos = Array.isArray(userDataSnap.data()?.videos) ? userDataSnap.data()?.videos : [];
+    const found = videos.find((video) => sanitizeText(video?.id) === videoId) || null;
+    return {
+        source: found ? 'userdata_array' : 'missing',
+        record: found,
+    };
+};
+const resolveVideoStorageReference = ({ input, videoRecord, }) => {
+    const firestoreVideoUrl = sanitizeOptionalText(videoRecord?.downloadURL || videoRecord?.remoteUrl);
+    const firestoreStoragePath = sanitizeOptionalText(videoRecord?.storagePath);
+    assertConsistentVideoReferences({
+        payloadVideoUrl: input.videoUrl,
+        payloadStoragePath: input.storagePath,
+        firestoreVideoUrl,
+        firestoreStoragePath,
+    });
+    const parsedPayloadUrl = parseStorageLocationFromUrl(input.videoUrl);
+    const parsedFirestoreUrl = parseStorageLocationFromUrl(firestoreVideoUrl);
+    const storagePath = input.storagePath ||
+        firestoreStoragePath ||
+        parsedPayloadUrl?.storagePath ||
+        parsedFirestoreUrl?.storagePath ||
+        null;
+    if (!storagePath) {
+        throw new HttpsError('invalid-argument', 'No se pudo resolver un storagePath válido a partir del payload o Firestore.');
+    }
+    return {
+        bucketName: parsedPayloadUrl?.bucketName ||
+            parsedFirestoreUrl?.bucketName ||
+            storage.bucket().name,
+        storagePath,
+        videoUrl: input.videoUrl || firestoreVideoUrl || null,
+    };
+};
+const verifyStorageObject = async (reference) => {
+    const bucket = storage.bucket(reference.bucketName);
+    const file = bucket.file(reference.storagePath);
+    const [exists] = await file.exists();
+    if (!exists) {
+        throw new HttpsError('not-found', `No existe ningún archivo en Storage para ${reference.storagePath}.`);
+    }
+    const [metadata] = await file.getMetadata();
+    return {
+        bucketName: reference.bucketName,
+        storagePath: reference.storagePath,
+        sizeBytes: metadata.size ? Number(metadata.size) : null,
+        contentType: metadata.contentType || null,
+        updated: metadata.updated || null,
+    };
+};
+const assertStorageObjectReady = ({ verification, videoRecord, }) => {
+    if (videoRecord?.isUploading) {
+        throw new HttpsError('failed-precondition', 'El vídeo todavía figura como uploading en Firestore. Reintenta cuando termine la subida.');
+    }
+    if (!verification.sizeBytes || verification.sizeBytes <= 0) {
+        throw new HttpsError('failed-precondition', 'El vídeo existe en Storage pero todavía no está listo para ser procesado.');
+    }
+    const contentType = sanitizeText(verification.contentType || '').toLowerCase();
+    if (contentType && !contentType.startsWith('video/')) {
+        throw new HttpsError('failed-precondition', `El archivo de Storage no parece un vídeo válido (contentType: ${contentType}).`);
+    }
+};
+const getConfiguredGeminiApiKey = () => {
+    const apiKey = sanitizeText(geminiApiKey.value());
+    if (!apiKey || apiKey === 'PLACEHOLDER_API_KEY') {
+        throw new HttpsError('failed-precondition', 'La Cloud Function no tiene GEMINI_API_KEY configurada correctamente.');
+    }
+    return apiKey;
+};
+const buildUpsertVideoContextLog = ({ requestId, callerId, input, }) => ({
+    requestId,
+    callerId,
+    targetUserId: input.targetUserId,
+    videoId: input.videoId,
+    videoName: input.videoName,
+    language: input.language,
+    samplingProfile: input.samplingProfile,
+    sampleFrameCount: input.sampleFrames.length,
+    segmentPlanCount: input.segmentPlan.length,
+    storagePath: input.storagePath,
+    videoUrl: toLoggableVideoUrl(input.videoUrl),
+    metadata: {
+        durationSeconds: input.metadata.durationSeconds,
+        width: input.metadata.width,
+        height: input.metadata.height,
+        mimeType: input.metadata.mimeType || null,
+        sizeBytes: input.metadata.sizeBytes ?? null,
+    },
+    sportContext: {
+        sport: input.sportContext.sport || '',
+        discipline: input.sportContext.discipline || '',
+    },
+    force: input.force,
+});
+const persistContextErrorState = async ({ contextRef, error, processingStage, requestId, }) => {
+    await contextRef.set({
+        status: error.code === 'failed-precondition' ? 'queued' : 'failed',
+        processingStage,
+        lastError: error.message,
+        lastErrorCode: error.code,
+        lastRequestId: requestId,
+        updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+};
+const toHttpsError = (error, fallbackCode, fallbackMessage) => {
+    if (error instanceof HttpsError) {
+        return error;
+    }
+    const errorMessage = sanitizeErrorMessage(error, fallbackMessage);
+    if (/api key|secret|gemini_api_key/i.test(errorMessage)) {
+        return new HttpsError('failed-precondition', 'La integración de Gemini no está configurada correctamente en el backend.');
+    }
+    if (error instanceof SyntaxError) {
+        return new HttpsError('internal', 'La respuesta del modelo no se pudo parsear como JSON válido.');
+    }
+    return new HttpsError(fallbackCode, fallbackMessage);
 };
 const parseJsonResponse = (rawText) => {
     const cleaned = rawText
@@ -192,6 +541,272 @@ const readPersistedSegments = async (userId, videoId) => {
     const snapshot = await getSegmentsRef(userId, videoId).orderBy('startTimeSeconds').get();
     return snapshot.docs.map((doc) => doc.data());
 };
+const executeUpsertVideoContextFlow = async ({ request, callerId, callerEmail, requestId, input, logContext, }) => {
+    const contextRef = getContextRef(input.targetUserId, input.videoId);
+    try {
+        const [videoLookup, contextSnap] = await Promise.all([
+            readVideoGalleryRecord(input.targetUserId, input.videoId),
+            contextRef.get(),
+        ]);
+        logger.info('[upsertVideoContext] firestore_video_lookup', {
+            requestId,
+            videoId: input.videoId,
+            targetUserId: input.targetUserId,
+            lookupSource: videoLookup.source,
+            hasVideoRecord: Boolean(videoLookup.record),
+            firestoreStoragePath: sanitizeOptionalText(videoLookup.record?.storagePath),
+            firestoreVideoUrl: toLoggableVideoUrl(videoLookup.record?.downloadURL || videoLookup.record?.remoteUrl || null),
+            firestoreIsUploading: Boolean(videoLookup.record?.isUploading),
+        });
+        if (!videoLookup.record) {
+            throw new HttpsError('failed-precondition', 'No existe un documento de vídeo coherente en Firestore para este videoId.');
+        }
+        if (!input.force && contextSnap.exists) {
+            const existingContext = contextSnap.data();
+            const currentStatus = sanitizeText(existingContext?.status);
+            const currentStage = sanitizeText(existingContext?.processingStage);
+            if ((currentStatus === 'ready' || currentStatus === 'partial') &&
+                sanitizeText(existingContext?.processingVersion) === PROCESSING_VERSION) {
+                logger.info('[upsertVideoContext] skip_existing_context', {
+                    requestId,
+                    videoId: input.videoId,
+                    status: currentStatus,
+                    processingStage: currentStage || null,
+                });
+                return {
+                    status: currentStatus,
+                    reusedExistingContext: true,
+                    segmentCount: clampNumber(existingContext?.segmentCount, 0),
+                    keyMomentCount: Array.isArray(existingContext?.keyMoments)
+                        ? existingContext.keyMoments.length
+                        : 0,
+                };
+            }
+            if (currentStage === 'summarizing') {
+                logger.info('[upsertVideoContext] already_summarizing', {
+                    requestId,
+                    videoId: input.videoId,
+                    status: currentStatus || 'summarizing',
+                });
+                return {
+                    status: currentStatus || 'summarizing',
+                    alreadyInProgress: true,
+                    segmentCount: clampNumber(existingContext?.segmentCount, 0),
+                    keyMomentCount: Array.isArray(existingContext?.keyMoments)
+                        ? existingContext.keyMoments.length
+                        : 0,
+                };
+            }
+        }
+        const resolvedReference = resolveVideoStorageReference({
+            input,
+            videoRecord: videoLookup.record,
+        });
+        logger.info('[upsertVideoContext] storage_reference_resolved', {
+            requestId,
+            videoId: input.videoId,
+            targetUserId: input.targetUserId,
+            storagePath: resolvedReference.storagePath,
+            bucketName: resolvedReference.bucketName,
+            videoUrl: toLoggableVideoUrl(resolvedReference.videoUrl),
+        });
+        let verification;
+        try {
+            verification = await verifyStorageObject(resolvedReference);
+            logger.info('[upsertVideoContext] storage_exists', {
+                requestId,
+                videoId: input.videoId,
+                storagePath: verification.storagePath,
+                bucketName: verification.bucketName,
+                sizeBytes: verification.sizeBytes,
+                contentType: verification.contentType,
+                updated: verification.updated,
+            });
+        }
+        catch (error) {
+            if (error instanceof HttpsError &&
+                error.code === 'not-found' &&
+                videoLookup.record.isUploading) {
+                throw new HttpsError('failed-precondition', 'El vídeo aún no está disponible en Storage. Reintenta cuando termine la subida.');
+            }
+            throw error;
+        }
+        assertStorageObjectReady({
+            verification,
+            videoRecord: videoLookup.record,
+        });
+        await contextRef.set({
+            videoId: input.videoId,
+            userId: input.targetUserId,
+            status: 'summarizing',
+            processingStage: 'summarizing',
+            processingVersion: PROCESSING_VERSION,
+            videoName: input.videoName,
+            videoUrl: resolvedReference.videoUrl,
+            storagePath: verification.storagePath,
+            storageBucket: verification.bucketName,
+            storageContentType: verification.contentType,
+            storageUpdatedAt: verification.updated,
+            sampledFrameTimestamps: input.sampleFrames.map((frame) => frame.timestampSeconds),
+            metadata: input.metadata,
+            sport: input.sportContext.sport || '',
+            discipline: input.sportContext.discipline || '',
+            lastError: null,
+            lastErrorCode: null,
+            lastRequestId: requestId,
+            updatedAt: FieldValue.serverTimestamp(),
+            createdAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
+        logger.info('[upsertVideoContext] processing_started', {
+            requestId,
+            videoId: input.videoId,
+            targetUserId: input.targetUserId,
+        });
+        const tier = await getUserTier(callerId, callerEmail);
+        const modelName = resolveAllowedModelForTier(tier);
+        const genAI = new GoogleGenerativeAI(getConfiguredGeminiApiKey());
+        const processingModel = genAI.getGenerativeModel({
+            model: modelName,
+            generationConfig: {
+                temperature: 0.25,
+                responseMimeType: 'application/json',
+                responseSchema: VIDEO_CONTEXT_SCHEMA,
+            },
+        });
+        const prompt = buildVideoContextProcessingPrompt({
+            language: input.language,
+            sport: input.sportContext.sport,
+            discipline: input.sportContext.discipline,
+            metadata: input.metadata,
+            segments: input.segmentPlan,
+        });
+        let parsed;
+        try {
+            const generation = await processingModel.generateContent(buildGenerationParts(prompt, input.sampleFrames));
+            parsed = parseJsonResponse(generation.response.text());
+        }
+        catch (error) {
+            logger.error('[upsertVideoContext] model_generation_failed', {
+                ...logContext,
+                requestId,
+                modelName,
+                errorMessage: sanitizeErrorMessage(error, 'Unknown model generation error.'),
+                stack: error instanceof Error ? error.stack : null,
+            });
+            throw toHttpsError(error, 'internal', 'No se pudo generar el contexto del vídeo.');
+        }
+        let normalizedSegments;
+        try {
+            normalizedSegments = normalizeSegments(Array.isArray(parsed.segments) ? parsed.segments : [], input.segmentPlan, input.metadata.durationSeconds || 0);
+            normalizedSegments = await enrichSegmentsWithEmbeddings(genAI, normalizedSegments);
+        }
+        catch (error) {
+            logger.error('[upsertVideoContext] segment_processing_failed', {
+                requestId,
+                videoId: input.videoId,
+                errorMessage: sanitizeErrorMessage(error, 'Unknown segment processing error.'),
+                stack: error instanceof Error ? error.stack : null,
+            });
+            throw toHttpsError(error, 'internal', 'No se pudo transformar el contexto generado en segmentos persistibles.');
+        }
+        const keyMoments = normalizeKeyMoments(Array.isArray(parsed.keyMoments) ? parsed.keyMoments : [], normalizedSegments, input.metadata.durationSeconds || 0);
+        const usedFallbacks = !Array.isArray(parsed.segments) ||
+            parsed.segments.length === 0 ||
+            !sanitizeText(parsed.globalTechnicalAssessment);
+        logger.info('[upsertVideoContext] context_generated', {
+            requestId,
+            videoId: input.videoId,
+            modelName,
+            usedFallbacks,
+            generatedSegmentCount: normalizedSegments.length,
+            generatedKeyMomentCount: keyMoments.length,
+        });
+        try {
+            await persistSegments(input.targetUserId, input.videoId, normalizedSegments);
+            logger.info('[upsertVideoContext] firestore_segments_written', {
+                requestId,
+                videoId: input.videoId,
+                targetUserId: input.targetUserId,
+                segmentCount: normalizedSegments.length,
+            });
+            await contextRef.set({
+                videoId: input.videoId,
+                userId: input.targetUserId,
+                status: (usedFallbacks ? 'partial' : 'ready'),
+                processingStage: usedFallbacks ? 'partial_context_ready' : 'complete_context_ready',
+                processingVersion: PROCESSING_VERSION,
+                videoName: input.videoName,
+                videoUrl: resolvedReference.videoUrl,
+                storagePath: verification.storagePath,
+                storageBucket: verification.bucketName,
+                samplingProfile: input.samplingProfile,
+                metadata: input.metadata,
+                sport: input.sportContext.sport || '',
+                discipline: input.sportContext.discipline || '',
+                globalSummary: sanitizeText(parsed.globalSummary),
+                globalTechnicalAssessment: sanitizeText(parsed.globalTechnicalAssessment),
+                timelineSummary: ensureStringArray(parsed.timelineSummary),
+                keyMoments,
+                segmentCount: normalizedSegments.length,
+                sampledFrameTimestamps: input.sampleFrames.map((frame) => frame.timestampSeconds),
+                recommendedQuestions: ensureStringArray(parsed.recommendedQuestions),
+                lastError: null,
+                lastErrorCode: null,
+                lastRequestId: requestId,
+                updatedAt: FieldValue.serverTimestamp(),
+            }, { merge: true });
+        }
+        catch (error) {
+            logger.error('[upsertVideoContext] firestore_write_failed', {
+                requestId,
+                videoId: input.videoId,
+                targetUserId: input.targetUserId,
+                errorMessage: sanitizeErrorMessage(error, 'Unknown Firestore write error.'),
+                stack: error instanceof Error ? error.stack : null,
+            });
+            throw toHttpsError(error, 'internal', 'No se pudo persistir el contexto del vídeo en Firestore.');
+        }
+        logger.info('[upsertVideoContext] completed', {
+            requestId,
+            videoId: input.videoId,
+            targetUserId: input.targetUserId,
+            status: usedFallbacks ? 'partial' : 'ready',
+            segmentCount: normalizedSegments.length,
+            keyMomentCount: keyMoments.length,
+        });
+        return {
+            status: usedFallbacks ? 'partial' : 'ready',
+            segmentCount: normalizedSegments.length,
+            keyMomentCount: keyMoments.length,
+            storagePath: verification.storagePath,
+        };
+    }
+    catch (error) {
+        const typedError = toHttpsError(error, 'internal', 'No se pudo procesar el contexto del vídeo.');
+        logger.error('[upsertVideoContext] failed', {
+            ...logContext,
+            requestId,
+            errorCode: typedError.code,
+            errorMessage: typedError.message,
+            stack: error instanceof Error ? error.stack : null,
+        });
+        await persistContextErrorState({
+            contextRef,
+            error: typedError,
+            processingStage: typedError.code === 'failed-precondition' ? UPLOAD_IN_PROGRESS_STAGE : 'failed',
+            requestId,
+        }).catch((persistError) => {
+            logger.error('[upsertVideoContext] failed_to_persist_error_state', {
+                requestId,
+                videoId: input.videoId,
+                targetUserId: input.targetUserId,
+                errorMessage: sanitizeErrorMessage(persistError, 'Unknown error while writing failure state.'),
+                stack: persistError instanceof Error ? persistError.stack : null,
+            });
+        });
+        throw typedError;
+    }
+};
 export const upsertVideoContext = onCall({
     region: 'europe-west1',
     maxInstances: 10,
@@ -201,25 +816,38 @@ export const upsertVideoContext = onCall({
         throw new HttpsError('unauthenticated', 'Debes iniciar sesión.');
     }
     const callerId = request.auth.uid;
-    const targetUserId = sanitizeText(request.data?.targetUserId, callerId);
-    const videoId = sanitizeText(request.data?.videoId);
-    const videoName = sanitizeText(request.data?.videoName);
-    const metadata = (request.data?.metadata || {});
-    const segmentPlan = Array.isArray(request.data?.segments)
-        ? request.data.segments.slice(0, MAX_SAMPLE_FRAMES)
-        : [];
-    const sampleFrames = Array.isArray(request.data?.sampleFrames)
-        ? request.data.sampleFrames.slice(0, MAX_SAMPLE_FRAMES)
-        : [];
-    const samplingProfile = sanitizeText(request.data?.samplingProfile, 'standard');
-    const language = normalizeLanguage(request.data?.language);
-    const sportContext = (request.data?.sportContext || {});
-    if (!videoId || sampleFrames.length === 0) {
-        throw new HttpsError('invalid-argument', 'Faltan artefactos de muestreo del vídeo.');
+    const requestId = randomUUID();
+    const input = normalizeUpsertVideoContextInput(request.data, callerId);
+    const logContext = buildUpsertVideoContextLog({ requestId, callerId, input });
+    logger.info('[upsertVideoContext] start', logContext);
+    await validateTargetAccess(callerId, input.targetUserId);
+    logger.info('[upsertVideoContext] auth_ok', {
+        requestId,
+        callerId,
+        targetUserId: input.targetUserId,
+    });
+    return executeUpsertVideoContextFlow({
+        request,
+        callerId,
+        callerEmail: request.auth.token.email,
+        requestId,
+        input,
+        logContext,
+    });
+    /* Legacy implementation retained during refactor.
+    try {
+      const [videoLookup, contextSnap] = await Promise.all([
+        readVideoGalleryRecord(input.targetUserId, input.videoId),
+        contextRef.get(),
+      ]);
+      throw new HttpsError('invalid-argument', 'Faltan artefactos de muestreo del vídeo.');
     }
+
     await validateTargetAccess(callerId, targetUserId);
+
     const contextRef = getContextRef(targetUserId, videoId);
-    await contextRef.set({
+    await contextRef.set(
+      {
         videoId,
         userId: targetUserId,
         status: 'summarizing',
@@ -232,72 +860,98 @@ export const upsertVideoContext = onCall({
         lastError: null,
         updatedAt: FieldValue.serverTimestamp(),
         createdAt: FieldValue.serverTimestamp(),
-    }, { merge: true });
+      },
+      { merge: true },
+    );
+
     const tier = await getUserTier(callerId, request.auth.token.email);
     const modelName = resolveAllowedModelForTier(tier);
     const genAI = new GoogleGenerativeAI(geminiApiKey.value());
     const processingModel = genAI.getGenerativeModel({
-        model: modelName,
-        generationConfig: {
-            temperature: 0.25,
-            responseMimeType: 'application/json',
-            responseSchema: VIDEO_CONTEXT_SCHEMA,
-        },
+      model: modelName,
+      generationConfig: {
+        temperature: 0.25,
+        responseMimeType: 'application/json',
+        responseSchema: VIDEO_CONTEXT_SCHEMA,
+      },
     });
+
     try {
-        const prompt = buildVideoContextProcessingPrompt({
-            language,
-            sport: sportContext.sport,
-            discipline: sportContext.discipline,
-            metadata,
-            segments: segmentPlan,
-        });
-        const generation = await processingModel.generateContent(buildGenerationParts(prompt, sampleFrames));
-        const parsed = parseJsonResponse(generation.response.text());
-        let normalizedSegments = normalizeSegments(Array.isArray(parsed.segments) ? parsed.segments : [], segmentPlan, metadata.durationSeconds || 0);
-        normalizedSegments = await enrichSegmentsWithEmbeddings(genAI, normalizedSegments);
-        const keyMoments = normalizeKeyMoments(Array.isArray(parsed.keyMoments) ? parsed.keyMoments : [], normalizedSegments, metadata.durationSeconds || 0);
-        const usedFallbacks = !Array.isArray(parsed.segments) ||
-            parsed.segments.length === 0 ||
-            !sanitizeText(parsed.globalTechnicalAssessment);
-        await persistSegments(targetUserId, videoId, normalizedSegments);
-        await contextRef.set({
-            videoId,
-            userId: targetUserId,
-            status: (usedFallbacks ? 'partial' : 'ready'),
-            processingStage: usedFallbacks ? 'partial_context_ready' : 'complete_context_ready',
-            processingVersion: PROCESSING_VERSION,
-            videoName,
-            samplingProfile,
-            metadata,
-            sport: sportContext.sport || '',
-            discipline: sportContext.discipline || '',
-            globalSummary: sanitizeText(parsed.globalSummary),
-            globalTechnicalAssessment: sanitizeText(parsed.globalTechnicalAssessment),
-            timelineSummary: ensureStringArray(parsed.timelineSummary),
-            keyMoments,
-            segmentCount: normalizedSegments.length,
-            sampledFrameTimestamps: sampleFrames.map((frame) => frame.timestampSeconds),
-            recommendedQuestions: ensureStringArray(parsed.recommendedQuestions),
-            lastError: null,
-            updatedAt: FieldValue.serverTimestamp(),
-        }, { merge: true });
-        return {
-            status: usedFallbacks ? 'partial' : 'ready',
-            segmentCount: normalizedSegments.length,
-            keyMomentCount: keyMoments.length,
-        };
+      const prompt = buildVideoContextProcessingPrompt({
+        language,
+        sport: sportContext.sport,
+        discipline: sportContext.discipline,
+        metadata,
+        segments: segmentPlan,
+      });
+
+      const generation = await processingModel.generateContent(
+        buildGenerationParts(prompt, sampleFrames),
+      );
+      const parsed = parseJsonResponse(generation.response.text());
+
+      let normalizedSegments = normalizeSegments(
+        Array.isArray(parsed.segments) ? parsed.segments : [],
+        segmentPlan,
+        metadata.durationSeconds || 0,
+      );
+      normalizedSegments = await enrichSegmentsWithEmbeddings(genAI, normalizedSegments);
+      const keyMoments = normalizeKeyMoments(
+        Array.isArray(parsed.keyMoments) ? parsed.keyMoments : [],
+        normalizedSegments,
+        metadata.durationSeconds || 0,
+      );
+
+      const usedFallbacks =
+        !Array.isArray(parsed.segments) ||
+        parsed.segments.length === 0 ||
+        !sanitizeText(parsed.globalTechnicalAssessment);
+
+      await persistSegments(targetUserId, videoId, normalizedSegments);
+      await contextRef.set(
+        {
+          videoId,
+          userId: targetUserId,
+          status: (usedFallbacks ? 'partial' : 'ready') as VideoContextStatus,
+          processingStage: usedFallbacks ? 'partial_context_ready' : 'complete_context_ready',
+          processingVersion: PROCESSING_VERSION,
+          videoName,
+          samplingProfile,
+          metadata,
+          sport: sportContext.sport || '',
+          discipline: sportContext.discipline || '',
+          globalSummary: sanitizeText(parsed.globalSummary),
+          globalTechnicalAssessment: sanitizeText(parsed.globalTechnicalAssessment),
+          timelineSummary: ensureStringArray(parsed.timelineSummary),
+          keyMoments,
+          segmentCount: normalizedSegments.length,
+          sampledFrameTimestamps: sampleFrames.map((frame) => frame.timestampSeconds),
+          recommendedQuestions: ensureStringArray(parsed.recommendedQuestions),
+          lastError: null,
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+      );
+
+      return {
+        status: usedFallbacks ? 'partial' : 'ready',
+        segmentCount: normalizedSegments.length,
+        keyMomentCount: keyMoments.length,
+      };
+    } catch (error: any) {
+      console.error('[upsertVideoContext] Error:', error);
+      await contextRef.set(
+        {
+          status: 'failed',
+          processingStage: 'failed',
+          lastError: error?.message || 'Video context processing failed.',
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+      );
+      throw new HttpsError('internal', 'No se pudo procesar el contexto del vídeo.');
     }
-    catch (error) {
-        console.error('[upsertVideoContext] Error:', error);
-        await contextRef.set({
-            status: 'failed',
-            processingStage: 'failed',
-            lastError: error?.message || 'Video context processing failed.',
-            updatedAt: FieldValue.serverTimestamp(),
-        }, { merge: true });
-        throw new HttpsError('internal', 'No se pudo procesar el contexto del vídeo.');
-    }
+    */
 });
 export const askVideoQuestion = onCall({
     region: 'europe-west1',

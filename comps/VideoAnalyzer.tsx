@@ -2,6 +2,7 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { VideoContextDoc, VideoFile, ChatMessage, UserUsage, UserLimits, Language, UserProfile, Screen, VideoPoseSnapshot, VideoQuestionMode } from '../types';
 import { VideoIntelligenceService } from '../svcs/videoIntelligenceService';
+import { StorageService } from '../svcs/storageService';
 import { usePoseDetection, drawPoseOnCanvas, drawPoseOnCanvasWithOffset, POSE_CONNECTIONS, BODY_KEYPOINTS } from '../hks/usePoseDetection';
 import { getBiomechanicalContext } from '../utl/biomechanics';
 import {
@@ -479,6 +480,34 @@ const ZoomControls = ({ zoom, setZoom, setPan, placement = 'bottom-right', hasBo
    );
 };
 
+const getVideoFrameStyle = (
+   aspectRatio: number | undefined,
+   compactPortrait: boolean,
+   isCompareMode: boolean
+): React.CSSProperties => {
+   const isPortrait = typeof aspectRatio === 'number' && aspectRatio < 1;
+   const compareMaxHeight = '100%';
+
+   if (compactPortrait && isPortrait) {
+      return {
+         aspectRatio,
+         width: 'auto',
+         height: 'auto',
+         maxWidth: isCompareMode ? '84%' : '100%',
+         maxHeight: '100%',
+         margin: '0 auto'
+      };
+   }
+
+   return {
+      aspectRatio,
+      width: aspectRatio ? 'auto' : '100%',
+      height: aspectRatio ? 'auto' : '100%',
+      maxWidth: '100%',
+      maxHeight: compareMaxHeight
+   };
+};
+
 export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserId, onBack, usage, limits, onIncrementUsage, language, onNavigate, userProfile }) => {
    const t = ANALYZER_TEXTS[language] || ANALYZER_TEXTS.es;
 
@@ -489,6 +518,15 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
    const [isVertical, setIsVertical] = useState(false); // Track if primary video is vertical
    const [isScrubbing, setIsScrubbing] = useState(false); // Track dragging state
    const lastSeekTimeRef = useRef<number>(0); // Throttle video seeks during scrubbing
+   const secondaryTimelineRafRef = useRef<number | null>(null);
+   const secondarySeekQueueRafRef = useRef<number | null>(null);
+   const secondaryPendingSeekTimeRef = useRef<number | null>(null);
+   const secondarySeekInFlightRef = useRef(false);
+   const syncedSeekQueueRafRef = useRef<number | null>(null);
+   const syncedPendingSeekTimeRef = useRef<number | null>(null);
+   const primaryPendingSeekRef = useRef<number | null>(null);
+   const primarySeekInFlightRef = useRef(false);
+   const scrubResumePlaybackRef = useRef(false);
 
    // Zoom & Pan State
    // Zoom & Pan State (Independent for each video)
@@ -519,13 +557,16 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
    const [videoContextError, setVideoContextError] = useState<string | null>(null);
    const [chatSessionId, setChatSessionId] = useState<string | null>(null);
 
-   const [videoLoadState, setVideoLoadState] = useState<'loading' | 'ready' | 'error'>('loading');
-   const isVideoLoaded = videoLoadState === 'ready';
-   const [videoError, setVideoError] = useState<string | null>(null);
-   const videoRef = useRef<HTMLVideoElement>(null);
-   const canvasRef1 = useRef<HTMLCanvasElement>(null);
-   const canvasRef2 = useRef<HTMLCanvasElement>(null);
-   const wrapperRef = useRef<HTMLDivElement>(null);
+  const [videoLoadState, setVideoLoadState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const isVideoLoaded = videoLoadState === 'ready';
+  const [videoError, setVideoError] = useState<string | null>(null);
+  const [resolvedRemoteUrl, setResolvedRemoteUrl] = useState<string>(video.downloadURL || video.remoteUrl || '');
+  const [isRecoveringVideoSource, setIsRecoveringVideoSource] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef1 = useRef<HTMLCanvasElement>(null);
+  const canvasRef2 = useRef<HTMLCanvasElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const videoRecoveryAttemptedRef = useRef(false);
 
    // Drawing State
    const [isDrawingMode, setIsDrawingMode] = useState(false);
@@ -549,12 +590,46 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
       compareVideo ? videoRef2 : null
    );
 
-   const activeUrl = video.url || video.remoteUrl || "";
+  const activeUrl = video.url || resolvedRemoteUrl || video.downloadURL || video.remoteUrl || "";
    const messagesUsed = usage?.chatCount || 0;
-   const chatLimit = limits?.maxChatMessagesPerMonth === 'unlimited' ? Infinity : (limits?.maxChatMessagesPerMonth as number || 0);
-   const isLimitReached = messagesUsed >= chatLimit;
-   const contextTexts = VIDEO_CONTEXT_TEXTS[language] || VIDEO_CONTEXT_TEXTS.es;
-   const contextBootstrapRef = useRef(false);
+  const chatLimit = limits?.maxChatMessagesPerMonth === 'unlimited' ? Infinity : (limits?.maxChatMessagesPerMonth as number || 0);
+  const isLimitReached = messagesUsed >= chatLimit;
+  const contextTexts = VIDEO_CONTEXT_TEXTS[language] || VIDEO_CONTEXT_TEXTS.es;
+  const getVideoErrorMessage = useCallback((errorCode?: string, fallback?: string | null) => {
+     if (errorCode === 'storage/object-not-found') {
+        return language === 'ing'
+           ? 'The file no longer exists in Firebase Storage.'
+           : language === 'eus'
+              ? 'Fitxategia jada ez dago Firebase Storagen.'
+              : 'El archivo ya no existe en Firebase Storage.';
+     }
+
+     if (errorCode === 'video/unplayable') {
+        return language === 'ing'
+           ? 'The file uploaded correctly, but this browser cannot play its format.'
+           : language === 'eus'
+              ? 'Fitxategia ondo igo da, baina nabigatzaile honek ezin du erreproduzitu.'
+              : 'El archivo esta subido, pero este navegador no puede reproducir su formato.';
+     }
+
+     return fallback || video.errorMessage || t.connectionError || 'Error loading video.';
+  }, [language, t.connectionError, video.errorMessage]);
+  const contextBootstrapRef = useRef(false);
+   const primaryIsPortrait = typeof aspectRatio1 === 'number' ? aspectRatio1 < 1 : isVertical;
+   const secondaryIsPortrait = typeof aspectRatio2 === 'number' ? aspectRatio2 < 1 : false;
+   const hasMixedComparisonOrientations = Boolean(compareVideo && typeof aspectRatio1 === 'number' && typeof aspectRatio2 === 'number' && primaryIsPortrait !== secondaryIsPortrait);
+   const primaryFrameStyle = getVideoFrameStyle(aspectRatio1, hasMixedComparisonOrientations, Boolean(compareVideo));
+   const secondaryFrameStyle = getVideoFrameStyle(aspectRatio2, hasMixedComparisonOrientations, Boolean(compareVideo));
+   const comparisonStagePadding = hasMixedComparisonOrientations
+      ? 'px-4 pt-4 pb-0 md:px-6 md:pt-6 md:pb-0 lg:px-8 lg:pt-8 lg:pb-0'
+      : 'px-4 pt-4 pb-0 md:px-5 md:pt-5 md:pb-0';
+   const primaryStagePadding = hasMixedComparisonOrientations && primaryIsPortrait
+      ? 'px-6 pt-6 pb-0 md:px-8 md:pt-8 md:pb-0 lg:px-10 lg:pb-0'
+      : comparisonStagePadding;
+   const primaryStageAlignmentClass = 'items-center justify-center';
+   const compareStackClass = compareVideo
+      ? (primaryIsPortrait ? 'flex-row gap-0.5 md:gap-0' : 'flex-col gap-0.5 md:flex-row md:gap-0')
+      : 'items-center justify-center';
 
    // Check if user can compare videos (Pro/Premium only)
    const canCompare = limits?.canCompareVideos ?? false;
@@ -598,22 +673,53 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
    };
 
    // Show sync tip when user first adds a compare video
-   useEffect(() => {
-      if (compareVideo && !hasSeenSyncTip && canCompare) {
-         setShowSyncTip(true);
-      }
-   }, [compareVideo, hasSeenSyncTip, canCompare]);
+  useEffect(() => {
+     if (compareVideo && !hasSeenSyncTip && canCompare) {
+        setShowSyncTip(true);
+     }
+  }, [compareVideo, hasSeenSyncTip, canCompare]);
 
-   useEffect(() => {
-      setVideoLoadState('loading');
-      setVideoError(null);
-      setCurrentTime(0);
+  useEffect(() => {
+     setResolvedRemoteUrl(video.downloadURL || video.remoteUrl || (/^https?:/i.test(video.url || '') ? (video.url || '') : ''));
+     setIsRecoveringVideoSource(false);
+     videoRecoveryAttemptedRef.current = false;
+  }, [video.id, video.downloadURL, video.remoteUrl, video.url]);
+
+  const recoverVideoSource = useCallback(async () => {
+     if (!targetUserId) return false;
+
+     setIsRecoveringVideoSource(true);
+     try {
+        const recovered = await StorageService.findVideoDownloadUrl(targetUserId, video);
+        if (recovered?.url) {
+           setResolvedRemoteUrl(recovered.url);
+           setVideoError(null);
+           setVideoLoadState('loading');
+           return true;
+        }
+
+        setVideoError(getVideoErrorMessage(recovered?.errorCode, recovered?.errorMessage || null));
+        setVideoLoadState('error');
+        return false;
+     } catch (error) {
+        setVideoError(getVideoErrorMessage(undefined, error instanceof Error ? error.message : null));
+        setVideoLoadState('error');
+        return false;
+     } finally {
+        setIsRecoveringVideoSource(false);
+     }
+  }, [getVideoErrorMessage, targetUserId, video]);
+
+  useEffect(() => {
+     setVideoLoadState('loading');
+     setVideoError(null);
+     setCurrentTime(0);
       setVideoContext(null);
       setVideoContextError(null);
       setChatSessionId(null);
       contextBootstrapRef.current = false;
       if (!activeUrl) {
-         setVideoError("Error: URL de video no encontrada.");
+         setVideoError(getVideoErrorMessage(video.errorCode, video.errorMessage || 'Error: URL de video no encontrada.'));
          setVideoLoadState('error');
       }
 
@@ -623,10 +729,13 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
          setDuration(videoRef.current.duration);
          setIsVertical(videoRef.current.videoHeight > videoRef.current.videoWidth);
       }
-   }, [video.id, activeUrl]);
+  }, [activeUrl, getVideoErrorMessage, video.errorCode, video.errorMessage, video.id]);
 
    const triggerVideoContextPreparation = useCallback((force: boolean = false) => {
-      if (!targetUserId || !video.id || !activeUrl) return;
+      if (!targetUserId || !video.id) return;
+      if (video.isUploading) return;
+      if (video.status === 'error') return;
+      if (!activeUrl && !video.storagePath) return;
       if (contextBootstrapRef.current && !force) return;
 
       contextBootstrapRef.current = true;
@@ -636,15 +745,17 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
          userId: targetUserId,
          videoId: video.id,
          videoName: video.name,
-         remoteUrl: video.remoteUrl || activeUrl,
+         remoteUrl: resolvedRemoteUrl || video.downloadURL || video.remoteUrl || activeUrl,
+         storagePath: video.storagePath,
          language,
          userProfile,
          force,
+         isUploading: video.isUploading,
       }).catch((error) => {
          contextBootstrapRef.current = false;
          setVideoContextError(error instanceof Error ? error.message : 'Video context processing failed.');
       });
-   }, [activeUrl, language, targetUserId, userProfile, video.id, video.name, video.remoteUrl]);
+   }, [activeUrl, language, resolvedRemoteUrl, targetUserId, userProfile, video.downloadURL, video.id, video.isUploading, video.name, video.remoteUrl, video.status, video.storagePath]);
 
    useEffect(() => {
       if (!targetUserId || !video.id) return;
@@ -659,14 +770,17 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
    }, [targetUserId, video.id]);
 
    useEffect(() => {
-      if (!activeUrl) return;
+      if ((!activeUrl && !video.storagePath) || video.isUploading || video.status === 'error') return;
       if (!videoContext) {
          triggerVideoContextPreparation(false);
       }
-   }, [activeUrl, triggerVideoContextPreparation, videoContext]);
+   }, [activeUrl, triggerVideoContextPreparation, video.isUploading, video.status, video.storagePath, videoContext]);
 
    // ÚNICA FUENTE DE VERDAD PARA ESTADO DE CARGA
-   const handleLoadStart = () => setVideoLoadState('loading');
+  const handleLoadStart = () => {
+     setVideoError(null);
+     setVideoLoadState('loading');
+  };
 
    const handleLoadedData = () => {
       setVideoLoadState('ready');
@@ -679,13 +793,31 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
    };
 
    // Respaldos extra por si el navegador prioriza o retrasa eventos
-   const handleCanPlay = () => setVideoLoadState('ready');
-   const handlePlaying = () => setVideoLoadState('ready');
+  const handleCanPlay = () => {
+     setVideoError(null);
+     setVideoLoadState('ready');
+  };
+  const handlePlaying = () => {
+     setVideoError(null);
+     setVideoLoadState('ready');
+  };
 
-   const handleError = () => {
-      setVideoError(t.connectionError || "Error Loading Video");
-      setVideoLoadState('error');
-   };
+  const handleError = () => {
+     if (video.playbackStatus === 'unplayable' || video.errorCode === 'video/unplayable') {
+        setVideoError(getVideoErrorMessage('video/unplayable', video.errorMessage || null));
+        setVideoLoadState('error');
+        return;
+     }
+
+     if (!videoRecoveryAttemptedRef.current && !video.url?.startsWith('blob:') && (video.storagePath || video.downloadURL || video.remoteUrl)) {
+        videoRecoveryAttemptedRef.current = true;
+        void recoverVideoSource();
+        return;
+     }
+
+     setVideoError(getVideoErrorMessage(video.errorCode, video.errorMessage || null));
+     setVideoLoadState('error');
+  };
 
    // --- SYNC LOGIC ---
    const toggleSync = () => {
@@ -699,6 +831,111 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
       setIsSynced(!isSynced);
    };
 
+   useEffect(() => {
+      if (videoRef.current) {
+         videoRef.current.playbackRate = playbackRate;
+      }
+      if (videoRef2.current) {
+         videoRef2.current.playbackRate = playbackRate;
+      }
+   }, [playbackRate, compareVideo]);
+
+   useEffect(() => {
+      if (videoRef2.current && (!compareVideo || !isSynced || !isPlaying || isScrubbing)) {
+         videoRef2.current.playbackRate = playbackRate;
+      }
+   }, [compareVideo, isPlaying, isScrubbing, isSynced, playbackRate]);
+
+   useEffect(() => {
+      return () => {
+         if (secondarySeekQueueRafRef.current !== null) {
+            cancelAnimationFrame(secondarySeekQueueRafRef.current);
+         }
+         if (syncedSeekQueueRafRef.current !== null) {
+            cancelAnimationFrame(syncedSeekQueueRafRef.current);
+         }
+      };
+   }, []);
+
+   useEffect(() => {
+      const secondaryVideo = videoRef2.current;
+      if (!secondaryVideo) return;
+
+      const pumpQueuedSecondarySeek = () => {
+         if (!videoRef2.current) {
+            secondarySeekInFlightRef.current = false;
+            return;
+         }
+
+         const nextTime = secondaryPendingSeekTimeRef.current;
+         if (nextTime === null) {
+            secondarySeekInFlightRef.current = false;
+            return;
+         }
+
+         secondaryPendingSeekTimeRef.current = null;
+
+         if (Math.abs(videoRef2.current.currentTime - nextTime) <= 1 / 240) {
+            secondarySeekInFlightRef.current = false;
+            return;
+         }
+
+         secondarySeekInFlightRef.current = true;
+         videoRef2.current.currentTime = nextTime;
+      };
+
+      const handleSeeked = () => {
+         if (!isScrubbing) {
+            secondarySeekInFlightRef.current = false;
+            return;
+         }
+
+         pumpQueuedSecondarySeek();
+      };
+
+      secondaryVideo.addEventListener('seeked', handleSeeked);
+
+      return () => {
+         secondaryVideo.removeEventListener('seeked', handleSeeked);
+      };
+   }, [compareVideo, isScrubbing]);
+
+   useEffect(() => {
+      if (secondaryTimelineRafRef.current) {
+         cancelAnimationFrame(secondaryTimelineRafRef.current);
+         secondaryTimelineRafRef.current = null;
+      }
+
+      if (!compareVideo || !videoRef2.current || !isPlaying || isScrubbing || isPoseEnabled) {
+         return;
+      }
+
+      const updateSecondaryTimeline = () => {
+         const secondaryVideo = videoRef2.current;
+         if (!secondaryVideo) {
+            secondaryTimelineRafRef.current = null;
+            return;
+         }
+
+         setCompareTime(secondaryVideo.currentTime);
+
+         if (!secondaryVideo.paused && !secondaryVideo.ended) {
+            secondaryTimelineRafRef.current = requestAnimationFrame(updateSecondaryTimeline);
+         } else {
+            secondaryTimelineRafRef.current = null;
+         }
+      };
+
+      secondaryTimelineRafRef.current = requestAnimationFrame(updateSecondaryTimeline);
+
+      return () => {
+         if (secondaryTimelineRafRef.current) {
+            cancelAnimationFrame(secondaryTimelineRafRef.current);
+            secondaryTimelineRafRef.current = null;
+         }
+      };
+   }, [compareVideo, isPlaying, isPoseEnabled, isScrubbing]);
+
    const handleTimeUpdatePrimary = () => {
       if (!videoRef.current) return;
       const t1 = videoRef.current.currentTime;
@@ -709,27 +946,41 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
       }
 
       if (isSynced && videoRef2.current) {
-         const targetTime = t1 + syncOffset;
+         const secondaryVideo = videoRef2.current;
+         const maxCompareTime = Number.isFinite(compareDuration) && compareDuration > 0
+            ? compareDuration
+            : secondaryVideo.duration || Number.MAX_SAFE_INTEGER;
+         const targetTime = Math.max(0, Math.min(maxCompareTime, t1 + syncOffset));
 
-         if (isPlaying && !isScrubbing) {
-            // SMOOTH SYNC LOGIC:
-            // When playing, we only force the second video to seek if the drift is significant (> 0.15s).
-            // Forcing seek on every frame causes stutter ("coscas").
-            const currentT2 = videoRef2.current.currentTime;
-            const drift = Math.abs(currentT2 - targetTime);
-            if (drift > 0.15) {
-               videoRef2.current.currentTime = targetTime;
+         if (isScrubbing) {
+            secondaryVideo.playbackRate = playbackRate;
+            return;
+         }
+
+         if (isPlaying) {
+            const currentT2 = secondaryVideo.currentTime;
+            const drift = targetTime - currentT2;
+            const absDrift = Math.abs(drift);
+
+            if (absDrift > 0.5) {
+               secondaryVideo.currentTime = targetTime;
+               secondaryVideo.playbackRate = playbackRate;
+            } else if (absDrift > 0.08) {
+               const correctionMagnitude = Math.min(0.04, 0.012 + absDrift * 0.08);
+               const correction = drift > 0 ? correctionMagnitude : -correctionMagnitude;
+               secondaryVideo.playbackRate = Math.max(0.25, Math.min(2, playbackRate + correction));
+            } else {
+               secondaryVideo.playbackRate = playbackRate;
             }
          } else {
-            // HARD SYNC:
-            // When scrubbing or paused, we want exact frame alignment.
-            videoRef2.current.currentTime = targetTime;
+            secondaryVideo.playbackRate = playbackRate;
+            secondaryVideo.currentTime = targetTime;
          }
       }
    };
 
    const handleTimeUpdateSecondary = () => {
-      if (videoRef2.current && !isScrubbing) {
+      if (videoRef2.current && !isScrubbing && (!isPlaying || isPoseEnabled)) {
          setCompareTime(videoRef2.current.currentTime);
       }
    };
@@ -1088,12 +1339,216 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
          videoRef.current?.pause();
          videoRef2.current?.pause();
       } else {
+         if (videoRef.current) {
+            videoRef.current.playbackRate = playbackRate;
+         }
          videoRef.current?.play();
-         // Play both videos when comparing, regardless of sync state
-         if (compareVideo) videoRef2.current?.play();
+         if (compareVideo && videoRef2.current) {
+            if (isSynced && videoRef.current) {
+               const maxCompareTime = Number.isFinite(compareDuration) && compareDuration > 0
+                  ? compareDuration
+                  : videoRef2.current.duration || Number.MAX_SAFE_INTEGER;
+               const syncedTime = Math.max(0, Math.min(maxCompareTime, videoRef.current.currentTime + syncOffset));
+               videoRef2.current.currentTime = syncedTime;
+               setCompareTime(syncedTime);
+            }
+            videoRef2.current.playbackRate = playbackRate;
+            videoRef2.current.play();
+         }
       }
       setIsPlaying(!isPlaying);
    };
+
+   const applySeekInstant = useCallback((element: HTMLVideoElement, time: number) => {
+      const hasDuration = Number.isFinite(element.duration) && element.duration > 0;
+      const clamped = hasDuration ? Math.max(0, Math.min(time, element.duration)) : Math.max(0, time);
+      const canFastSeek = typeof (element as HTMLVideoElement & { fastSeek?: (value: number) => void }).fastSeek === 'function';
+
+      if (canFastSeek) {
+         try {
+            (element as HTMLVideoElement & { fastSeek: (value: number) => void }).fastSeek(clamped);
+            return;
+         } catch {
+            // Fallback to currentTime assignment when fastSeek is unsupported in runtime edge-cases.
+         }
+      }
+
+      element.currentTime = clamped;
+   }, []);
+
+   const drainPrimarySeekQueue = useCallback(() => {
+      const el = videoRef.current;
+      if (!el || primarySeekInFlightRef.current) return;
+
+      const next = primaryPendingSeekRef.current;
+      if (next === null) return;
+
+      primaryPendingSeekRef.current = null;
+      primarySeekInFlightRef.current = true;
+      applySeekInstant(el, next);
+
+      let released = false;
+      const release = () => {
+         if (released) return;
+         released = true;
+         primarySeekInFlightRef.current = false;
+         el.removeEventListener('seeked', release);
+         el.removeEventListener('error', release);
+
+         if (primaryPendingSeekRef.current !== null) {
+            requestAnimationFrame(() => {
+               drainPrimarySeekQueue();
+            });
+         }
+      };
+
+      el.addEventListener('seeked', release, { once: true });
+      el.addEventListener('error', release, { once: true });
+      window.setTimeout(release, 40);
+   }, [applySeekInstant]);
+
+   const seekSynced = useCallback((time: number, isDragging: boolean = false) => {
+      if (!videoRef.current || !videoRef2.current) return;
+
+      const maxCompareTime = Number.isFinite(compareDuration) && compareDuration > 0
+         ? compareDuration
+         : videoRef2.current.duration || Number.MAX_SAFE_INTEGER;
+      const targetCompareTime = Math.max(0, Math.min(maxCompareTime, time + syncOffset));
+
+      if (!isDragging) {
+         syncedPendingSeekTimeRef.current = null;
+         setCurrentTime(time);
+         setCompareTime(targetCompareTime);
+         videoRef.current.currentTime = time;
+         videoRef2.current.currentTime = targetCompareTime;
+         return;
+      }
+
+      syncedPendingSeekTimeRef.current = time;
+
+      if (syncedSeekQueueRafRef.current !== null) return;
+
+      syncedSeekQueueRafRef.current = requestAnimationFrame(() => {
+         syncedSeekQueueRafRef.current = null;
+         const pendingTime = syncedPendingSeekTimeRef.current;
+         syncedPendingSeekTimeRef.current = null;
+         if (pendingTime === null || !videoRef.current || !videoRef2.current) return;
+
+         const queuedCompareTime = Math.max(
+            0,
+            Math.min(
+               Number.isFinite(compareDuration) && compareDuration > 0
+                  ? compareDuration
+                  : videoRef2.current.duration || Number.MAX_SAFE_INTEGER,
+               pendingTime + syncOffset
+            )
+         );
+
+         videoRef.current.currentTime = pendingTime;
+         videoRef2.current.currentTime = queuedCompareTime;
+      });
+   }, [compareDuration, syncOffset]);
+
+   const queueSecondarySeek = useCallback((time: number) => {
+      secondaryPendingSeekTimeRef.current = time;
+
+      if (secondarySeekQueueRafRef.current !== null) return;
+
+      secondarySeekQueueRafRef.current = requestAnimationFrame(() => {
+         secondarySeekQueueRafRef.current = null;
+
+         if (!videoRef2.current) {
+            secondaryPendingSeekTimeRef.current = null;
+            secondarySeekInFlightRef.current = false;
+            return;
+         }
+
+         if (secondarySeekInFlightRef.current) return;
+
+         const nextTime = secondaryPendingSeekTimeRef.current;
+         secondaryPendingSeekTimeRef.current = null;
+
+         if (nextTime === null) return;
+         if (Math.abs(videoRef2.current.currentTime - nextTime) <= 1 / 240) return;
+
+         secondarySeekInFlightRef.current = true;
+         videoRef2.current.currentTime = nextTime;
+      });
+   }, []);
+
+   // Final seek when scrubbing ends to ensure we land exactly on the target time and sync global state
+   const flushPendingSeek = useCallback(() => {
+      if (compareVideo && isSynced && videoRef.current && videoRef2.current) {
+         if (syncedSeekQueueRafRef.current !== null) {
+            cancelAnimationFrame(syncedSeekQueueRafRef.current);
+            syncedSeekQueueRafRef.current = null;
+         }
+
+         const pendingPrimaryTime = syncedPendingSeekTimeRef.current;
+         if (pendingPrimaryTime !== null) {
+            const maxCompareTime = Number.isFinite(compareDuration) && compareDuration > 0
+               ? compareDuration
+               : videoRef2.current.duration || Number.MAX_SAFE_INTEGER;
+            const targetCompareTime = Math.max(0, Math.min(maxCompareTime, pendingPrimaryTime + syncOffset));
+
+            videoRef.current.currentTime = pendingPrimaryTime;
+            videoRef2.current.currentTime = targetCompareTime;
+            setCurrentTime(pendingPrimaryTime);
+            setCompareTime(targetCompareTime);
+         } else {
+            setCurrentTime(videoRef.current.currentTime);
+            setCompareTime(videoRef2.current.currentTime);
+         }
+
+         syncedPendingSeekTimeRef.current = null;
+         return;
+      }
+
+      if (videoRef.current) {
+         setCurrentTime(videoRef.current.currentTime);
+      }
+      if (videoRef2.current) {
+         if (secondarySeekQueueRafRef.current !== null) {
+            cancelAnimationFrame(secondarySeekQueueRafRef.current);
+            secondarySeekQueueRafRef.current = null;
+         }
+
+         const pendingSecondaryTime = secondaryPendingSeekTimeRef.current;
+         if (pendingSecondaryTime !== null && Math.abs(videoRef2.current.currentTime - pendingSecondaryTime) > 1 / 240) {
+            videoRef2.current.currentTime = pendingSecondaryTime;
+            setCompareTime(pendingSecondaryTime);
+         } else {
+            setCompareTime(videoRef2.current.currentTime);
+         }
+
+         secondaryPendingSeekTimeRef.current = null;
+         secondarySeekInFlightRef.current = false;
+      }
+    }, [compareDuration, compareVideo, isSynced, syncOffset]);
+
+   const handleScrubStart = useCallback(() => {
+      scrubResumePlaybackRef.current = isPlaying;
+      setIsScrubbing(true);
+      if (isPlaying) {
+         videoRef.current?.pause();
+         videoRef2.current?.pause();
+         setIsPlaying(false);
+      }
+   }, [isPlaying]);
+
+   const handleScrubEnd = useCallback(() => {
+      setIsScrubbing(false);
+      primaryPendingSeekRef.current = null;
+      primarySeekInFlightRef.current = false;
+      flushPendingSeek();
+
+      if (scrubResumePlaybackRef.current) {
+         videoRef.current?.play();
+         if (compareVideo) videoRef2.current?.play();
+         setIsPlaying(true);
+      }
+      scrubResumePlaybackRef.current = false;
+   }, [compareVideo, flushPendingSeek]);
 
    const seek = (time: number, isDragging: boolean = false) => {
       // Solo actualizamos el estado completo (con rerenders pesados) fuera del scrubbing rápido
@@ -1103,22 +1558,17 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
 
       if (!videoRef.current) return;
 
-      // Scrubbing de vídeo a máximo rendimiento: actualización directa al nodo del DOM sin throttling ni lags asíncronos.
-      videoRef.current.currentTime = time;
+      if (isDragging) {
+         // Cola durante arrastre: evita bombardear el decoder con seeks superpuestos.
+         primaryPendingSeekRef.current = time;
+         drainPrimarySeekQueue();
+      } else {
+         applySeekInstant(videoRef.current, time);
+      }
       if (compareVideo && isSynced && videoRef2.current) {
-         videoRef2.current.currentTime = time + syncOffset;
+         applySeekInstant(videoRef2.current, time + syncOffset);
       }
    };
-
-   // Final seek when scrubbing ends to ensure we land exactly on the target time and sync global state
-   const flushPendingSeek = useCallback(() => {
-      if (videoRef.current) {
-         setCurrentTime(videoRef.current.currentTime);
-      }
-      if (videoRef2.current) {
-         setCompareTime(videoRef2.current.currentTime);
-      }
-   }, []);
 
    const seek2 = (time: number, isDragging: boolean = false) => {
       if (!isDragging) {
@@ -1126,7 +1576,14 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
       }
 
       if (videoRef2.current) {
-         videoRef2.current.currentTime = time;
+         if (isDragging) {
+            queueSecondarySeek(time);
+         } else {
+            secondaryPendingSeekTimeRef.current = null;
+            secondarySeekInFlightRef.current = false;
+            videoRef2.current.currentTime = time;
+         }
+
          if (isSynced && videoRef.current) {
             setSyncOffset(time - videoRef.current.currentTime);
          }
@@ -1244,7 +1701,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
    const contextBadge = getVideoContextBadge(videoContext, contextTexts);
 
    return (
-      <div className="flex h-full bg-black relative overflow-hidden select-none touch-none">
+      <div className="flex h-full min-h-0 bg-black relative overflow-hidden select-none touch-none">
          {/* Top Bar */}
          <div className="absolute top-0 left-0 right-0 z-30 flex flex-col bg-gradient-to-b from-black/95 to-transparent pointer-events-none">
             {/* Primary Toolbar */}
@@ -1453,10 +1910,10 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
          </div>
 
          {/* Main Workspace */}
-         <div className="flex-1 flex flex-col relative bg-black overflow-hidden min-w-0">
+         <div className="flex-1 flex flex-col relative bg-black overflow-hidden min-w-0 min-h-0">
 
             {/* Video Container Area - Dynamic layout based on aspect ratio (Mobile) / Always SxS (Desktop) */}
-            <div className={`flex-1 relative overflow-hidden flex ${compareVideo ? (isVertical ? 'flex-row gap-0.5 md:gap-0' : 'flex-col gap-0.5 md:flex-row md:gap-0') : 'items-center justify-center'} bg-black`}
+            <div className={`flex-1 min-h-0 relative overflow-hidden flex ${compareStackClass} bg-black`}
                style={{ cursor: isDrawingMode ? (activeTool === 'eraser' ? 'cell' : 'crosshair') : 'default' }}
                onMouseDown={(e) => handleMouseDown(e, 1)} // Default to 1 if clicking background (though usually covered)
                onTouchStart={(e) => handleMouseDown(e, 1)}
@@ -1469,7 +1926,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
 
 
                {/* Primary Video Container with its own scrubber on mobile */}
-               <div className={`relative flex flex-col overflow-hidden ${compareVideo ? (isVertical ? 'w-1/2 h-full min-w-0' : 'flex-1 w-full min-h-0 md:w-1/2 md:h-full') : 'w-full h-full items-center justify-center'}`}
+               <div className={`relative flex flex-col overflow-hidden ${compareVideo ? (primaryIsPortrait ? 'w-1/2 h-full min-w-0 min-h-0' : 'flex-1 w-full min-h-0 md:w-1/2 md:h-full') : 'w-full h-full min-h-0 items-center justify-center'}`}
                   onMouseDown={(e) => { e.stopPropagation(); handleMouseDown(e, 1); }}
                   onTouchStart={(e) => { e.stopPropagation(); handleMouseDown(e, 1); }}
                   style={{ cursor: isDrawingMode ? 'crosshair' : (zoom1 > 1 ? 'grab' : 'default') }}
@@ -1484,24 +1941,46 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
                    )}
                   <div
                      ref={!compareVideo ? wrapperRef : undefined}
-                     className={`relative flex items-center justify-center flex-1 transition-transform duration-75 ease-linear ${!compareVideo ? 'w-full h-full' : 'p-4'}`}
+                     className={`relative flex flex-1 min-h-0 transition-transform duration-75 ease-linear ${!compareVideo ? 'w-full h-full items-center justify-center' : `${primaryStageAlignmentClass} ${primaryStagePadding}`}`}
                      style={{
                         transform: `scale(${zoom1}) translate(${pan1.x}px, ${pan1.y}px)`,
                      }}
                   >
-                     {activeUrl && (
+                     {(videoLoadState === 'error' || (!activeUrl && !isRecoveringVideoSource)) && (
+                        <div className="absolute inset-0 flex items-center justify-center px-4">
+                           <div className="max-w-md rounded-2xl border border-red-500/20 bg-red-950/30 px-6 py-5 text-center shadow-2xl">
+                              <p className="text-sm leading-6 text-red-100">
+                                 {videoError || getVideoErrorMessage(video.errorCode, video.errorMessage || null)}
+                              </p>
+                              {(video.storagePath || video.downloadURL || video.remoteUrl) && (
+                                 <button
+                                    type="button"
+                                    onClick={() => {
+                                       videoRecoveryAttemptedRef.current = true;
+                                       void recoverVideoSource();
+                                    }}
+                                    className="mt-4 rounded-xl border border-white/10 bg-white/10 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-white/20"
+                                 >
+                                    {language === 'ing'
+                                       ? 'Retry video loading'
+                                       : language === 'eus'
+                                          ? 'Saiatu berriro bideoa kargatzen'
+                                          : 'Reintentar carga del video'}
+                                 </button>
+                              )}
+                           </div>
+                        </div>
+                     )}
+                     {activeUrl && videoLoadState !== 'error' && (
                         <div
                            className="relative max-w-full max-h-full shadow-2xl"
-                           style={{
-                              aspectRatio: aspectRatio1,
-                              width: aspectRatio1 ? 'auto' : '100%',
-                              height: aspectRatio1 ? 'auto' : '100%'
-                           }}
+                           style={primaryFrameStyle}
                         >
                            <video
                               ref={videoRef}
                               src={activeUrl}
                               crossOrigin="anonymous"
+                              preload="auto"
                               className="w-full h-full object-contain pointer-events-none select-none block"
                               playsInline
                               onLoadedData={handleLoadedData}
@@ -1527,13 +2006,13 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
                      )}
                   </div>
 
-                  {activeUrl && (
+                  {activeUrl && videoLoadState !== 'error' && (
                      /* Zoom Controls Video 1 */
                      <ZoomControls
                         zoom={zoom1}
                         setZoom={setZoom1}
                         setPan={setPan1}
-                        placement={compareVideo && !isVertical ? 'top-right' : 'bottom-right'}
+                        placement={compareVideo && !primaryIsPortrait ? 'top-right' : 'bottom-right'}
                         hasBottomScrubber={!!compareVideo && !isSynced}
                      />
                   )}
@@ -1545,8 +2024,8 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
                            curr={currentTime}
                            dur={duration}
                            setTime={seek}
-                           onScrubStart={() => setIsScrubbing(true)}
-                           onScrubEnd={() => { setIsScrubbing(false); flushPendingSeek(); }}
+                           onScrubStart={handleScrubStart}
+                           onScrubEnd={handleScrubEnd}
                            label="CAM A"
                         />
                      </div>
@@ -1555,28 +2034,25 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
 
                {/* Comparison Video Container with its own scrubber on mobile */}
                {compareVideo && (
-                  <div className={`relative flex flex-col overflow-hidden ${isVertical ? 'w-1/2 h-full min-w-0 border-l' : 'flex-1 w-full min-h-0 border-t md:w-1/2 md:h-full md:border-t-0 md:border-l'} border-white/10`}
+                  <div className={`relative flex flex-col overflow-hidden ${primaryIsPortrait ? 'w-1/2 h-full min-w-0 min-h-0 border-l' : 'flex-1 w-full min-h-0 border-t md:w-1/2 md:h-full md:border-t-0 md:border-l'} border-white/10`}
                      onMouseDown={(e) => { e.stopPropagation(); handleMouseDown(e, 2); }}
                      onTouchStart={(e) => { e.stopPropagation(); handleMouseDown(e, 2); }}
                      style={{ cursor: isDrawingMode ? 'crosshair' : (zoom2 > 1 ? 'grab' : 'default') }}
                   >
-                     <div className="relative flex items-center justify-center flex-1 p-4"
+                     <div className={`relative flex items-center justify-center flex-1 min-h-0 ${comparisonStagePadding}`}
                         style={{
                            transform: `scale(${zoom2}) translate(${pan2.x}px, ${pan2.y}px)`,
                         }}
                      >
                         <div
                            className="relative max-w-full max-h-full shadow-2xl"
-                           style={{
-                              aspectRatio: aspectRatio2,
-                              width: aspectRatio2 ? 'auto' : '100%',
-                              height: aspectRatio2 ? 'auto' : '100%'
-                           }}
+                           style={secondaryFrameStyle}
                         >
                            <video
                               ref={videoRef2}
                               src={compareVideo.url}
                               crossOrigin="anonymous"
+                              preload="auto"
                               className="w-full h-full object-contain pointer-events-none select-none block"
                               playsInline
                               onLoadedData={(e) => {
@@ -1617,8 +2093,8 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
                               curr={compareTime}
                               dur={compareDuration}
                               setTime={seek2}
-                              onScrubStart={() => setIsScrubbing(true)}
-                              onScrubEnd={() => { setIsScrubbing(false); flushPendingSeek(); }}
+                              onScrubStart={handleScrubStart}
+                              onScrubEnd={handleScrubEnd}
                               isSecondary
                               label="CAM B"
                            />
@@ -1632,7 +2108,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
             </div>
 
             {/* Controls Bar */}
-            <div className="bg-black border-t border-neutral-900 px-4 py-4 z-30">
+            <div className="shrink-0 bg-black border-t border-neutral-900 px-4 py-4 z-30">
                {/* Scrubbers - hidden on mobile when comparing AND not synced (each video has its own). Visible on mobile when synced (shared scrubber) */}
                <div className={`w-full mb-4 ${compareVideo && !isSynced ? 'hidden md:block' : ''}`}>
                   {!compareVideo ? (
@@ -1640,8 +2116,8 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
                         curr={currentTime}
                         dur={duration}
                         setTime={seek}
-                        onScrubStart={() => setIsScrubbing(true)}
-                        onScrubEnd={() => { setIsScrubbing(false); flushPendingSeek(); }}
+                        onScrubStart={handleScrubStart}
+                        onScrubEnd={handleScrubEnd}
                         label="CAM A"
                      />
                   ) : (
@@ -1650,8 +2126,8 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
                            curr={currentTime}
                            dur={duration}
                            setTime={seek}
-                           onScrubStart={() => setIsScrubbing(true)}
-                           onScrubEnd={() => { setIsScrubbing(false); flushPendingSeek(); }}
+                           onScrubStart={handleScrubStart}
+                           onScrubEnd={handleScrubEnd}
                            label="CAM A"
                         />
                         {!isSynced && (
@@ -1659,8 +2135,8 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
                               curr={compareTime}
                               dur={compareDuration}
                               setTime={seek2}
-                              onScrubStart={() => setIsScrubbing(true)}
-                              onScrubEnd={() => { setIsScrubbing(false); flushPendingSeek(); }}
+                              onScrubStart={handleScrubStart}
+                              onScrubEnd={handleScrubEnd}
                               isSecondary
                               label="CAM B"
                            />
@@ -1670,7 +2146,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
                </div>
 
                <div className="flex items-center justify-center gap-8">
-                  <button onClick={() => { const rates = [0.25, 0.5, 1]; setPlaybackRate(rates[(rates.indexOf(playbackRate) + 1) % 3]); if (videoRef.current) videoRef.current.playbackRate = playbackRate; }} className="text-xs font-bold bg-neutral-900 px-3 py-1.5 rounded-lg border border-neutral-800 text-neutral-400 w-12">{playbackRate}x</button>
+                  <button onClick={() => { const rates = [0.25, 0.5, 1]; setPlaybackRate(rates[(rates.indexOf(playbackRate) + 1) % 3]); }} className="text-xs font-bold bg-neutral-900 px-3 py-1.5 rounded-lg border border-neutral-800 text-neutral-400 w-12">{playbackRate}x</button>
                   <div className="flex items-center gap-6">
                      <button onClick={() => frameStep('prev')} className="text-neutral-400 hover:text-white"><ChevronLeft size={28} /></button>
                      <button onClick={togglePlay} className="w-14 h-14 bg-white rounded-full flex items-center justify-center text-black hover:scale-105 transition-transform">{isPlaying ? <Pause size={28} fill="black" /> : <Play size={28} fill="black" className="ml-1" />}</button>
@@ -1836,3 +2312,4 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
       </div >
    );
 };
+

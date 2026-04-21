@@ -55,8 +55,9 @@ export const AthleteNotifications: React.FC<AthleteNotificationsProps> = ({ curr
     try {
       // Usamos el email o el username como fallback
       // Usamos 'as any' para acceder a email aunque no esté en la interfaz User
-      const emailToCheck = (currentUser as any).email || currentUser.username;      const list = await StorageService.getPendingRequests(emailToCheck);
-      setRequests(list);
+      const emailToCheck = (currentUser as any).email || currentUser.username;
+      const result = await StorageService.getPendingRequests(emailToCheck);
+      setRequests(result.requests);
     } catch (error) {
       console.error("Error loading requests", error);
     } finally {

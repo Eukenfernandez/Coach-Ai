@@ -164,7 +164,7 @@ export const PlanGallery: React.FC<PlanGalleryProps> = ({ plans, onSelectPlan, o
       )}
 
       {plans.length > 0 && (
-        <div className="fixed bottom-8 right-8 z-20">
+        <div className="fixed safe-bottom-8 safe-right-6 z-20">
           <button onClick={handleUploadClick} className="flex items-center justify-center w-14 h-14 md:w-auto md:h-auto md:px-6 md:py-4 bg-orange-600 hover:bg-orange-500 text-white font-bold rounded-2xl shadow-[0_8px_30px_rgba(249,115,22,0.3)] transition-all transform hover:scale-105">
             <Upload size={20} /><span className="hidden md:inline ml-2">{t.uploadRoutine}</span>
           </button>

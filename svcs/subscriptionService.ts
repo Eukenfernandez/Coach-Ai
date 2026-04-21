@@ -6,6 +6,12 @@ import 'firebase/compat/functions';
 
 import type { SubscriptionTier, UserLimits } from '../types';
 import { db } from './storageService';
+import {
+  getPaymentCancelUrl,
+  getPaymentSuccessUrl,
+  getPortalReturnUrl,
+  openExternalUrl,
+} from './nativeAppService';
 
 export const STRIPE_PRODUCTS = {
   PRO_ATHLETE: 'prod_TeGEbgvAQJO9pN',
@@ -27,8 +33,8 @@ export const createCheckoutSession = async (uid: string, priceId: string): Promi
     const docRef = await db.collection('customers').doc(uid).collection('checkout_sessions').add({
       price: priceId,
       mode: 'subscription',
-      success_url: `${window.location.origin}/?payment=success`,
-      cancel_url: `${window.location.origin}/?payment=cancel`,
+      success_url: getPaymentSuccessUrl(),
+      cancel_url: getPaymentCancelUrl(),
       created: new Date().toISOString(),
     });
 
@@ -38,8 +44,7 @@ export const createCheckoutSession = async (uid: string, priceId: string): Promi
           const data = snap.data() as { url?: string; error?: { message?: string }; } | undefined;
           if (data?.url) {
             unsubscribe();
-            window.location.assign(data.url);
-            resolve();
+            void openExternalUrl(data.url).then(() => resolve(), reject);
             return;
           }
           if (data?.error) {
@@ -64,10 +69,10 @@ export const createPortalSession = async (_uid: string): Promise<void> => {
   try {
     const functionName = 'ext-firestore-stripe-payments-95em-createPortalLink';
     const functionRef = firebase.functions().httpsCallable(functionName);
-    const result = await functionRef({ returnUrl: window.location.origin, locale: 'auto' });
+    const result = await functionRef({ returnUrl: getPortalReturnUrl(), locale: 'auto' });
     const data = (result.data ?? {}) as { url?: string };
     if (data?.url) {
-      window.location.assign(data.url);
+      await openExternalUrl(data.url);
       return;
     }
     throw new Error('Stripe no devolvió una URL válida.');
@@ -140,10 +145,21 @@ export const waitForSubscriptionActive = async (uid: string, userEmail?: string)
   if (!db) return 'FREE';
   return new Promise<SubscriptionTier>((resolve) => {
     let resolved = false;
+    let unsubscribe: (() => void) | null = null;
 
-    const timeoutId = window.setTimeout(() => { if (!resolved) resolve('FREE'); }, 20000);
+    const finalize = (tier: SubscriptionTier) => {
+      if (resolved) return;
+      resolved = true;
+      window.clearTimeout(timeoutId);
+      unsubscribe?.();
+      resolve(tier);
+    };
 
-    const unsubscribe = db.collection('customers').doc(uid).collection('subscriptions')
+    const timeoutId = window.setTimeout(() => {
+      finalize('FREE');
+    }, 20000);
+
+    unsubscribe = db.collection('customers').doc(uid).collection('subscriptions')
       .where('status', 'in', ['active', 'trialing'])
       .onSnapshot((snapshot) => {
         if (snapshot.empty) return;
@@ -164,10 +180,7 @@ export const waitForSubscriptionActive = async (uid: string, userEmail?: string)
         else if (priceId === STRIPE_PRICES.PRO_ATHLETE) tier = 'PRO_ATHLETE';
 
         if (tier !== 'FREE') {
-          resolved = true;
-          window.clearTimeout(timeoutId);
-          unsubscribe();
-          resolve(tier);
+          finalize(tier);
         }
       });
   });

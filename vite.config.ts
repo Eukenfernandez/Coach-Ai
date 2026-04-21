@@ -18,6 +18,7 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
+    manifest: true,
     sourcemap: false,
     minify: 'terser',
     terserOptions: {
