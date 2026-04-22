@@ -2,12 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CAPACITOR_DEBUG</key>
-	<string>$(CAPACITOR_DEBUG)</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-        <string>Coach AI</string>
+	<string>Coach AI</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -36,17 +34,15 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>Coach AI necesita acceso a la cámara para grabar vídeos y analizarlos.</string>
+	<string>Coach AI necesita acceso a la camara para grabar videos y analizarlos.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Coach AI necesita acceso al micrófono al grabar vídeo desde la app.</string>
+	<string>Coach AI necesita acceso al microfono al grabar video desde la app.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Coach AI necesita acceso a tu fototeca para importar vídeos y archivos de entrenamiento.</string>
+	<string>Coach AI necesita acceso a tu fototeca para importar videos y archivos de entrenamiento.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Coach AI puede guardar contenido generado durante el análisis si decides exportarlo.</string>
+	<string>Coach AI puede guardar contenido generado durante el analisis si decides exportarlo.</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
-	<key>UIMainStoryboardFile</key>
-	<string>Main</string>
 	<key>UIRequiredDeviceCapabilities</key>
 	<array>
 		<string>armv7</string>
