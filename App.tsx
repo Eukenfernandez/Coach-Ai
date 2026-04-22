@@ -19,7 +19,7 @@ import {
   UserData
 } from "./types";
 import { StorageService, VideoStorage, PlanStorage, db } from "./svcs/storageService";
-import { EXTERNAL_RETURN_EVENT, type ExternalReturnPayload, initializeNativeAppShell } from "./svcs/nativeAppService";
+import { EXTERNAL_RETURN_EVENT, type ExternalReturnPayload, initializeNativeAppShell, isNativeApp } from "./svcs/nativeAppService";
 import { getSubscriptionTier, getUserLimits, waitForSubscriptionActive } from "./svcs/subscriptionService";
 import { VideoIntelligenceService } from "./svcs/videoIntelligenceService";
 import { GracePeriodBanner } from "./comps/GracePeriodBanner";
@@ -185,6 +185,7 @@ function shouldRenderLandingFromLocation(locationLike: Pick<Location, "pathname"
 }
 
 export default function App() {
+  const nativeMobileApp = isNativeApp();
   const [fatalError, setFatalError] = useState<string | null>(null);
   const [isOnline, setIsOnline] = useState<boolean>(() => (typeof navigator === "undefined" ? true : navigator.onLine));
   const [isRestoringSession, setIsRestoringSession] = useState<boolean>(() => {
@@ -404,6 +405,30 @@ export default function App() {
     try {
       localStorage.setItem("coachai_lang", lang);
     } catch { }
+  };
+
+  const handlePublicNavigation = (targetHref: string) => {
+    if (typeof window === "undefined") return;
+
+    const nextUrl = new URL(targetHref, window.location.origin);
+    const nextPath = nextUrl.pathname;
+    const nextHash = nextUrl.hash || "";
+    const nextSearch = nextUrl.search || "";
+
+    window.history.pushState({}, "", `${nextPath}${nextSearch}${nextHash}`);
+    setPublicPath(nextPath);
+
+    const nextLanguage = getPublicLanguageByPath(nextPath);
+    if (nextLanguage) {
+      handleLanguageChange(nextLanguage);
+    }
+
+    const shouldShowPublicLanding = !isLoginPath(nextPath) && !nextHash.includes("login");
+    setShowLanding(shouldShowPublicLanding);
+
+    if (!shouldShowPublicLanding) {
+      setCurrentScreen("login");
+    }
   };
 
   useEffect(() => {
@@ -1705,9 +1730,11 @@ export default function App() {
   if (!currentUser && showLanding) {
     return (
       <LandingPage
-        onContinue={() => window.location.assign("/login")}
+        onContinue={() => handlePublicNavigation("/login")}
         language={language}
         onLanguageChange={handleLanguageChange}
+        nativeMode={nativeMobileApp}
+        onPublicNavigate={nativeMobileApp ? handlePublicNavigation : undefined}
         page={currentPublicPage}
       />
     );

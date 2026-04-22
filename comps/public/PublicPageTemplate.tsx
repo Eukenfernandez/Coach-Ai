@@ -38,6 +38,8 @@ interface PublicPageTemplateProps {
   page: PublicPageContent;
   language?: Language;
   onLanguageChange?: (lang: Language) => void;
+  nativeMode?: boolean;
+  onPublicNavigate?: (path: string) => void;
 }
 
 interface FeatureCard {
@@ -216,6 +218,8 @@ export function PublicPageTemplate({
   page,
   language,
   onLanguageChange,
+  nativeMode = false,
+  onPublicNavigate,
 }: PublicPageTemplateProps) {
   const locale = localeConfig[page.locale];
   const uiLanguage = locale.appLanguage;
@@ -285,13 +289,57 @@ export function PublicPageTemplate({
     footerLocaleLinks[0] = { ...footerLocaleLinks[0], href: homeLocaleSwitchLinks.es };
   }
 
+  const localePathByLanguage: Record<Language, string> = {
+    es: page.id === "home" ? homeLocaleSwitchLinks.es : alternates.es,
+    ing: page.id === "home" ? homeLocaleSwitchLinks.en : alternates.en,
+    eus: page.id === "home" ? homeLocaleSwitchLinks.eu : alternates.eu,
+  };
+
+  const handleNativeLinkNavigation = (href: string) => (event: React.MouseEvent<HTMLAnchorElement>) => {
+    if (!nativeMode || !onPublicNavigate || !href.startsWith("/")) return;
+    if (event.defaultPrevented || event.button !== 0) return;
+    if (event.metaKey || event.altKey || event.ctrlKey || event.shiftKey) return;
+
+    event.preventDefault();
+    setShowLangMenu(false);
+    onPublicNavigate(href);
+  };
+
+  const getAnchorNavigationProps = (href: string) => ({
+    href,
+    onClick: nativeMode && onPublicNavigate && href.startsWith("/")
+      ? handleNativeLinkNavigation(href)
+      : undefined,
+  });
+
+  const handleLanguageSelect = (nextLanguage: Language) => {
+    setShowLangMenu(false);
+
+    if (nativeMode && onPublicNavigate) {
+      const targetPath = localePathByLanguage[nextLanguage];
+      if (targetPath) {
+        onPublicNavigate(targetPath);
+        return;
+      }
+    }
+
+    onLanguageChange?.(nextLanguage);
+  };
+
+  const homeHeroTopLeftClassName = nativeMode
+    ? "absolute safe-left-4 safe-top-8 z-20 flex items-start gap-3"
+    : "absolute left-[1.4%] top-[0.42%] z-10 flex items-start gap-3";
+  const homeHeroTopRightClassName = nativeMode
+    ? "absolute safe-right-4 safe-top-8 z-20"
+    : "absolute right-[1.25%] top-[0.38%] z-10";
+
   return (
     <div className="min-h-screen w-full overflow-x-hidden overflow-y-auto bg-white text-neutral-900 transition-colors duration-300 dark:bg-black dark:text-white">
       {!isHomeHero ? (
-        <header className="fixed top-0 left-0 right-0 z-50 bg-white/60 backdrop-blur-xl border-b border-neutral-200/50 dark:bg-black/60 dark:border-neutral-800/50">
+        <header className={`fixed top-0 left-0 right-0 z-50 bg-white/60 backdrop-blur-xl border-b border-neutral-200/50 dark:bg-black/60 dark:border-neutral-800/50 ${nativeMode ? "native-app-shell" : ""}`}>
           <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <a href={locale.homeHref} className="flex items-center gap-3 group cursor-pointer">
+              <a {...getAnchorNavigationProps(locale.homeHref)} className="flex items-center gap-3 group cursor-pointer">
                 <div className="w-9 h-9 bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl flex items-center justify-center rotate-3 shadow-lg shadow-orange-500/30 group-hover:rotate-6 transition-transform duration-300">
                   <svg
                     width="18"
@@ -329,8 +377,7 @@ export function PublicPageTemplate({
                         key={entry.code}
                         type="button"
                         onClick={() => {
-                          onLanguageChange(entry.code);
-                          setShowLangMenu(false);
+                          handleLanguageSelect(entry.code);
                         }}
                         className={`w-full px-4 py-2 text-left text-sm flex items-center gap-2 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors ${
                           uiLanguage === entry.code
@@ -348,7 +395,7 @@ export function PublicPageTemplate({
             </div>
 
             <a
-              href={loginHref}
+              {...getAnchorNavigationProps(loginHref)}
               data-cta-event="header-login"
               className="px-6 py-2.5 bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-400 hover:to-orange-500 text-white font-bold rounded-full transition-all duration-300 flex items-center gap-2 shadow-lg shadow-orange-500/30 hover:shadow-orange-500/50 hover:scale-105"
             >
@@ -393,9 +440,9 @@ export function PublicPageTemplate({
                   <div className="pointer-events-none absolute inset-x-0 top-[6.05%] h-px bg-white/10" />
                   <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[12%] bg-gradient-to-t from-black via-black/95 to-transparent" />
 
-                  <div className="absolute left-[1.4%] top-[0.42%] z-10 flex items-start gap-3">
+                  <div className={homeHeroTopLeftClassName}>
                     <a
-                      href={locale.homeHref}
+                      {...getAnchorNavigationProps(locale.homeHref)}
                       aria-label="CoachAI"
                       className="flex items-center gap-3 cursor-pointer"
                     >
@@ -428,7 +475,7 @@ export function PublicPageTemplate({
                         {heroLanguageLinks.map((item) => (
                           <a
                             key={item.code}
-                            href={item.href}
+                            {...getAnchorNavigationProps(item.href)}
                             className={`flex items-center rounded-[11px] px-3 py-2 text-[13px] font-medium transition-colors ${
                               item.active ? "bg-white/10 text-white" : "text-white/85 hover:bg-white/10"
                             }`}
@@ -440,9 +487,9 @@ export function PublicPageTemplate({
                     </details>
                   </div>
 
-                  <div className="absolute right-[1.25%] top-[0.38%] z-10">
+                  <div className={homeHeroTopRightClassName}>
                     <a
-                      href={loginHref}
+                      {...getAnchorNavigationProps(loginHref)}
                       data-cta-event="hero-top-start"
                       aria-label={locale.startLabel}
                       className="flex h-11 items-center gap-2 rounded-[20px] bg-gradient-to-r from-orange-500 to-orange-600 px-7 text-[14px] font-bold text-white shadow-[0_10px_26px_rgba(249,115,22,0.28)] transition-all duration-300 hover:from-orange-400 hover:to-orange-500 hover:shadow-[0_12px_30px_rgba(249,115,22,0.38)]"
@@ -586,7 +633,7 @@ export function PublicPageTemplate({
                   return (
                     <a
                       key={`${card.title}-${index}`}
-                      href={card.href}
+                      {...getAnchorNavigationProps(card.href)}
                       className={`${cardClassName} ${cardLayoutClassName} cursor-pointer`}
                     >
                       {content}
@@ -742,7 +789,7 @@ export function PublicPageTemplate({
                 item.href ? (
                   <a
                     key={item.label}
-                    href={item.href}
+                    {...getAnchorNavigationProps(item.href)}
                     className="px-5 py-2.5 bg-neutral-100 dark:bg-neutral-800 rounded-full text-sm font-medium hover:bg-orange-100 dark:hover:bg-orange-500/20 hover:text-orange-600 dark:hover:text-orange-500 transition-all duration-300 cursor-pointer hover:scale-105 hover:shadow-md"
                   >
                     {item.label}
@@ -766,7 +813,7 @@ export function PublicPageTemplate({
             <h2 className="text-3xl md:text-4xl font-bold mb-4">{page.finalCtaTitle}</h2>
             <p className="text-orange-100 mb-10 text-lg">{page.finalCtaDescription}</p>
             <a
-              href={page.id === "access" ? loginHref : accessPage.path}
+              {...getAnchorNavigationProps(page.id === "access" ? loginHref : accessPage.path)}
               data-cta-event="footer-login"
               className="px-10 py-4 bg-white text-orange-600 font-bold rounded-full transition-all hover:scale-105 shadow-xl flex items-center gap-3 mx-auto text-lg w-fit"
             >
@@ -788,7 +835,7 @@ export function PublicPageTemplate({
                 {footerPageLinks.map((item) => (
                   <a
                     key={item.href}
-                    href={item.href}
+                    {...getAnchorNavigationProps(item.href)}
                     className="text-sm text-neutral-600 transition-colors hover:text-orange-600 dark:text-neutral-300 dark:hover:text-orange-500"
                   >
                     {item.title}
@@ -805,7 +852,7 @@ export function PublicPageTemplate({
                 {footerLocaleLinks.map((item) => (
                   <a
                     key={item.href}
-                    href={item.href}
+                    {...getAnchorNavigationProps(item.href)}
                     className={`text-sm transition-colors ${
                       item.active
                         ? "text-orange-600 dark:text-orange-500"

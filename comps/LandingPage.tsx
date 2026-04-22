@@ -7,12 +7,16 @@ interface LandingPageProps {
   onContinue?: () => void;
   language: Language;
   onLanguageChange?: (lang: Language) => void;
+  nativeMode?: boolean;
+  onPublicNavigate?: (path: string) => void;
   page?: PublicPageContent;
 }
 
 export const LandingPage: React.FC<LandingPageProps> = ({
   language,
   onLanguageChange,
+  nativeMode,
+  onPublicNavigate,
   page,
 }) => {
   const locale = toSeoLocale(language);
@@ -23,6 +27,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       page={resolvedPage}
       language={language}
       onLanguageChange={onLanguageChange}
+      nativeMode={nativeMode}
+      onPublicNavigate={onPublicNavigate}
     />
   );
 };

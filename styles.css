@@ -48,6 +48,10 @@
     top: calc(1.5rem + var(--safe-area-top));
   }
 
+  .safe-top-8 {
+    top: calc(2rem + var(--safe-area-top));
+  }
+
   .safe-right-4 {
     right: calc(1rem + var(--safe-area-right));
   }
