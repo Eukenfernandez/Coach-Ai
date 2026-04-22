@@ -23,9 +23,18 @@ function isLoginRoute(pathname: string, hash: string) {
   return normalizePathname(pathname) === "/login" || hash.includes("login");
 }
 
+function isNativeCapacitorShell() {
+  if (typeof window === "undefined") return false;
+  return (
+    window.location.protocol === "capacitor:" ||
+    window.location.origin === "capacitor://localhost"
+  );
+}
+
 const shouldHydrate =
   rootElement.hasChildNodes() &&
-  !isLoginRoute(window.location.pathname, window.location.hash);
+  !isLoginRoute(window.location.pathname, window.location.hash) &&
+  !isNativeCapacitorShell();
 
 if (shouldHydrate) {
   hydrateRoot(rootElement, app);
