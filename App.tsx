@@ -188,6 +188,7 @@ export default function App() {
   const nativeMobileApp = isNativeApp();
   const [fatalError, setFatalError] = useState<string | null>(null);
   const [isOnline, setIsOnline] = useState<boolean>(() => (typeof navigator === "undefined" ? true : navigator.onLine));
+  const [nativeAuthEntryRequested, setNativeAuthEntryRequested] = useState(false);
   const [isRestoringSession, setIsRestoringSession] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
     return Boolean(StorageService.getCurrentUser());
@@ -380,7 +381,11 @@ export default function App() {
       if (user) {
         await handleLogin(user, paymentStatus === 'success');
       } else {
-        setCurrentScreen("login");
+        if (nativeMobileApp) {
+          setNativeAuthEntryRequested(false);
+        } else {
+          setCurrentScreen("login");
+        }
       }
       } catch (e) {
         if (!cancelled) {
@@ -427,6 +432,9 @@ export default function App() {
     setShowLanding(shouldShowPublicLanding);
 
     if (!shouldShowPublicLanding) {
+      if (nativeMobileApp) {
+        setNativeAuthEntryRequested(true);
+      }
       setCurrentScreen("login");
     }
   };
@@ -1725,6 +1733,18 @@ export default function App() {
 
   if (isRestoringSession) {
     return <ScreenLoader fullScreen />;
+  }
+
+  if (!currentUser && nativeMobileApp && !nativeAuthEntryRequested) {
+    return (
+      <LandingPage
+        onContinue={() => setNativeAuthEntryRequested(true)}
+        language={language}
+        onLanguageChange={handleLanguageChange}
+        nativeMode
+        page={currentPublicPage}
+      />
+    );
   }
 
   if (!currentUser && showLanding) {
