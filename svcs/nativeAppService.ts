@@ -47,7 +47,24 @@ const parseExternalReturn = (rawUrl: string): ExternalReturnPayload | null => {
   return null;
 };
 
-export const isNativeApp = () => Capacitor.isNativePlatform();
+export const isNativeApp = () => {
+  if (typeof window !== 'undefined') {
+    const protocol = window.location.protocol;
+    const origin = window.location.origin;
+    const host = window.location.host;
+    const capacitorBridge = (window as typeof window & { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
+
+    if (protocol === 'capacitor:' || origin === 'capacitor://localhost' || host === 'localhost') {
+      return true;
+    }
+
+    if (capacitorBridge?.isNativePlatform?.()) {
+      return true;
+    }
+  }
+
+  return Capacitor.isNativePlatform();
+};
 
 export const getPublicAppUrl = () => PUBLIC_APP_URL;
 
