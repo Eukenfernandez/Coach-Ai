@@ -1747,7 +1747,7 @@ export default function App() {
     );
   }
 
-  if (!currentUser && showLanding) {
+  if (!currentUser && !nativeMobileApp && showLanding) {
     return (
       <LandingPage
         onContinue={() => handlePublicNavigation("/login")}
