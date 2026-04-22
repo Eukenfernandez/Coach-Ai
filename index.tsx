@@ -1,6 +1,7 @@
 import React from "react";
 import { createRoot, hydrateRoot } from "react-dom/client";
 import App from "./App";
+import { isNativeApp } from "./svcs/nativeAppService";
 import "./styles.css";
 
 const rootElement = document.getElementById("root");
@@ -23,18 +24,12 @@ function isLoginRoute(pathname: string, hash: string) {
   return normalizePathname(pathname) === "/login" || hash.includes("login");
 }
 
-function isNativeCapacitorShell() {
-  if (typeof window === "undefined") return false;
-  return (
-    window.location.protocol === "capacitor:" ||
-    window.location.origin === "capacitor://localhost"
-  );
-}
+const runningInsideCapacitor = isNativeApp();
 
 const shouldHydrate =
   rootElement.hasChildNodes() &&
   !isLoginRoute(window.location.pathname, window.location.hash) &&
-  !isNativeCapacitorShell();
+  !runningInsideCapacitor;
 
 if (shouldHydrate) {
   hydrateRoot(rootElement, app);
