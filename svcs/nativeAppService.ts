@@ -15,6 +15,7 @@ type NativeShellDescriptor = {
 
 declare global {
   interface Window {
+    __IS_IOS_APP__?: boolean;
     __COACHAI_NATIVE_SHELL__?: NativeShellDescriptor;
     __COACHAI_HISTORY_PATCHED__?: boolean;
     __COACHAI_WINDOW_OPEN_PATCHED__?: boolean;
@@ -77,11 +78,15 @@ const getInjectedShell = () => {
 const hasInjectedNativeShell = () => {
   if (typeof window === 'undefined') return false;
 
+  if (window.__IS_IOS_APP__ === true) return true;
+
   const injectedShell = getInjectedShell();
   if (injectedShell?.embedded) return true;
 
   const datasetShell = document.documentElement.dataset.coachaiNativeShell;
   if (datasetShell === 'ios' || datasetShell === 'native') return true;
+
+  if (document.documentElement.classList.contains('ios-app')) return true;
 
   const userAgent = navigator.userAgent || '';
   return userAgent.includes(injectedShell?.userAgentToken || IOS_NATIVE_SHELL_TOKEN);
@@ -330,8 +335,10 @@ export const initializeNativeAppShell = () => {
   const injectedShell = getInjectedShell();
   const nativePlatform = Capacitor.isNativePlatform() ? Capacitor.getPlatform() : injectedShell?.platform || 'ios';
 
-  document.documentElement.classList.add('native-app', `native-${nativePlatform}`);
+  document.documentElement.classList.add('ios-app', 'native-app', `native-${nativePlatform}`);
   document.documentElement.dataset.coachaiNativeShell = nativePlatform;
+  document.documentElement.dataset.iosApp = 'true';
+  window.__IS_IOS_APP__ = true;
 
   const cleanupCompatibilityLayer = installEmbeddedNavigationCompatibility();
 
