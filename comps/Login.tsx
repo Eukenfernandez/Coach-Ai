@@ -8,6 +8,7 @@ interface LoginProps {
   onLogin: (user: User) => void;
   language: Language;
   onLanguageChange: (lang: Language) => void;
+  initialMode?: 'login' | 'register';
 }
 
 type Theme = 'dark' | 'light';
@@ -92,8 +93,13 @@ const getFriendlyErrorMessage = (errorMsg: string): string => {
   return errorMsg.replace('Firebase: ', '').replace('Error ', '').replace(/\(auth\/.*\)/, '').trim();
 };
 
-export const Login: React.FC<LoginProps> = ({ onLogin, language, onLanguageChange }) => {
-  const [isRegistering, setIsRegistering] = useState(false);
+export const Login: React.FC<LoginProps> = ({
+  onLogin,
+  language,
+  onLanguageChange,
+  initialMode = 'login',
+}) => {
+  const [isRegistering, setIsRegistering] = useState(initialMode === 'register');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -109,6 +115,14 @@ export const Login: React.FC<LoginProps> = ({ onLogin, language, onLanguageChang
   const isCloud = StorageService.isCloudMode();
   
   const t = TEXTS[language] || TEXTS.es;
+
+  useEffect(() => {
+    const shouldRegister = initialMode === 'register';
+    setIsRegistering(shouldRegister);
+    setError(null);
+    setShowConfirm(false);
+    setConfirmPassword('');
+  }, [initialMode]);
 
   // Theme Handling
   useEffect(() => {
@@ -195,7 +209,7 @@ export const Login: React.FC<LoginProps> = ({ onLogin, language, onLanguageChang
   };
 
   return (
-    <div className="relative h-screen w-full bg-white dark:bg-black overflow-hidden flex items-center justify-center transition-colors duration-300">
+    <div className="native-app-shell relative min-h-screen h-[100dvh] w-full bg-white dark:bg-black overflow-hidden flex items-center justify-center transition-colors duration-300">
       {/* Background Image */}
       <div className="absolute inset-0 z-0">
         <img 

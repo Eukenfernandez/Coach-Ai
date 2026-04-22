@@ -239,7 +239,7 @@ export function PublicPageTemplate({
   const isHomeHero = page.id === "home";
   const homeHeroScreenAlt = homeHeroScreenAltByLocale[page.locale];
   const homeHeroResponsiveImage = getHomeHeroResponsiveImage(page.locale);
-  const exploreLinks =
+  const exploreLinks: Array<{ label: string; href?: string }> =
     page.id === "home"
       ? homeSports.map((sport) => ({ label: sport }))
       : relatedPages.map((linkedPage) => ({
@@ -295,19 +295,32 @@ export function PublicPageTemplate({
     eus: page.id === "home" ? homeLocaleSwitchLinks.eu : alternates.eu,
   };
 
+  const resolveNativeHref = (href: string) => {
+    if (!nativeMode || !onPublicNavigate || typeof window === "undefined") return null;
+
+    try {
+      const resolvedUrl = new URL(href, window.location.origin);
+      if (resolvedUrl.origin !== window.location.origin) return null;
+      return `${resolvedUrl.pathname}${resolvedUrl.search}${resolvedUrl.hash}`;
+    } catch {
+      return href.startsWith("/") ? href : null;
+    }
+  };
+
   const handleNativeLinkNavigation = (href: string) => (event: React.MouseEvent<HTMLAnchorElement>) => {
-    if (!nativeMode || !onPublicNavigate || !href.startsWith("/")) return;
+    const resolvedHref = resolveNativeHref(href);
+    if (!resolvedHref || !onPublicNavigate) return;
     if (event.defaultPrevented || event.button !== 0) return;
     if (event.metaKey || event.altKey || event.ctrlKey || event.shiftKey) return;
 
     event.preventDefault();
     setShowLangMenu(false);
-    onPublicNavigate(href);
+    onPublicNavigate(resolvedHref);
   };
 
   const getAnchorNavigationProps = (href: string) => ({
     href,
-    onClick: nativeMode && onPublicNavigate && href.startsWith("/")
+    onClick: resolveNativeHref(href)
       ? handleNativeLinkNavigation(href)
       : undefined,
   });
@@ -408,7 +421,7 @@ export function PublicPageTemplate({
 
       <main>
         {isHomeHero ? (
-          <section className="relative bg-black pt-2 pb-0 md:min-h-screen md:pb-6">
+          <section className={`relative bg-black pt-2 pb-0 md:min-h-screen md:pb-6 ${nativeMode ? "pt-[calc(var(--safe-area-top)+0.5rem)]" : ""}`}>
             <div className="mx-auto flex w-full max-w-7xl items-start justify-center md:min-h-screen">
               <div className="relative w-full">
                 <div className="relative aspect-[1536/1024] w-full overflow-hidden bg-black">

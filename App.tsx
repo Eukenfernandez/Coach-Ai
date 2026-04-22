@@ -19,7 +19,13 @@ import {
   UserData
 } from "./types";
 import { StorageService, VideoStorage, PlanStorage, db } from "./svcs/storageService";
-import { EXTERNAL_RETURN_EVENT, type ExternalReturnPayload, initializeNativeAppShell, isNativeApp } from "./svcs/nativeAppService";
+import {
+  EXTERNAL_RETURN_EVENT,
+  LOCATION_CHANGE_EVENT,
+  type ExternalReturnPayload,
+  initializeNativeAppShell,
+  isNativeApp,
+} from "./svcs/nativeAppService";
 import { getSubscriptionTier, getUserLimits, waitForSubscriptionActive } from "./svcs/subscriptionService";
 import { VideoIntelligenceService } from "./svcs/videoIntelligenceService";
 import { GracePeriodBanner } from "./comps/GracePeriodBanner";
@@ -180,6 +186,14 @@ function isLoginPath(pathname: string) {
   return normalizePathname(pathname) === "/login";
 }
 
+function getAuthIntentFromSearch(search: string) {
+  return new URLSearchParams(search).get("intent") === "register" ? "register" : "login";
+}
+
+function isAccessPath(pathname: string) {
+  return getPublicPageByPath(pathname)?.id === "access";
+}
+
 function shouldRenderLandingFromLocation(locationLike: Pick<Location, "pathname" | "hash">) {
   return !isLoginPath(locationLike.pathname) && !locationLike.hash.includes("login");
 }
@@ -188,7 +202,6 @@ export default function App() {
   const nativeMobileApp = isNativeApp();
   const [fatalError, setFatalError] = useState<string | null>(null);
   const [isOnline, setIsOnline] = useState<boolean>(() => (typeof navigator === "undefined" ? true : navigator.onLine));
-  const [nativeAuthEntryRequested, setNativeAuthEntryRequested] = useState(false);
   const [isRestoringSession, setIsRestoringSession] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
     return Boolean(StorageService.getCurrentUser());
@@ -199,6 +212,11 @@ export default function App() {
     if (typeof window === "undefined") return "es";
     return getPublicLanguageByPath(window.location.pathname) || "es";
   });
+  const [authIntent, setAuthIntent] = useState<"login" | "register">(() => {
+    if (typeof window === "undefined") return "login";
+    if (nativeMobileApp && isAccessPath(window.location.pathname)) return "register";
+    return getAuthIntentFromSearch(window.location.search);
+  });
   const [viewedUserId, setViewedUserId] = useState<string | null>(null);
   const [managedAthletes, setManagedAthletes] = useState<User[]>([]);
   const [currentScreen, setCurrentScreen] = useState<Screen>("dashboard");
@@ -206,7 +224,11 @@ export default function App() {
   const [isDesktopSidebarOpen, setIsDesktopSidebarOpen] = useState(true);
   const [showDesktopSidebarHint, setShowDesktopSidebarHint] = useState(false);
   const [showLanding, setShowLanding] = useState(() =>
-    typeof window === "undefined" ? true : shouldRenderLandingFromLocation(window.location),
+    typeof window === "undefined"
+      ? true
+      : !nativeMobileApp || !isAccessPath(window.location.pathname)
+        ? shouldRenderLandingFromLocation(window.location)
+        : false,
   );
   const [publicPath, setPublicPath] = useState(() =>
     typeof window === "undefined" ? "/" : window.location.pathname,
@@ -218,15 +240,34 @@ export default function App() {
 
   useEffect(() => {
     const syncPublicRouteState = () => {
+      const routeLanguage = getPublicLanguageByPath(window.location.pathname);
+
+      if (nativeMobileApp && isAccessPath(window.location.pathname)) {
+        if (routeLanguage) {
+          setLanguage(routeLanguage);
+        }
+        window.history.replaceState({}, "", "/login?intent=register");
+        setPublicPath("/login");
+        setShowLanding(false);
+        setAuthIntent("register");
+        return;
+      }
+
+      if (routeLanguage) {
+        setLanguage(routeLanguage);
+      }
       setPublicPath(window.location.pathname);
       setShowLanding(shouldRenderLandingFromLocation(window.location));
+      setAuthIntent(getAuthIntentFromSearch(window.location.search));
     };
 
     window.addEventListener('hashchange', syncPublicRouteState);
     window.addEventListener('popstate', syncPublicRouteState);
+    window.addEventListener(LOCATION_CHANGE_EVENT, syncPublicRouteState);
     return () => {
       window.removeEventListener('hashchange', syncPublicRouteState);
       window.removeEventListener('popstate', syncPublicRouteState);
+      window.removeEventListener(LOCATION_CHANGE_EVENT, syncPublicRouteState);
     };
   }, []);
 
@@ -366,8 +407,14 @@ export default function App() {
 
       const hasLegacyLoginHash = window.location.hash.includes("login");
       const loginTargetPath = "/login";
+      const shouldOpenRegisterIntent = nativeMobileApp && isAccessPath(window.location.pathname);
 
-      if (hasLegacyLoginHash && !isLoginPath(window.location.pathname)) {
+      if (shouldOpenRegisterIntent) {
+        window.history.replaceState({}, "", `${loginTargetPath}?intent=register`);
+        setPublicPath(loginTargetPath);
+        setShowLanding(false);
+        setAuthIntent("register");
+      } else if (hasLegacyLoginHash && !isLoginPath(window.location.pathname)) {
         window.history.replaceState({}, "", loginTargetPath);
         setPublicPath(loginTargetPath);
         setShowLanding(false);
@@ -375,17 +422,14 @@ export default function App() {
         window.history.replaceState({}, "", window.location.pathname);
         setPublicPath(window.location.pathname);
         setShowLanding(shouldRenderLandingFromLocation(window.location));
+        setAuthIntent(getAuthIntentFromSearch(window.location.search));
       }
 
       const user = StorageService.getCurrentUser();
       if (user) {
         await handleLogin(user, paymentStatus === 'success');
       } else {
-        if (nativeMobileApp) {
-          setNativeAuthEntryRequested(false);
-        } else {
-          setCurrentScreen("login");
-        }
+        setCurrentScreen("login");
       }
       } catch (e) {
         if (!cancelled) {
@@ -416,12 +460,20 @@ export default function App() {
     if (typeof window === "undefined") return;
 
     const nextUrl = new URL(targetHref, window.location.origin);
-    const nextPath = nextUrl.pathname;
     const nextHash = nextUrl.hash || "";
-    const nextSearch = nextUrl.search || "";
+    let nextPath = nextUrl.pathname;
+    let nextSearch = nextUrl.search || "";
+    let nextAuthIntent: "login" | "register" = getAuthIntentFromSearch(nextSearch);
+
+    if (nativeMobileApp && isAccessPath(nextPath)) {
+      nextPath = "/login";
+      nextSearch = "?intent=register";
+      nextAuthIntent = "register";
+    }
 
     window.history.pushState({}, "", `${nextPath}${nextSearch}${nextHash}`);
     setPublicPath(nextPath);
+    setAuthIntent(nextAuthIntent);
 
     const nextLanguage = getPublicLanguageByPath(nextPath);
     if (nextLanguage) {
@@ -432,9 +484,6 @@ export default function App() {
     setShowLanding(shouldShowPublicLanding);
 
     if (!shouldShowPublicLanding) {
-      if (nativeMobileApp) {
-        setNativeAuthEntryRequested(true);
-      }
       setCurrentScreen("login");
     }
   };
@@ -1735,31 +1784,28 @@ export default function App() {
     return <ScreenLoader fullScreen />;
   }
 
-  if (!currentUser && nativeMobileApp && !nativeAuthEntryRequested) {
-    return (
-      <LandingPage
-        onContinue={() => setNativeAuthEntryRequested(true)}
-        language={language}
-        onLanguageChange={handleLanguageChange}
-        nativeMode
-        page={currentPublicPage}
-      />
-    );
-  }
-
-  if (!currentUser && !nativeMobileApp && showLanding) {
+  if (!currentUser && showLanding) {
     return (
       <LandingPage
         onContinue={() => handlePublicNavigation("/login")}
         language={language}
         onLanguageChange={handleLanguageChange}
         nativeMode={nativeMobileApp}
-        onPublicNavigate={nativeMobileApp ? handlePublicNavigation : undefined}
+        onPublicNavigate={handlePublicNavigation}
         page={currentPublicPage}
       />
     );
   }
-  if (!currentUser) return <Login onLogin={(u) => handleLogin(u)} language={language} onLanguageChange={handleLanguageChange} />;
+  if (!currentUser) {
+    return (
+      <Login
+        onLogin={(u) => handleLogin(u)}
+        language={language}
+        onLanguageChange={handleLanguageChange}
+        initialMode={authIntent}
+      />
+    );
+  }
   if (currentScreen === "admin_panel") {
     return (
       <Suspense fallback={<ScreenLoader fullScreen />}>
