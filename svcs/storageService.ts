@@ -286,11 +286,12 @@ try {
     ignoreUndefinedProperties: true,
     experimentalAutoDetectLongPolling:
       typeof window !== 'undefined' &&
+      window.location.protocol !== 'capacitor:' &&
       (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'),
   } as any);
 
-  // Enable persistence (equivalent to persistentLocalCache + persistentMultipleTabManager)
-  db.enablePersistence({ synchronizeTabs: true }).catch((err) => {
+  // Enable persistence — synchronizeTabs:false because WKWebView doesn't support SharedWorker
+  db.enablePersistence({ synchronizeTabs: false }).catch((err) => {
     console.warn("Persistence could not be enabled:", err);
   });
 

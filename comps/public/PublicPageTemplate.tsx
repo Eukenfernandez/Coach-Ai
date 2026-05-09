@@ -339,12 +339,8 @@ export function PublicPageTemplate({
     onLanguageChange?.(nextLanguage);
   };
 
-  const homeHeroTopLeftClassName = nativeMode
-    ? "absolute safe-left-4 safe-top-8 z-20 flex items-start gap-3"
-    : "absolute left-[1.4%] top-[0.42%] z-10 flex items-start gap-3";
-  const homeHeroTopRightClassName = nativeMode
-    ? "absolute safe-right-4 safe-top-8 z-20"
-    : "absolute right-[1.25%] top-[0.38%] z-10";
+  const homeHeroTopLeftClassName = "absolute left-[1.4%] top-[0.42%] z-10 flex items-start gap-3";
+  const homeHeroTopRightClassName = "absolute right-[1.25%] top-[0.38%] z-10";
 
   return (
     <div className="min-h-screen w-full overflow-x-hidden overflow-y-auto bg-white text-neutral-900 transition-colors duration-300 dark:bg-black dark:text-white">
@@ -421,7 +417,68 @@ export function PublicPageTemplate({
 
       <main>
         {isHomeHero ? (
-          <section className={`relative bg-black pt-2 pb-0 md:min-h-screen md:pb-6 ${nativeMode ? "pt-[calc(var(--safe-area-top)+0.5rem)]" : ""}`}>
+          <section className="relative bg-black pt-2 pb-0 md:min-h-screen md:pb-6">
+            {nativeMode && (
+              <div
+                className="absolute left-0 right-0 z-30 flex items-center justify-between px-4"
+                style={{ top: 'max(env(safe-area-inset-top, 0px), 60px)' }}
+              >
+                <div className="flex items-start gap-3">
+                  <a
+                    {...getAnchorNavigationProps(locale.homeHref)}
+                    aria-label="CoachAI"
+                    className="flex items-center gap-3 cursor-pointer"
+                  >
+                    <div className="flex h-10 w-10 items-center justify-center rounded-[15px] bg-gradient-to-br from-orange-500 to-orange-600 shadow-[0_10px_24px_rgba(249,115,22,0.3)]">
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="white"
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="m6 9 6 6 6-6" />
+                      </svg>
+                    </div>
+                    <span className="pt-0.5 text-[18px] font-bold tracking-tight text-white">
+                      Coach <span className="text-orange-500">AI</span>
+                    </span>
+                  </a>
+                  <details className="relative mt-[1px]">
+                    <summary className="flex h-10 list-none items-center gap-2 rounded-[15px] border border-white/18 bg-[#2d2d2d]/95 px-3 text-[13px] font-semibold text-white shadow-[0_8px_22px_rgba(0,0,0,0.24)] cursor-pointer [&::-webkit-details-marker]:hidden">
+                      <Globe size={14} className="text-neutral-300" aria-hidden="true" />
+                      <span>{heroLocaleCode}</span>
+                    </summary>
+                    <div className="absolute left-0 top-[calc(100%+8px)] min-w-[96px] overflow-hidden rounded-[15px] border border-white/10 bg-[#1f1f1f]/95 p-1.5 shadow-2xl backdrop-blur-xl">
+                      {heroLanguageLinks.map((item) => (
+                        <a
+                          key={item.code}
+                          {...getAnchorNavigationProps(item.href)}
+                          className={`flex items-center rounded-[11px] px-3 py-2 text-[13px] font-medium transition-colors ${
+                            item.active ? "bg-white/10 text-white" : "text-white/85 hover:bg-white/10"
+                          }`}
+                        >
+                          {item.code}
+                        </a>
+                      ))}
+                    </div>
+                  </details>
+                </div>
+                <a
+                  {...getAnchorNavigationProps(loginHref)}
+                  data-cta-event="hero-top-start"
+                  aria-label={locale.startLabel}
+                  className="flex h-11 items-center gap-2 rounded-[20px] bg-gradient-to-r from-orange-500 to-orange-600 px-7 text-[14px] font-bold text-white shadow-[0_10px_26px_rgba(249,115,22,0.28)] transition-all duration-300 hover:from-orange-400 hover:to-orange-500 hover:shadow-[0_12px_30px_rgba(249,115,22,0.38)]"
+                >
+                  <span>{topStartLabels[uiLanguage]}</span>
+                  <ArrowRight size={16} aria-hidden="true" />
+                </a>
+              </div>
+            )}
             <div className="mx-auto flex w-full max-w-7xl items-start justify-center md:min-h-screen">
               <div className="relative w-full">
                 <div className="relative aspect-[1536/1024] w-full overflow-hidden bg-black">
@@ -453,64 +510,68 @@ export function PublicPageTemplate({
                   <div className="pointer-events-none absolute inset-x-0 top-[6.05%] h-px bg-white/10" />
                   <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[12%] bg-gradient-to-t from-black via-black/95 to-transparent" />
 
-                  <div className={homeHeroTopLeftClassName}>
-                    <a
-                      {...getAnchorNavigationProps(locale.homeHref)}
-                      aria-label="CoachAI"
-                      className="flex items-center gap-3 cursor-pointer"
-                    >
-                      <div className="flex h-10 w-10 items-center justify-center rounded-[15px] bg-gradient-to-br from-orange-500 to-orange-600 shadow-[0_10px_24px_rgba(249,115,22,0.3)]">
-                        <svg
-                          width="16"
-                          height="16"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="white"
-                          strokeWidth="3"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          aria-hidden="true"
+                  {!nativeMode && (
+                    <>
+                      <div className={homeHeroTopLeftClassName}>
+                        <a
+                          {...getAnchorNavigationProps(locale.homeHref)}
+                          aria-label="CoachAI"
+                          className="flex items-center gap-3 cursor-pointer"
                         >
-                          <path d="m6 9 6 6 6-6" />
-                        </svg>
-                      </div>
-                      <span className="pt-0.5 text-[18px] font-bold tracking-tight text-white">
-                        Coach <span className="text-orange-500">AI</span>
-                      </span>
-                    </a>
+                          <div className="flex h-10 w-10 items-center justify-center rounded-[15px] bg-gradient-to-br from-orange-500 to-orange-600 shadow-[0_10px_24px_rgba(249,115,22,0.3)]">
+                            <svg
+                              width="16"
+                              height="16"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="white"
+                              strokeWidth="3"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              aria-hidden="true"
+                            >
+                              <path d="m6 9 6 6 6-6" />
+                            </svg>
+                          </div>
+                          <span className="pt-0.5 text-[18px] font-bold tracking-tight text-white">
+                            Coach <span className="text-orange-500">AI</span>
+                          </span>
+                        </a>
 
-                    <details className="relative mt-[1px]">
-                      <summary className="flex h-10 list-none items-center gap-2 rounded-[15px] border border-white/18 bg-[#2d2d2d]/95 px-3 text-[13px] font-semibold text-white shadow-[0_8px_22px_rgba(0,0,0,0.24)] cursor-pointer [&::-webkit-details-marker]:hidden">
-                        <Globe size={14} className="text-neutral-300" aria-hidden="true" />
-                        <span>{heroLocaleCode}</span>
-                      </summary>
-                      <div className="absolute left-0 top-[calc(100%+8px)] min-w-[96px] overflow-hidden rounded-[15px] border border-white/10 bg-[#1f1f1f]/95 p-1.5 shadow-2xl backdrop-blur-xl">
-                        {heroLanguageLinks.map((item) => (
-                          <a
-                            key={item.code}
-                            {...getAnchorNavigationProps(item.href)}
-                            className={`flex items-center rounded-[11px] px-3 py-2 text-[13px] font-medium transition-colors ${
-                              item.active ? "bg-white/10 text-white" : "text-white/85 hover:bg-white/10"
-                            }`}
-                          >
-                            {item.code}
-                          </a>
-                        ))}
+                        <details className="relative mt-[1px]">
+                          <summary className="flex h-10 list-none items-center gap-2 rounded-[15px] border border-white/18 bg-[#2d2d2d]/95 px-3 text-[13px] font-semibold text-white shadow-[0_8px_22px_rgba(0,0,0,0.24)] cursor-pointer [&::-webkit-details-marker]:hidden">
+                            <Globe size={14} className="text-neutral-300" aria-hidden="true" />
+                            <span>{heroLocaleCode}</span>
+                          </summary>
+                          <div className="absolute left-0 top-[calc(100%+8px)] min-w-[96px] overflow-hidden rounded-[15px] border border-white/10 bg-[#1f1f1f]/95 p-1.5 shadow-2xl backdrop-blur-xl">
+                            {heroLanguageLinks.map((item) => (
+                              <a
+                                key={item.code}
+                                {...getAnchorNavigationProps(item.href)}
+                                className={`flex items-center rounded-[11px] px-3 py-2 text-[13px] font-medium transition-colors ${
+                                  item.active ? "bg-white/10 text-white" : "text-white/85 hover:bg-white/10"
+                                }`}
+                              >
+                                {item.code}
+                              </a>
+                            ))}
+                          </div>
+                        </details>
                       </div>
-                    </details>
-                  </div>
 
-                  <div className={homeHeroTopRightClassName}>
-                    <a
-                      {...getAnchorNavigationProps(loginHref)}
-                      data-cta-event="hero-top-start"
-                      aria-label={locale.startLabel}
-                      className="flex h-11 items-center gap-2 rounded-[20px] bg-gradient-to-r from-orange-500 to-orange-600 px-7 text-[14px] font-bold text-white shadow-[0_10px_26px_rgba(249,115,22,0.28)] transition-all duration-300 hover:from-orange-400 hover:to-orange-500 hover:shadow-[0_12px_30px_rgba(249,115,22,0.38)]"
-                    >
-                      <span>{topStartLabels[uiLanguage]}</span>
-                      <ArrowRight size={16} aria-hidden="true" />
-                    </a>
-                  </div>
+                      <div className={homeHeroTopRightClassName}>
+                        <a
+                          {...getAnchorNavigationProps(loginHref)}
+                          data-cta-event="hero-top-start"
+                          aria-label={locale.startLabel}
+                          className="flex h-11 items-center gap-2 rounded-[20px] bg-gradient-to-r from-orange-500 to-orange-600 px-7 text-[14px] font-bold text-white shadow-[0_10px_26px_rgba(249,115,22,0.28)] transition-all duration-300 hover:from-orange-400 hover:to-orange-500 hover:shadow-[0_12px_30px_rgba(249,115,22,0.38)]"
+                        >
+                          <span>{topStartLabels[uiLanguage]}</span>
+                          <ArrowRight size={16} aria-hidden="true" />
+                        </a>
+                      </div>
+                    </>
+                  )}
 
                 </div>
               </div>

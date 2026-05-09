@@ -223,13 +223,11 @@ export default function App() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isDesktopSidebarOpen, setIsDesktopSidebarOpen] = useState(true);
   const [showDesktopSidebarHint, setShowDesktopSidebarHint] = useState(false);
-  const [showLanding, setShowLanding] = useState(() =>
-    typeof window === "undefined"
-      ? true
-      : !nativeMobileApp || !isAccessPath(window.location.pathname)
-        ? shouldRenderLandingFromLocation(window.location)
-        : false,
-  );
+  const [showLanding, setShowLanding] = useState(() => {
+    if (typeof window === "undefined") return true;
+    if (nativeMobileApp) return false;
+    return shouldRenderLandingFromLocation(window.location);
+  });
   const [publicPath, setPublicPath] = useState(() =>
     typeof window === "undefined" ? "/" : window.location.pathname,
   );
