@@ -1,5 +1,5 @@
 
-import { User, UserData, VideoFile, StrengthRecord, ThrowRecord, PlanFile, UserProfile, ExerciseDef, CoachRequest, UserUsage, SupplementItem } from '../types';
+import { User, UserData, VideoFile, StrengthRecord, ThrowRecord, PlanFile, UserProfile, ExerciseDef, CoachRequest, UserUsage, SupplementItem, Language } from '../types';
 import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
 import 'firebase/compat/firestore';
@@ -44,6 +44,49 @@ const USERDATA_CACHE_TTL_MS = 30000;
 const PENDING_REQUESTS_CACHE_TTL_MS = 15000;
 
 const isBrowserOnline = () => typeof navigator === 'undefined' ? true : navigator.onLine;
+
+const getUtcMonthKeyFromDate = (date = new Date()) =>
+  `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+
+const getUtcMonthKeyFromValue = (value: unknown): string | null => {
+  if (!value) return null;
+  const parsed = value instanceof Date ? value : new Date(String(value));
+  if (Number.isNaN(parsed.getTime())) return null;
+  return getUtcMonthKeyFromDate(parsed);
+};
+
+const isLegacyUsageInPeriod = (legacyUsage: any, period?: string | null) => {
+  // Older deployed quota functions did not return a monthly period. In that
+  // case, the legacy cloud usage counter is the best available upload counter
+  // until the new server-side monthly quota functions are deployed.
+  if (!period) return true;
+  const explicitPeriod = legacyUsage?.period || legacyUsage?.monthKey || legacyUsage?.monthlyPeriod;
+  if (explicitPeriod) return String(explicitPeriod) === period;
+  const resetPeriod = getUtcMonthKeyFromValue(legacyUsage?.lastAnalysisReset || legacyUsage?.lastChatReset);
+  return resetPeriod === period;
+};
+
+const waitForAuthReady = (timeoutMs = 3000): Promise<firebase.User | null> => {
+  if (!auth) return Promise.resolve(null);
+  if (auth.currentUser) return Promise.resolve(auth.currentUser);
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let unsubscribe: firebase.Unsubscribe | undefined;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+    const finish = (user: firebase.User | null) => {
+      if (settled) return;
+      settled = true;
+      if (timeoutId) clearTimeout(timeoutId);
+      unsubscribe?.();
+      resolve(user);
+    };
+
+    unsubscribe = auth.onAuthStateChanged((user) => finish(user));
+    timeoutId = setTimeout(() => finish(auth.currentUser), timeoutMs);
+  });
+};
 
 const firestoreOperationCounts = new Map<string, number>();
 const userDataInFlight = new Map<string, Promise<UserData>>();
@@ -282,12 +325,16 @@ try {
 
   // COMPAT FIRESTORE INITIALIZATION
   db = app.firestore();
-  db.settings({
-    ignoreUndefinedProperties: true,
-    experimentalAutoDetectLongPolling:
-      typeof window !== 'undefined' &&
-      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'),
-  } as any);
+  try {
+    db.settings({
+      ignoreUndefinedProperties: true,
+      experimentalAutoDetectLongPolling:
+        typeof window !== 'undefined' &&
+        (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'),
+    } as any);
+  } catch (settingsError) {
+    console.warn("Firestore settings were already locked; reusing existing instance.", settingsError);
+  }
 
   // Enable persistence (equivalent to persistentLocalCache + persistentMultipleTabManager)
   db.enablePersistence({ synchronizeTabs: true }).catch((err) => {
@@ -625,7 +672,7 @@ const upsertAssetInUserDataSection = async <T extends { id: string; uploadedAt?:
   section: 'videos' | 'plans',
   asset: T
 ) => {
-  const currentSection = (getLocalUserDataSnapshot(userId)[section] || []) as T[];
+  const currentSection = (getLocalUserDataSnapshot(userId)[section] || []) as unknown as T[];
   const nextSection = mergeAssetsById([cleanDataForStorage(asset)], currentSection);
 
   if (canUseCloudPersistence(userId)) {
@@ -673,6 +720,25 @@ type UploadedAssetResult = {
   size: number;
   createdAt?: string;
   ownerId: string;
+};
+
+type QuotaRegistrationResult = {
+  success: boolean;
+  count?: number;
+  limit?: number | 'unlimited';
+  period?: string;
+  tier?: string;
+};
+
+type CloudQuotaUsage = {
+  videosUsed: number;
+  videosLimit: number;
+  pdfsUsed: number;
+  pdfsLimit: number;
+  chatsUsed: number;
+  chatsLimit: number | 'unlimited';
+  period: string;
+  tier: string;
 };
 
 const DEV_STORAGE_LOGS = typeof import.meta !== 'undefined' && Boolean(import.meta.env?.DEV);
@@ -756,8 +822,24 @@ const normalizePlanRecord = (userId: string, plan: PlanFile): PlanFile => {
   };
 };
 
+class StorageUploadError extends Error {
+  code: string;
+  originalError: unknown;
+
+  constructor(code: string, message: string, originalError: unknown) {
+    super(message);
+    this.name = 'StorageUploadError';
+    this.code = code;
+    this.originalError = originalError;
+  }
+}
+
 const getStorageErrorCode = (error: unknown) =>
-  typeof (error as any)?.code === 'string' ? String((error as any).code) : 'storage/unknown';
+  typeof (error as any)?.code === 'string'
+    ? String((error as any).code)
+    : typeof (error as any)?.originalError?.code === 'string'
+      ? String((error as any).originalError.code)
+      : 'storage/unknown';
 
 const getStorageErrorMessage = (error: unknown, fallback: string) =>
   typeof (error as any)?.message === 'string' ? String((error as any).message) : fallback;
@@ -766,6 +848,54 @@ const buildAssetErrorResolution = (error: unknown, fallback: string): AssetDownl
   errorCode: getStorageErrorCode(error),
   errorMessage: getStorageErrorMessage(error, fallback),
 });
+
+const getStorageUploadFailureMessage = (
+  error: unknown,
+  folder: 'videos' | 'plans',
+  language: Language = 'es',
+) => {
+  const code = getStorageErrorCode(error);
+  const isVideo = folder === 'videos';
+
+  if (code === 'resource-exhausted' || code === 'functions/resource-exhausted') {
+    const rawMessage = getStorageErrorMessage(error, '');
+    if (rawMessage) return rawMessage;
+    if (language === 'ing') return `You have reached the monthly ${isVideo ? 'video' : 'PDF'} limit for your subscription.`;
+    if (language === 'eus') return `Zure harpidetzaren hileko ${isVideo ? 'bideo' : 'PDF'} muga gainditu duzu.`;
+    return `Has alcanzado el límite mensual de ${isVideo ? 'vídeos' : 'PDFs'} de tu suscripción.`;
+  }
+
+  if (code === 'failed-precondition' || code === 'functions/failed-precondition') {
+    const rawMessage = getStorageErrorMessage(error, '');
+    if (rawMessage) return rawMessage;
+  }
+
+  if (code === 'storage/quota-exceeded') {
+    if (language === 'ing') {
+      return `The ${isVideo ? 'video' : 'file'} cannot be uploaded because Firebase Storage has exceeded its quota. Free up space or upgrade the Firebase plan, then try again.`;
+    }
+    if (language === 'eus') {
+      return `${isVideo ? 'Bideoa' : 'Fitxategia'} ezin da igo Firebase Storage biltegiratze-kuota agortu delako. Askatu lekua edo hobetu Firebase plana, eta saiatu berriro.`;
+    }
+    return `No se puede subir ${isVideo ? 'el vídeo' : 'el archivo'} porque Firebase Storage ha agotado su cuota. Libera espacio o amplía el plan de Firebase y vuelve a intentarlo.`;
+  }
+
+  if (code === 'storage/unauthorized') {
+    if (language === 'ing') return `You do not have permission to upload this ${isVideo ? 'video' : 'file'}. Sign in again or check the athlete/coach permissions.`;
+    if (language === 'eus') return `Ez duzu ${isVideo ? 'bideo' : 'fitxategi'} hau igotzeko baimenik. Hasi saioa berriro edo egiaztatu atleta/entrenatzaile baimenak.`;
+    return `No tienes permisos para subir ${isVideo ? 'este vídeo' : 'este archivo'}. Vuelve a iniciar sesión o revisa los permisos de atleta/entrenador.`;
+  }
+
+  if (code === 'storage/retry-limit-exceeded') {
+    if (language === 'ing') return `The upload could not finish because the connection timed out. Check your connection and try again.`;
+    if (language === 'eus') return `Igoera ezin izan da amaitu konexioak denbora-muga gainditu duelako. Egiaztatu konexioa eta saiatu berriro.`;
+    return `La subida no ha podido terminar porque la conexión ha agotado el tiempo de espera. Revisa tu conexión e inténtalo de nuevo.`;
+  }
+
+  if (language === 'ing') return `The ${isVideo ? 'video' : 'file'} could not be uploaded. Please try again.`;
+  if (language === 'eus') return `${isVideo ? 'Bideoa' : 'Fitxategia'} ezin izan da igo. Saiatu berriro.`;
+  return `No se pudo subir ${isVideo ? 'el vídeo' : 'el archivo'}. Inténtalo de nuevo.`;
+};
 
 const getReferenceDetails = async (ref: firebase.storage.Reference): Promise<AssetDownloadResolution> => {
   const metadata = await ref.getMetadata();
@@ -1139,7 +1269,7 @@ export const StorageService = {
     ),
   
   // V3 Authoritative Video Storage Add
-  addVideoSafe: async (targetUserId: string, video: VideoFile): Promise<boolean> => {
+  addVideoSafe: async (targetUserId: string, video: VideoFile): Promise<QuotaRegistrationResult> => {
     const normalizedVideo = normalizeVideoRecord(targetUserId, {
       ...video,
       status: video.status || 'ready',
@@ -1148,10 +1278,8 @@ export const StorageService = {
 
     if (!canUseCloudPersistence(targetUserId)) {
       await upsertAssetInUserDataSection(targetUserId, 'videos', cleanedVideo);
-      return true;
+      return { success: true };
     }
-
-    let registered = false;
 
     try {
       const callableFunc = firebase.app().functions('europe-west1').httpsCallable('registerVideoInGallery');
@@ -1160,35 +1288,18 @@ export const StorageService = {
         targetUserId
       });
 
-      if ((result.data as any)?.success === false) {
-        return false;
-      }
-
-      registered = true;
+      const registration = (result.data || {}) as QuotaRegistrationResult;
+      if (registration.success === false) return registration;
+      await upsertAssetInUserDataSection(targetUserId, 'videos', cleanedVideo);
+      return { ...registration, success: true };
     } catch (callableError) {
-      console.warn("registerVideoInGallery failed, falling back to direct Firestore write", callableError);
+      console.warn("registerVideoInGallery failed", callableError);
+      throw callableError;
     }
-
-    if (!registered) {
-      try {
-        await db.collection(`userdata/${targetUserId}/videos`).doc(cleanedVideo.id).set(sanitizeForFirestore({
-          ...cleanedVideo,
-          uploadedAt: firebase.firestore.FieldValue.serverTimestamp(),
-          uploadedByCoachId: auth.currentUser && auth.currentUser.uid !== targetUserId ? auth.currentUser.uid : null,
-          quotaCounted: false
-        }), { merge: true });
-      } catch (directWriteError) {
-        console.error("Direct video metadata persistence failed", directWriteError);
-        return false;
-      }
-    }
-
-    await upsertAssetInUserDataSection(targetUserId, 'videos', cleanedVideo);
-    return true;
   },
 
   // NEW V3: Authoritative PDF Storage Add
-  addPdfSafe: async (targetUserId: string, plan: PlanFile): Promise<boolean> => {
+  addPdfSafe: async (targetUserId: string, plan: PlanFile): Promise<QuotaRegistrationResult> => {
     const normalizedPlan = normalizePlanRecord(targetUserId, {
       ...plan,
       status: plan.status || 'ready',
@@ -1197,10 +1308,8 @@ export const StorageService = {
 
     if (!canUseCloudPersistence(targetUserId)) {
       await upsertAssetInUserDataSection(targetUserId, 'plans', cleanedPlan);
-      return true;
+      return { success: true };
     }
-
-    let registered = false;
 
     try {
       const callableFunc = firebase.app().functions('europe-west1').httpsCallable('registerPdfInGallery');
@@ -1209,45 +1318,43 @@ export const StorageService = {
         targetUserId
       });
 
-      if ((result.data as any)?.success === false) {
-        return false;
-      }
-
-      registered = true;
+      const registration = (result.data || {}) as QuotaRegistrationResult;
+      if (registration.success === false) return registration;
+      await upsertAssetInUserDataSection(targetUserId, 'plans', cleanedPlan);
+      return { ...registration, success: true };
     } catch (callableError) {
-      console.warn("registerPdfInGallery failed, falling back to direct Firestore write", callableError);
+      console.warn("registerPdfInGallery failed", callableError);
+      throw callableError;
     }
-
-    if (!registered) {
-      try {
-        await db.collection(`userdata/${targetUserId}/plans`).doc(cleanedPlan.id).set(sanitizeForFirestore({
-          ...cleanedPlan,
-          uploadedAt: firebase.firestore.FieldValue.serverTimestamp(),
-          uploadedByCoachId: auth.currentUser && auth.currentUser.uid !== targetUserId ? auth.currentUser.uid : null,
-          quotaCounted: false
-        }), { merge: true });
-      } catch (directWriteError) {
-        console.error("Direct PDF metadata persistence failed", directWriteError);
-        return false;
-      }
-    }
-
-    await upsertAssetInUserDataSection(targetUserId, 'plans', cleanedPlan);
-    return true;
   },
 
   // NEW V3: Fetch Global Quota Usage
-  getCoachQuotaUsage: async () => {
+  getCoachQuotaUsage: async (): Promise<CloudQuotaUsage | null> => {
     if (!isFirebaseConfigured || !isBrowserOnline()) return null;
+    const currentAuthUser = await waitForAuthReady();
+    if (!currentAuthUser) return null;
+
     const callableFunc = firebase.app().functions('europe-west1').httpsCallable('getCoachQuotaUsage');
     const result = await callableFunc();
-    return result.data as {
-      videosUsed: number;
-      videosLimit: number;
-      pdfsUsed: number;
-      pdfsLimit: number;
-      tier: string;
-    };
+    const cloudUsage = result.data as CloudQuotaUsage;
+
+    try {
+      const userDataSnap = await db.collection("userdata").doc(currentAuthUser.uid).get({ source: 'server' } as any);
+      const legacyUsage = userDataSnap.exists ? (userDataSnap.data()?.usage || {}) : {};
+      const shouldMergeLegacy = isLegacyUsageInPeriod(legacyUsage, cloudUsage.period);
+      const legacyVideos = shouldMergeLegacy ? Number(legacyUsage.analysisCount || 0) || 0 : 0;
+      const legacyPdfs = shouldMergeLegacy ? Number(legacyUsage.plansCount || 0) || 0 : 0;
+      const legacyChats = shouldMergeLegacy ? Number(legacyUsage.chatCount || 0) || 0 : 0;
+      return {
+        ...cloudUsage,
+        videosUsed: Math.max(Number(cloudUsage.videosUsed || 0), legacyVideos),
+        pdfsUsed: Math.max(Number(cloudUsage.pdfsUsed || 0), legacyPdfs),
+        chatsUsed: Math.max(Number(cloudUsage.chatsUsed || 0), legacyChats),
+      };
+    } catch (legacyError) {
+      console.warn("Could not merge legacy cloud quota usage", legacyError);
+      return cloudUsage;
+    }
   },
 
   // V3 Authoritative Video Storage Delete
@@ -1352,7 +1459,11 @@ export const StorageService = {
       return result;
     } catch (error) {
       console.error('Upload failed:', error);
-      return null;
+      throw new StorageUploadError(
+        getStorageErrorCode(error),
+        getStorageUploadFailureMessage(error, folder),
+        error,
+      );
     }
   },
 
@@ -1364,6 +1475,12 @@ export const StorageService = {
     const uploaded = await StorageService.uploadUserAsset(userId, file, folder as 'videos' | 'plans', customPath);
     return uploaded?.downloadURL || null;
   },
+
+  getUploadErrorMessage: (
+    error: unknown,
+    folder: 'videos' | 'plans',
+    language: Language = 'es',
+  ): string => getStorageUploadFailureMessage(error, folder, language),
 
   // Upload landing page video to public folder (admin only)
   uploadLandingVideo: async (file: File): Promise<string | null> => {

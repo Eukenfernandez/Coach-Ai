@@ -13,6 +13,7 @@ interface PlanGalleryProps {
   limits: UserLimits;
   onNavigate: (screen: any) => void;
   overrideCount?: number;
+  quotaPending?: boolean;
 }
 
 const TEXTS = {
@@ -30,8 +31,9 @@ const TEXTS = {
     deleteTitle: '¿Eliminar documento?',
     deleteDesc: 'Se borrará permanentemente de tu equipo y de la nube.',
     limitReached: 'Límite de Planes Alcanzado',
-    limitDesc: 'Has alcanzado el límite de archivos PDF de tu plan actual. Mejora para subir más.',
-    upgradeBtn: 'Mejorar Plan'
+    limitDesc: 'Has alcanzado el límite mensual de PDFs de tu suscripción. Mejora tu plan para subir más.',
+    upgradeBtn: 'Mejorar Plan',
+    syncingQuota: 'Sincronizando cuota...'
   },
   ing: {
     title: 'Training Plans',
@@ -47,8 +49,9 @@ const TEXTS = {
     deleteTitle: 'Delete document?',
     deleteDesc: 'It will be permanently deleted from your device and the cloud.',
     limitReached: 'Plan Limit Reached',
-    limitDesc: 'You have reached the PDF limit for your current plan. Upgrade to upload more.',
-    upgradeBtn: 'Upgrade Plan'
+    limitDesc: 'You have reached your subscription monthly PDF limit. Upgrade your plan to upload more.',
+    upgradeBtn: 'Upgrade Plan',
+    syncingQuota: 'Syncing quota...'
   },
   eus: {
     title: 'Entrenamenduak',
@@ -64,19 +67,20 @@ const TEXTS = {
     deleteTitle: 'Dokumentua ezabatu?',
     deleteDesc: 'Betiereko ezabatuko da zure gailutik eta hodeitik.',
     limitReached: 'Plan Muga Gaindituta',
-    limitDesc: 'Zure planaren PDF muga gainditu duzu. Hobetu gehiago igotzeko.',
-    upgradeBtn: 'Plana Hobetu'
+    limitDesc: 'Zure harpidetzaren hileko PDF muga gainditu duzu. Hobetu plana gehiago igotzeko.',
+    upgradeBtn: 'Plana Hobetu',
+    syncingQuota: 'Kuota sinkronizatzen...'
   }
 };
 
-export const PlanGallery: React.FC<PlanGalleryProps> = ({ plans, onSelectPlan, onUpload, onDelete, language, usage, limits, onNavigate, overrideCount }) => {
+export const PlanGallery: React.FC<PlanGalleryProps> = ({ plans, onSelectPlan, onUpload, onDelete, language, usage, limits, onNavigate, overrideCount, quotaPending = false }) => {
   const t = TEXTS[language] || TEXTS.es;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showDeleteId, setShowDeleteId] = useState<string | null>(null);
   const [showLimitModal, setShowLimitModal] = useState(false);
 
   const currentCount = overrideCount !== undefined ? overrideCount : (usage?.plansCount || 0);
-  const isLimitReached = currentCount >= limits.maxPdfUploads;
+  const isLimitReached = !quotaPending && currentCount >= limits.maxPdfUploads;
 
   const handleUploadClick = () => {
     if (isLimitReached) {
@@ -104,9 +108,9 @@ export const PlanGallery: React.FC<PlanGalleryProps> = ({ plans, onSelectPlan, o
         <h1 className="text-3xl font-bold text-neutral-900 dark:text-white mb-2">{t.title}</h1>
         <p className="text-neutral-500 dark:text-neutral-400">{t.subtitle}</p>
         
-        {usage && limits.tier === 'FREE' && (
+        {usage && (
            <div className="mt-2 text-xs font-mono text-neutral-500 bg-neutral-200 dark:bg-neutral-900 px-2 py-1 rounded">
-              Límite PDF: {currentCount} / {limits.maxPdfUploads}
+              Límite PDF: {quotaPending ? t.syncingQuota : `${currentCount} / ${limits.maxPdfUploads}`}
            </div>
         )}
       </div>

@@ -239,7 +239,7 @@ export function PublicPageTemplate({
   const isHomeHero = page.id === "home";
   const homeHeroScreenAlt = homeHeroScreenAltByLocale[page.locale];
   const homeHeroResponsiveImage = getHomeHeroResponsiveImage(page.locale);
-  const exploreLinks =
+  const exploreLinks: Array<{ label: string; href?: string }> =
     page.id === "home"
       ? homeSports.map((sport) => ({ label: sport }))
       : relatedPages.map((linkedPage) => ({

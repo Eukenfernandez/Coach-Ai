@@ -76,10 +76,10 @@ export const GracePeriodBanner: React.FC = () => {
                 </div>
                 <div>
                    <h4 className="text-white font-black text-sm uppercase tracking-wide">
-                      Cuenta en Riesgo: Límite de Vídeos Excedido
+                      Ajuste pendiente por cambio de plan
                    </h4>
                    <p className="text-red-100 text-xs font-medium mt-0.5">
-                      Tu plan actual permite {enforcementState.allowedVideoLimit} vídeos, pero tienes {enforcementState.currentVideoCount}. Elimina el exceso.
+                      Tu plan permite {enforcementState.allowedVideoLimit} vídeos y {enforcementState.allowedPdfLimit ?? 0} PDFs. Tienes {enforcementState.currentVideoCount} vídeos y {enforcementState.currentPdfCount ?? 0} PDFs.
                    </p>
                 </div>
             </div>

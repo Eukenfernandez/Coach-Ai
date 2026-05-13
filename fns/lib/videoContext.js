@@ -20,22 +20,120 @@ const PREMIUM_EMAILS = [
     'fernandezeuken@gmail.com',
     'julianweber@gmail.com',
 ];
+const STRIPE_PRICE_TO_TIER = {
+    price_1Shp2GRpDniZdTBe8jaP3rKT: 'PRO_ATHLETE',
+    price_1Shp77RpDniZdTBeN9KYx4oM: 'PRO_COACH',
+    price_1Sj8emRpDniZdTBeCxkGvGnO: 'PREMIUM',
+};
+const PLAN_CHAT_LIMITS = {
+    FREE: 10,
+    PRO_ATHLETE: 100,
+    PRO_COACH: 200,
+    PREMIUM: 500,
+};
 const PROCESSING_VERSION = 'video-context-v1';
 const MAX_SAMPLE_FRAMES = 12;
 const MAX_QUERY_FRAMES = 7;
 const UPLOAD_IN_PROGRESS_STAGE = 'waiting_for_video';
 const isRecord = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-const resolveUserTier = (uid, userEmail, userData) => {
+const resolveUserTierFromData = (uid, userEmail, userData) => {
     if (userEmail && PREMIUM_EMAILS.includes(String(userEmail).toLowerCase()))
         return 'PREMIUM';
     if (uid.startsWith('test-')) {
         if (uid.includes('premium'))
             return 'PREMIUM';
+        if (uid.includes('coach'))
+            return 'PRO_COACH';
         if (uid.includes('pro'))
             return 'PRO_ATHLETE';
         return 'FREE';
     }
+    if (uid === 'MASTER_GOD_EUKEN')
+        return 'PREMIUM';
     return userData?.currentPlanId || userData?.profile?.subscriptionTier || 'FREE';
+};
+const extractSubscriptionPriceId = (subscriptionData) => {
+    if (subscriptionData?.items?.data?.[0]?.price?.id)
+        return subscriptionData.items.data[0].price.id;
+    if (subscriptionData?.items?.[0]?.price?.id)
+        return subscriptionData.items[0].price.id;
+    if (subscriptionData?.price?.id)
+        return subscriptionData.price.id;
+    return undefined;
+};
+const resolveUserTier = async (uid, userEmail) => {
+    const userSnap = await db.collection('users').doc(uid).get();
+    const userData = userSnap.exists ? userSnap.data() : {};
+    const resolvedEmail = userEmail || userData?.email || userData?.username;
+    if (resolvedEmail && PREMIUM_EMAILS.includes(String(resolvedEmail).toLowerCase()))
+        return 'PREMIUM';
+    if (uid.startsWith('test-') || uid === 'MASTER_GOD_EUKEN') {
+        return resolveUserTierFromData(uid, resolvedEmail, userData);
+    }
+    const subscriptionSnap = await db.collection('customers').doc(uid).collection('subscriptions')
+        .where('status', 'in', ['active', 'trialing'])
+        .get();
+    for (const doc of subscriptionSnap.docs) {
+        const priceId = extractSubscriptionPriceId(doc.data());
+        const tier = priceId ? STRIPE_PRICE_TO_TIER[priceId] : undefined;
+        if (tier)
+            return tier;
+    }
+    return 'FREE';
+};
+const getServerMonthKey = (date = new Date()) => `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+const getMonthKeyFromValue = (value) => {
+    if (!value)
+        return null;
+    const millis = typeof value?.toMillis === 'function' ? value.toMillis() :
+        typeof value?.toDate === 'function' ? value.toDate().getTime() :
+            value instanceof Date ? value.getTime() :
+                typeof value === 'number' ? value :
+                    typeof value === 'string' ? Date.parse(value) :
+                        0;
+    if (!millis || Number.isNaN(millis))
+        return null;
+    return getServerMonthKey(new Date(millis));
+};
+const isLegacyUsageInPeriod = (legacyUsage, period) => {
+    const explicitPeriod = legacyUsage?.period || legacyUsage?.monthKey || legacyUsage?.monthlyPeriod;
+    if (explicitPeriod)
+        return String(explicitPeriod) === period;
+    const resetPeriod = getMonthKeyFromValue(legacyUsage?.lastAnalysisReset || legacyUsage?.lastChatReset);
+    return resetPeriod === period;
+};
+const normalizeMonthlyChatCount = (rawCounters, period, legacyUsage) => {
+    const legacyOrCurrent = !rawCounters?.period || rawCounters.period === period;
+    if (!legacyOrCurrent)
+        return 0;
+    const legacyChats = (isLegacyUsageInPeriod(legacyUsage, period) || !rawCounters?.period)
+        ? Number(legacyUsage?.chatCount ?? 0) || 0
+        : 0;
+    return Math.max(Number(rawCounters?.chatsMonthly ?? rawCounters?.chatCount ?? 0) || 0, legacyChats);
+};
+const consumeMonthlyChatQuota = async (uid, userEmail) => {
+    const period = getServerMonthKey();
+    return db.runTransaction(async (transaction) => {
+        const tier = await resolveUserTier(uid, userEmail);
+        const limit = PLAN_CHAT_LIMITS[tier] ?? PLAN_CHAT_LIMITS.FREE;
+        const counterRef = db.collection('quota_counters').doc(uid);
+        const userDataRef = db.collection('userdata').doc(uid);
+        const [counterSnap, userDataSnap] = await Promise.all([
+            transaction.get(counterRef),
+            transaction.get(userDataRef),
+        ]);
+        const current = normalizeMonthlyChatCount(counterSnap.exists ? counterSnap.data() : {}, period, userDataSnap.exists ? userDataSnap.data()?.usage : undefined);
+        if (limit !== 'unlimited' && current >= limit) {
+            throw new HttpsError('resource-exhausted', 'Has alcanzado el límite mensual de mensajes de IA de tu suscripción.');
+        }
+        transaction.set(counterRef, {
+            period,
+            chatsMonthly: current + 1,
+            chatCount: current + 1,
+            lastUpdated: FieldValue.serverTimestamp(),
+        }, { merge: true });
+        return { tier, count: current + 1, limit, period };
+    });
 };
 const resolveAllowedModelForTier = (tier) => {
     switch (tier) {
@@ -430,11 +528,7 @@ const parseJsonResponse = (rawText) => {
         .trim();
     return JSON.parse(cleaned);
 };
-const getUserTier = async (uid, email) => {
-    const userSnap = await db.collection('users').doc(uid).get();
-    const userData = userSnap.exists ? userSnap.data() : {};
-    return resolveUserTier(uid, email, userData);
-};
+const getUserTier = async (uid, email) => resolveUserTier(uid, email);
 const validateTargetAccess = async (callerId, targetUserId) => {
     if (callerId === targetUserId)
         return;
@@ -997,7 +1091,8 @@ export const askVideoQuestion = onCall({
     const keyMoments = Array.isArray(contextData?.keyMoments)
         ? contextData?.keyMoments
         : [];
-    const tier = await getUserTier(callerId, request.auth.token.email);
+    const quota = await consumeMonthlyChatQuota(callerId, request.auth.token.email);
+    const tier = quota.tier;
     const modelName = resolveAllowedModelForTier(tier);
     const genAI = new GoogleGenerativeAI(geminiApiKey.value());
     let questionEmbedding = [];

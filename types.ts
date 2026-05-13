@@ -323,13 +323,17 @@ export interface UserProfile {
   maxStoredVideosLimit?: number; // Cached capacity
 }
 
-export type EnforcementStatus = 'COMPLIANT' | 'OVER_LIMIT_GRACE_PERIOD' | 'PENDING_ACCOUNT_DELETION' | 'DELETION_IN_PROGRESS' | 'DELETED';
+export type EnforcementStatus = 'COMPLIANT' | 'OVER_LIMIT_GRACE_PERIOD' | 'PENDING_ASSET_DELETION' | 'ASSET_DELETION_IN_PROGRESS' | 'PENDING_ACCOUNT_DELETION' | 'DELETION_IN_PROGRESS' | 'DELETED';
 
 export interface AccountEnforcement {
   userId: string;
   status: EnforcementStatus;
   allowedVideoLimit: number;
   currentVideoCount: number;
+  allowedPdfLimit?: number;
+  currentPdfCount?: number;
+  overVideoLimit?: boolean;
+  overPdfLimit?: boolean;
   gracePeriodEndsAt: any; // Can be string in local, Timestamp in firebase
   lastEvaluatedAt: any; 
   reason?: string;

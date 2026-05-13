@@ -337,7 +337,7 @@ export const VideoIntelligenceService = {
           ? fallbackVideoElement.duration
           : null;
 
-    let windowFrames = [];
+    let windowFrames: VideoFrameArtifact[] = [];
     let currentFrame = fallbackVideoElement ? captureCurrentFrameFromElement(fallbackVideoElement) : null;
 
     if (

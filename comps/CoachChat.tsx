@@ -19,6 +19,7 @@ const TEXTS = {
     title: 'Entrenador IA',
     subtitle: 'Especialista en rendimiento, recuperación y estrategia.',
     limitReached: 'Has alcanzado el límite mensual de mensajes.',
+    limitResponse: 'Has llegado al límite mensual de mensajes de IA de tu suscripción. Para seguir chateando, mejora tu plan o espera al próximo reseteo mensual.',
     messagesLeft: 'mensajes restantes este mes',
     unlimited: 'Mensajes ilimitados'
   },
@@ -29,6 +30,7 @@ const TEXTS = {
     title: 'AI Coach',
     subtitle: 'Performance, recovery and strategy specialist.',
     limitReached: 'Monthly message limit reached.',
+    limitResponse: 'You have reached your subscription monthly AI message limit. Upgrade your plan or wait for the next monthly reset to keep chatting.',
     messagesLeft: 'messages left this month',
     unlimited: 'Unlimited messages'
   },
@@ -39,6 +41,7 @@ const TEXTS = {
     title: 'AI Entrenatzailea',
     subtitle: 'Errendimendu, errekuperazio eta estrategia espezialista.',
     limitReached: 'Hileko mezu-muga gainditu duzu.',
+    limitResponse: 'Zure harpidetzaren hileko IA mezuen mugara iritsi zara. Jarraitzeko, hobetu plana edo itxaron hileko berrezarpenera.',
     messagesLeft: 'mezu geratzen dira hilabete honetan',
     unlimited: 'Mezu mugagabeak'
   }
@@ -73,7 +76,7 @@ export const CoachChat: React.FC<CoachChatProps> = ({ language, usage, limits, o
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || isLoading || isLimitReached) return;
+    if (!input.trim() || isLoading) return;
 
     const userMsg: ChatMessage = {
       id: Date.now().toString(),
@@ -84,6 +87,17 @@ export const CoachChat: React.FC<CoachChatProps> = ({ language, usage, limits, o
     
     setMessages(prev => [...prev, userMsg]);
     setInput('');
+
+    if (isLimitReached) {
+      setMessages(prev => [...prev, {
+        id: `${Date.now()}-limit`,
+        role: 'model',
+        text: t.limitResponse,
+        timestamp: new Date()
+      }]);
+      return;
+    }
+
     setIsLoading(true);
 
     try {
@@ -92,7 +106,7 @@ export const CoachChat: React.FC<CoachChatProps> = ({ language, usage, limits, o
         text: m.text
       }));
       
-      const response = await chatWithCoach(userMsg.text, history);
+      const response = await chatWithCoach(userMsg.text, history, 'standard', language);
       
       const aiMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
@@ -104,6 +118,12 @@ export const CoachChat: React.FC<CoachChatProps> = ({ language, usage, limits, o
       onMessageSent();
     } catch (error) {
       console.error(error);
+      setMessages(prev => [...prev, {
+        id: `${Date.now()}-error`,
+        role: 'model',
+        text: error instanceof Error ? error.message : t.limitResponse,
+        timestamp: new Date()
+      }]);
     } finally {
       setIsLoading(false);
     }
@@ -172,13 +192,13 @@ export const CoachChat: React.FC<CoachChatProps> = ({ language, usage, limits, o
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            disabled={isLimitReached || isLoading}
+            disabled={isLoading}
             placeholder={isLimitReached ? t.limitReached : t.placeholder}
             className="w-full bg-neutral-900 text-white rounded-xl py-4 pl-6 pr-16 border border-neutral-800 focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:outline-none transition-all disabled:opacity-50"
           />
           <button 
             type="submit" 
-            disabled={!input.trim() || isLoading || isLimitReached}
+            disabled={!input.trim() || isLoading}
             className="absolute right-3 top-1/2 -translate-y-1/2 p-2.5 bg-orange-600 rounded-lg text-white hover:bg-orange-500 disabled:opacity-50 transition-colors"
           >
             <Send size={20} />
@@ -186,7 +206,7 @@ export const CoachChat: React.FC<CoachChatProps> = ({ language, usage, limits, o
         </form>
         <div className="mt-3 sm:hidden text-center">
            <span className="text-[10px] text-neutral-500">
-             {isUnlimited ? t.unlimited : `${chatLimit - messagesUsed} ${t.messagesLeft}`}
+             {isUnlimited ? t.unlimited : `${Math.max(0, chatLimit - messagesUsed)} ${t.messagesLeft}`}
            </span>
         </div>
       </div>

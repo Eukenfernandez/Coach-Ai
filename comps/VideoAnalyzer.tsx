@@ -12,6 +12,18 @@ import {
    Loader2, Move, Trash2, Palette, MousePointer2, Minus, Circle, Link2, Unlink, Lock, User
 } from 'lucide-react';
 
+type VideoFrameCallbackMetadataLike = {
+   mediaTime?: number;
+   presentedFrames?: number;
+};
+
+type VideoWithFrameCallback = HTMLVideoElement & {
+   requestVideoFrameCallback?: (
+      callback: (now: number, metadata: VideoFrameCallbackMetadataLike) => void,
+   ) => number;
+   cancelVideoFrameCallback?: (handle: number) => void;
+};
+
 interface Line {
    id: string; // Add ID for easier deletion
    points: { x: number; y: number }[];
@@ -43,7 +55,8 @@ const ANALYZER_TEXTS = {
       upgradeDesc: 'La comparación de vídeos lado a lado está disponible para usuarios Atleta Pro y Atleta Premium. ¡Mejora tu plan para desbloquear esta función!',
       viewPlans: 'Ver Planes',
       close: 'Cerrar',
-      connectionError: 'Error de conexión.'
+      connectionError: 'Error de conexión.',
+      limitResponse: 'Has llegado al límite mensual de mensajes de IA de tu suscripción. Para seguir preguntando al entrenador, mejora tu plan o espera al próximo reseteo mensual.'
    },
    ing: {
       chatIntro: 'Hi, I\'m your AI coach. What do you want to analyze in this video?',
@@ -60,7 +73,8 @@ const ANALYZER_TEXTS = {
       upgradeDesc: 'Side-by-side video comparison is available for Pro Athlete and Premium Athlete users. Upgrade your plan to unlock this feature!',
       viewPlans: 'View Plans',
       close: 'Close',
-      connectionError: 'Connection error.'
+      connectionError: 'Connection error.',
+      limitResponse: 'You have reached your subscription monthly AI message limit. Upgrade your plan or wait for the next monthly reset to keep asking the coach.'
    },
    eus: {
       chatIntro: 'Kaixo, zure AI entrenatzailea naiz. Zer aztertu nahi duzu bideo honetan?',
@@ -77,7 +91,8 @@ const ANALYZER_TEXTS = {
       upgradeDesc: 'Aldez aldeko bideo konparaketa Pro Atleta eta Premium Atleta erabiltzaileentzat dago eskuragarri. Eguneratu zure plana funtzio hau desblokeatzeko!',
       viewPlans: 'Ikusi Planak',
       close: 'Itxi',
-      connectionError: 'Konexio errorea.'
+      connectionError: 'Konexio errorea.',
+      limitResponse: 'Zure harpidetzaren hileko IA mezuen mugara iritsi zara. Jarraitzeko, hobetu plana edo itxaron hileko berrezarpenera.'
    }
 };
 
@@ -432,7 +447,10 @@ const DualScrubber: React.FC<DualScrubberProps> = ({
    );
 };
 
-
+const clampMediaTime = (value: number, duration?: number) => {
+   const upper = Number.isFinite(duration) && duration && duration > 0 ? duration : Number.MAX_SAFE_INTEGER;
+   return Math.max(0, Math.min(value, upper));
+};
 
 interface VideoAnalyzerProps {
    video: VideoFile;
@@ -525,8 +543,14 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
    const syncedSeekQueueRafRef = useRef<number | null>(null);
    const syncedPendingSeekTimeRef = useRef<number | null>(null);
    const primaryPendingSeekRef = useRef<number | null>(null);
+   const primaryPendingSeekExactRef = useRef(false);
    const primarySeekInFlightRef = useRef(false);
+   const primaryLastDragSeekTargetRef = useRef<number | null>(null);
    const scrubResumePlaybackRef = useRef(false);
+   const primaryDisplayedFrameTimeRef = useRef(0);
+   const primaryFrameIntervalRef = useRef(1 / 30);
+   const primaryFrameMetadataRef = useRef<VideoFrameCallbackMetadataLike | null>(null);
+   const primaryVideoFrameCallbackRef = useRef<number | null>(null);
 
    // Zoom & Pan State
    // Zoom & Pan State (Independent for each video)
@@ -595,6 +619,42 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
   const chatLimit = limits?.maxChatMessagesPerMonth === 'unlimited' ? Infinity : (limits?.maxChatMessagesPerMonth as number || 0);
   const isLimitReached = messagesUsed >= chatLimit;
   const contextTexts = VIDEO_CONTEXT_TEXTS[language] || VIDEO_CONTEXT_TEXTS.es;
+
+  useEffect(() => {
+     const element = videoRef.current as VideoWithFrameCallback | null;
+     if (!element || typeof element.requestVideoFrameCallback !== 'function') return;
+
+     let cancelled = false;
+     const trackFrame = (_now: number, metadata: VideoFrameCallbackMetadataLike) => {
+        if (cancelled) return;
+
+        const mediaTime = Number(metadata.mediaTime);
+        if (Number.isFinite(mediaTime)) {
+           const previousMediaTime = Number(primaryFrameMetadataRef.current?.mediaTime);
+           const delta = Math.abs(mediaTime - previousMediaTime);
+           if (Number.isFinite(delta) && delta > 1 / 240 && delta < 1 / 10) {
+              primaryFrameIntervalRef.current = delta;
+           }
+
+           primaryDisplayedFrameTimeRef.current = mediaTime;
+           primaryFrameMetadataRef.current = metadata;
+        }
+
+        primaryVideoFrameCallbackRef.current = element.requestVideoFrameCallback?.(trackFrame) ?? null;
+     };
+
+     primaryVideoFrameCallbackRef.current = element.requestVideoFrameCallback(trackFrame);
+
+     return () => {
+        cancelled = true;
+        if (primaryVideoFrameCallbackRef.current !== null && typeof element.cancelVideoFrameCallback === 'function') {
+           element.cancelVideoFrameCallback(primaryVideoFrameCallbackRef.current);
+        }
+        primaryVideoFrameCallbackRef.current = null;
+        primaryFrameMetadataRef.current = null;
+     };
+  }, [activeUrl, video.id]);
+
   const getVideoErrorMessage = useCallback((errorCode?: string, fallback?: string | null) => {
      if (errorCode === 'storage/object-not-found') {
         return language === 'ing'
@@ -785,6 +845,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
    const handleLoadedData = () => {
       setVideoLoadState('ready');
       if (videoRef.current) {
+         primaryDisplayedFrameTimeRef.current = videoRef.current.currentTime;
          setDuration(videoRef.current.duration);
          const ratio = videoRef.current.videoWidth / videoRef.current.videoHeight;
          setAspectRatio1(ratio);
@@ -939,6 +1000,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
    const handleTimeUpdatePrimary = () => {
       if (!videoRef.current) return;
       const t1 = videoRef.current.currentTime;
+      primaryDisplayedFrameTimeRef.current = t1;
 
       // Do not update React state while dragging to prevent stutter/jank loops
       if (!isScrubbing) {
@@ -1359,12 +1421,11 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
       setIsPlaying(!isPlaying);
    };
 
-   const applySeekInstant = useCallback((element: HTMLVideoElement, time: number) => {
-      const hasDuration = Number.isFinite(element.duration) && element.duration > 0;
-      const clamped = hasDuration ? Math.max(0, Math.min(time, element.duration)) : Math.max(0, time);
+   const applySeekInstant = useCallback((element: HTMLVideoElement, time: number, options?: { exact?: boolean }) => {
+      const clamped = clampMediaTime(time, element.duration);
       const canFastSeek = typeof (element as HTMLVideoElement & { fastSeek?: (value: number) => void }).fastSeek === 'function';
 
-      if (canFastSeek) {
+      if (!options?.exact && canFastSeek) {
          try {
             (element as HTMLVideoElement & { fastSeek: (value: number) => void }).fastSeek(clamped);
             return;
@@ -1384,8 +1445,10 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
       if (next === null) return;
 
       primaryPendingSeekRef.current = null;
+      const exactSeek = primaryPendingSeekExactRef.current;
+      primaryPendingSeekExactRef.current = false;
       primarySeekInFlightRef.current = true;
-      applySeekInstant(el, next);
+      applySeekInstant(el, next, { exact: exactSeek });
 
       let released = false;
       const release = () => {
@@ -1402,9 +1465,13 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
          }
       };
 
-      el.addEventListener('seeked', release, { once: true });
-      el.addEventListener('error', release, { once: true });
-      window.setTimeout(release, 40);
+      if (exactSeek) {
+         requestAnimationFrame(release);
+      } else {
+         el.addEventListener('seeked', release, { once: true });
+         el.addEventListener('error', release, { once: true });
+         window.setTimeout(release, 40);
+      }
    }, [applySeekInstant]);
 
    const seekSynced = useCallback((time: number, isDragging: boolean = false) => {
@@ -1528,6 +1595,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
 
    const handleScrubStart = useCallback(() => {
       scrubResumePlaybackRef.current = isPlaying;
+      primaryLastDragSeekTargetRef.current = videoRef.current?.currentTime ?? null;
       setIsScrubbing(true);
       if (isPlaying) {
          videoRef.current?.pause();
@@ -1539,7 +1607,9 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
    const handleScrubEnd = useCallback(() => {
       setIsScrubbing(false);
       primaryPendingSeekRef.current = null;
+      primaryPendingSeekExactRef.current = false;
       primarySeekInFlightRef.current = false;
+      primaryLastDragSeekTargetRef.current = null;
       flushPendingSeek();
 
       if (scrubResumePlaybackRef.current) {
@@ -1558,15 +1628,23 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
 
       if (!videoRef.current) return;
 
+      let exactSeek = false;
       if (isDragging) {
          // Cola durante arrastre: evita bombardear el decoder con seeks superpuestos.
+         const previousTarget = primaryLastDragSeekTargetRef.current ?? videoRef.current.currentTime;
+         const isBackwardScrub = time < previousTarget - 1 / 240;
+         exactSeek = isBackwardScrub;
+         primaryLastDragSeekTargetRef.current = time;
          primaryPendingSeekRef.current = time;
+         primaryPendingSeekExactRef.current = isBackwardScrub;
          drainPrimarySeekQueue();
       } else {
+         primaryLastDragSeekTargetRef.current = null;
+         primaryPendingSeekExactRef.current = false;
          applySeekInstant(videoRef.current, time);
       }
       if (compareVideo && isSynced && videoRef2.current) {
-         applySeekInstant(videoRef2.current, time + syncOffset);
+         applySeekInstant(videoRef2.current, time + syncOffset, { exact: exactSeek });
       }
    };
 
@@ -1591,19 +1669,67 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
    };
 
    const frameStep = (direction: 'prev' | 'next') => {
-      const dt = 1 / 30;
-      const mod = direction === 'next' ? dt : -dt;
-      if (videoRef.current) {
-         videoRef.current.currentTime += mod;
-         setCurrentTime(videoRef.current.currentTime);
+      const primaryVideo = videoRef.current as VideoWithFrameCallback | null;
+      if (!primaryVideo) return;
+
+      if (isPlaying) {
+         primaryVideo.pause();
+         videoRef2.current?.pause();
+         setIsPlaying(false);
+      }
+
+      primaryPendingSeekRef.current = null;
+      primaryPendingSeekExactRef.current = false;
+      primarySeekInFlightRef.current = false;
+
+      if (direction === 'next') {
+         const nextTime = clampMediaTime(primaryVideo.currentTime + 1 / 30, primaryVideo.duration);
+         primaryVideo.currentTime = nextTime;
+         primaryDisplayedFrameTimeRef.current = nextTime;
+         setCurrentTime(nextTime);
+
          if (isSynced && videoRef2.current) {
-            videoRef2.current.currentTime = videoRef.current.currentTime + syncOffset;
+            const secondaryVideo = videoRef2.current;
+            const targetCompareTime = clampMediaTime(nextTime + syncOffset, secondaryVideo.duration);
+            secondaryVideo.currentTime = targetCompareTime;
+            setCompareTime(targetCompareTime);
          }
+         return;
+      }
+
+      const measuredFrameInterval = primaryFrameIntervalRef.current || 1 / 30;
+      const frameInterval = Math.max(1 / 120, Math.min(measuredFrameInterval, 1 / 15));
+      const displayedFrameTime = primaryDisplayedFrameTimeRef.current;
+      const displayedTimeIsFresh = Math.abs(displayedFrameTime - primaryVideo.currentTime) <= Math.max(frameInterval * 2, 0.08);
+      const baseTime = displayedTimeIsFresh ? displayedFrameTime : primaryVideo.currentTime;
+      const frameBoundaryNudge = Math.min(frameInterval * 0.35, 0.01);
+      const targetTime = baseTime - frameInterval - frameBoundaryNudge;
+      const clampedPrimaryTime = clampMediaTime(targetTime, primaryVideo.duration);
+
+      primaryVideo.currentTime = clampedPrimaryTime;
+      primaryDisplayedFrameTimeRef.current = clampedPrimaryTime;
+      setCurrentTime(clampedPrimaryTime);
+
+      if (typeof primaryVideo.requestVideoFrameCallback === 'function') {
+         primaryVideo.requestVideoFrameCallback((_now, metadata) => {
+            const mediaTime = Number(metadata.mediaTime);
+            if (Number.isFinite(mediaTime)) {
+               primaryDisplayedFrameTimeRef.current = mediaTime;
+               setCurrentTime(mediaTime);
+            }
+         });
+      }
+
+      if (isSynced && videoRef2.current) {
+         const secondaryVideo = videoRef2.current;
+         const targetCompareTime = clampMediaTime(clampedPrimaryTime + syncOffset, secondaryVideo.duration);
+         secondaryVideo.currentTime = targetCompareTime;
+         setCompareTime(targetCompareTime);
       }
    };
 
    const submitContextualQuestion = async (questionText: string, explicitMode?: VideoQuestionMode) => {
-      if (!questionText.trim() || isLimitReached) return;
+      if (!questionText.trim()) return;
 
       const mode = explicitMode || inferQuestionMode(questionText);
       const questionTimestamp = mode === 'summary' ? null : currentTime;
@@ -1618,6 +1744,19 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
 
       setChatMessages(prev => [...prev, newMsg]);
       setChatInput('');
+
+      if (isLimitReached) {
+         setChatMessages(prev => [...prev, {
+            id: `${Date.now()}-limit`,
+            role: 'model',
+            text: t.limitResponse,
+            timestamp: new Date(),
+            activeTimestampSeconds: questionTimestamp,
+            mode,
+         }]);
+         return;
+      }
+
       setIsChatLoading(true);
 
       if (!videoContext || videoContext.status === 'failed') {
@@ -1661,10 +1800,16 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
          await onIncrementUsage?.();
       } catch (error) {
          console.error('[VideoAnalyzer] Contextual question failed', error);
+         const errorCode = typeof (error as any)?.code === 'string' ? String((error as any).code) : '';
+         const errorMessage = errorCode.includes('resource-exhausted') && error instanceof Error
+            ? error.message
+            : errorCode.includes('resource-exhausted')
+               ? t.limitResponse
+               : t.connectionError;
          setChatMessages(prev => [...prev, {
             id: `${Date.now()}-error`,
             role: 'model',
-            text: t.connectionError,
+            text: errorMessage,
             timestamp: new Date(),
             activeTimestampSeconds: questionTimestamp,
             mode,
@@ -2243,7 +2388,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
                            <div className={`p-3 rounded-2xl text-xs leading-relaxed max-w-[85%] ${msg.role === 'user' ? 'bg-purple-600 text-white rounded-tr-none' : 'bg-neutral-800 border border-neutral-700 text-neutral-200 rounded-tl-none'}`}>
                               {false && msg.activeTimestampSeconds !== null && msg.activeTimestampSeconds !== undefined && (
                                  <div className={`mb-2 text-[10px] font-mono ${msg.role === 'user' ? 'text-purple-100/80' : 'text-neutral-500'}`}>
-                                    {contextTexts.timestampLabel}: {msg.activeTimestampSeconds.toFixed(2)}s
+                                    {contextTexts.timestampLabel}: {msg.activeTimestampSeconds?.toFixed(2)}s
                                  </div>
                               )}
                               <div className="whitespace-pre-wrap break-words">{msg.text}</div>
@@ -2270,8 +2415,8 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
                      )}
                   </div>
                   <form onSubmit={handleSendChat} className="p-4 border-t border-neutral-800 bg-neutral-950 flex gap-2">
-                     <input type="text" value={chatInput} onChange={e => setChatInput(e.target.value)} placeholder={t.askPlaceholder} disabled={isChatLoading || isLimitReached} className="flex-1 bg-neutral-900 border border-neutral-700 rounded-xl px-4 py-2 text-xs text-white outline-none focus:border-purple-500 disabled:opacity-50" />
-                     <button type="submit" disabled={isChatLoading || isLimitReached || !chatInput.trim()} className="p-2 bg-purple-600 text-white rounded-xl hover:bg-purple-500 disabled:opacity-50"><Send size={16} /></button>
+                     <input type="text" value={chatInput} onChange={e => setChatInput(e.target.value)} placeholder={isLimitReached ? t.limitResponse : t.askPlaceholder} disabled={isChatLoading} className="flex-1 bg-neutral-900 border border-neutral-700 rounded-xl px-4 py-2 text-xs text-white outline-none focus:border-purple-500 disabled:opacity-50" />
+                     <button type="submit" disabled={isChatLoading || !chatInput.trim()} className="p-2 bg-purple-600 text-white rounded-xl hover:bg-purple-500 disabled:opacity-50"><Send size={16} /></button>
                   </form>
                </div>
             )
@@ -2283,8 +2428,8 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
                   <div className="bg-neutral-900 border border-neutral-800 p-6 rounded-3xl max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-200">
                      <div className="flex flex-col items-center text-center">
-                        <div className="w-16 h-16 bg-blue-500/10 rounded-full flex items-center justify-center mb-4">
-                           <Split size={32} className="text-blue-500" />
+                        <div className="w-16 h-16 bg-orange-500/10 rounded-full flex items-center justify-center mb-4">
+                           <Lock size={32} className="text-orange-500" />
                         </div>
                         <h3 className="text-xl font-bold text-white mb-2">{t.upgradeTitle}</h3>
                         <p className="text-neutral-400 text-sm mb-6">
@@ -2312,4 +2457,3 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
       </div >
    );
 };
-

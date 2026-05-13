@@ -1,12 +1,12 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { VideoFile, Language, UserUsage, UserLimits, Screen } from '../types';
 import { Upload, Film, Trash2, Camera, X, AlertTriangle, Loader2, Info, Lock, RotateCcw } from 'lucide-react';
-import { generateVideoThumbnail, CAMERA_CONSTRAINTS } from '../utl/videoUtils';
+import { CAMERA_CONSTRAINTS } from '../utl/videoUtils';
 
 interface GalleryProps {
   videos: VideoFile[];
   onSelectVideo: (video: VideoFile) => void;
-  onUpload: (file: File, thumbnail: string) => void;
+  onUpload: (file: File, thumbnail?: string) => void;
   onDelete: (id: string) => void;
   onNavigate: (screen: Screen) => void;
   language: Language;
@@ -14,6 +14,7 @@ interface GalleryProps {
   limits: UserLimits;
   onResetUsage?: () => void;
   overrideCount?: number;
+  quotaPending?: boolean;
 }
 
 const TEXTS = {
@@ -29,18 +30,19 @@ const TEXTS = {
     deleteModalDesc: 'Esta acción no se puede deshacer. El vídeo se borrará permanentemente.',
     cancel: 'Cancelar',
     confirm: 'Sí, eliminar',
-    uploading: 'Subiendo...',
+    uploading: 'Sincronizando...',
     processing: 'Procesando',
     ready: 'Listo',
     uploadError: 'Error',
     fileMissing: 'No encontrado',
     unplayable: 'Formato no reproducible',
     usageLimit: 'Análisis Mensuales',
-    videoLimit: 'Capacidad Galería',
+    videoLimit: 'Vídeos Mensuales',
     used: 'usados',
     limitReached: 'Límite alcanzado',
-    upgradeAlert: 'Has alcanzado el límite de vídeos de tu plan actual. Mejora a Premium para subir más.',
+    upgradeAlert: 'Has alcanzado el límite mensual de vídeos de tu suscripción. Mejora tu plan para subir más.',
     upgradeBtn: 'Mejorar Plan',
+    syncingQuota: 'Sincronizando...',
     unlimited: 'Ilimitado'
   },
   ing: {
@@ -55,18 +57,19 @@ const TEXTS = {
     deleteModalDesc: 'This action cannot be undone. The video will be permanently deleted.',
     cancel: 'Cancel',
     confirm: 'Yes, delete',
-    uploading: 'Uploading...',
+    uploading: 'Syncing...',
     processing: 'Processing',
     ready: 'Ready',
     uploadError: 'Error',
     fileMissing: 'Missing',
     unplayable: 'Unplayable format',
     usageLimit: 'Monthly Analysis',
-    videoLimit: 'Gallery Capacity',
+    videoLimit: 'Monthly Videos',
     used: 'used',
     limitReached: 'Limit reached',
-    upgradeAlert: 'You have reached the video limit for your current plan. Upgrade to Premium to upload more.',
+    upgradeAlert: 'You have reached your subscription monthly video limit. Upgrade your plan to upload more.',
     upgradeBtn: 'Upgrade Plan',
+    syncingQuota: 'Syncing...',
     unlimited: 'Unlimited'
   },
   eus: {
@@ -81,18 +84,19 @@ const TEXTS = {
     deleteModalDesc: 'Ekintza hau ezin da desegin. Bideoa betirako ezabatuko da.',
     cancel: 'Utzi',
     confirm: 'Bai, ezabatu',
-    uploading: 'Igotzen...',
+    uploading: 'Sinkronizatzen...',
     processing: 'Prozesatzen',
     ready: 'Prest',
     uploadError: 'Errorea',
     fileMissing: 'Ez dago fitxategirik',
     unplayable: 'Formatua ezin da erreproduzitu',
     usageLimit: 'Hileko Analisi',
-    videoLimit: 'Galeria Edukiera',
+    videoLimit: 'Hileko Bideoak',
     used: 'erabilita',
     limitReached: 'Muga gaindituta',
-    upgradeAlert: 'Zure uneko planaren bideo muga gainditu duzu. Igo Premium-era gehiago igotzeko.',
+    upgradeAlert: 'Zure harpidetzaren hileko bideo muga gainditu duzu. Hobetu plana gehiago igotzeko.',
     upgradeBtn: 'Plana Hobetu',
+    syncingQuota: 'Sinkronizatzen...',
     unlimited: 'Mugagabea'
   }
 };
@@ -142,7 +146,7 @@ const getVideoStatusBadge = (
   };
 };
 
-export const Gallery: React.FC<GalleryProps> = ({ videos, onSelectVideo, onUpload, onDelete, onNavigate, language, usage, limits, onResetUsage, overrideCount }) => {
+export const Gallery: React.FC<GalleryProps> = ({ videos, onSelectVideo, onUpload, onDelete, onNavigate, language, usage, limits, onResetUsage, overrideCount, quotaPending = false }) => {
   const t = TEXTS[language] || TEXTS.es;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -157,7 +161,7 @@ export const Gallery: React.FC<GalleryProps> = ({ videos, onSelectVideo, onUploa
 
   const limitVal = limits.maxStoredVideos || 3;
   const currentCount = overrideCount !== undefined ? overrideCount : videos.length;
-  const isLimitReached = currentCount >= limitVal;
+  const isLimitReached = !quotaPending && currentCount >= limitVal;
 
   // We show the capacity indicator at the top
   const showUsage = true;
@@ -193,8 +197,7 @@ export const Gallery: React.FC<GalleryProps> = ({ videos, onSelectVideo, onUploa
       if (isLimitReached) {
         setShowLimitModal(true);
       } else {
-        const thumbnail = await generateVideoThumbnail(file);
-        onUpload(file, thumbnail);
+        onUpload(file);
       }
     }
     if (event.target) event.target.value = '';
@@ -243,8 +246,7 @@ export const Gallery: React.FC<GalleryProps> = ({ videos, onSelectVideo, onUploa
       mediaRecorder.onstop = async () => {
         const blob = new Blob(recordedChunks, { type: 'video/webm' });
         const file = new File([blob], `recording_${Date.now()}.webm`, { type: 'video/webm' });
-        const thumbnail = await generateVideoThumbnail(file);
-        onUpload(file, thumbnail);
+        onUpload(file);
         setRecordedChunks([]);
         stopCamera();
       };
@@ -273,7 +275,7 @@ export const Gallery: React.FC<GalleryProps> = ({ videos, onSelectVideo, onUploa
                 <span className="text-[10px] uppercase tracking-widest text-neutral-500 font-bold">{t.videoLimit}</span>
                 <div className="flex items-baseline gap-1">
                   <span className={`text-xl font-black ${isLimitReached ? 'text-red-500' : 'text-orange-500'}`}>
-                    {currentCount}
+                    {quotaPending ? '...' : currentCount}
                   </span>
                   <span className="text-neutral-500 text-xs">/ {limitVal}</span>
                 </div>
@@ -281,7 +283,7 @@ export const Gallery: React.FC<GalleryProps> = ({ videos, onSelectVideo, onUploa
               <div className="w-12 h-12 rounded-full border-4 border-neutral-800 flex items-center justify-center relative overflow-hidden">
                 <div
                   className={`absolute bottom-0 left-0 w-full transition-all duration-1000 ${isLimitReached ? 'bg-red-500' : 'bg-orange-600'}`}
-                  style={{ height: `${Math.min(100, (currentCount / limitVal) * 100)}%` }}
+                  style={{ height: `${quotaPending ? 0 : Math.min(100, (currentCount / limitVal) * 100)}%` }}
                 />
                 <Info size={16} className="relative z-10 text-white" />
               </div>
@@ -291,7 +293,7 @@ export const Gallery: React.FC<GalleryProps> = ({ videos, onSelectVideo, onUploa
             <div className="md:hidden absolute safe-top-6 safe-right-6 flex items-center gap-1.5 bg-white/80 dark:bg-neutral-900/80 backdrop-blur border border-neutral-200 dark:border-neutral-800 px-2.5 py-1 rounded-full shadow-lg">
               <div className={`w-2 h-2 rounded-full ${isLimitReached ? 'bg-red-500 animate-pulse' : 'bg-orange-500'}`}></div>
               <span className="text-xs font-mono font-bold text-neutral-900 dark:text-white">
-                {currentCount}/{limitVal}
+                {quotaPending ? t.syncingQuota : `${currentCount}/${limitVal}`}
               </span>
             </div>
           </div>
@@ -325,37 +327,34 @@ export const Gallery: React.FC<GalleryProps> = ({ videos, onSelectVideo, onUploa
           <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-3 md:gap-4 mb-24">
             {videos.map((video) => {
               const statusBadge = getVideoStatusBadge(video, t);
+              const canOpenVideo = Boolean(video.url) || !video.isUploading;
               return (
                 <div
                   key={video.id}
-                  className="group relative aspect-square bg-black rounded-2xl overflow-hidden cursor-pointer shadow-md hover:shadow-2xl border border-neutral-800 transition-all duration-500 ease-out hover:scale-105"
-                  onClick={() => !video.isUploading && onSelectVideo(video)}
+                  className={`group relative aspect-square bg-black rounded-2xl overflow-hidden shadow-md border border-neutral-800 transition-all duration-500 ease-out ${canOpenVideo ? 'cursor-pointer hover:shadow-2xl hover:scale-105' : 'cursor-wait opacity-80'}`}
+                  onClick={() => canOpenVideo && onSelectVideo(video)}
                 >
                   {video.thumbnail && (
                     <img
                       src={video.thumbnail}
                       alt={video.name}
-                      className={`w-full h-full object-cover transition-all duration-700 group-hover:scale-110 ${video.isUploading ? 'opacity-40' : 'opacity-90 group-hover:opacity-100'}`}
+                      className="w-full h-full object-cover opacity-90 transition-all duration-700 group-hover:scale-110 group-hover:opacity-100"
                     />
                   )}
                   <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent opacity-80 group-hover:opacity-100 transition-opacity p-3 flex flex-col justify-end pointer-events-none">
                     <h4 className="text-[10px] md:text-xs font-bold text-white truncate">{video.name}</h4>
                     <p className="text-[8px] md:text-[10px] text-neutral-300 mt-0.5">{video.date.split(',')[0]}</p>
                   </div>
-                  {!video.isUploading && (
-                    <>
-                      <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-md px-1.5 py-0.5 rounded text-[9px] text-white font-mono flex items-center gap-1 z-10 pointer-events-none">
-                        <Film size={10} /> {video.duration || '00:00'}
-                      </div>
-                      <div className={`absolute top-2 left-2 px-2 py-1 rounded-full text-[9px] font-semibold z-10 pointer-events-none ${statusBadge.className}`}>
-                        {statusBadge.label}
-                      </div>
-                    </>
-                  )}
+                  <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-md px-1.5 py-0.5 rounded text-[9px] text-white font-mono flex items-center gap-1 z-10 pointer-events-none">
+                    <Film size={10} /> {video.duration || '00:00'}
+                  </div>
+                  <div className={`absolute top-2 left-2 px-2 py-1 rounded-full text-[9px] font-semibold z-10 pointer-events-none ${statusBadge.className}`}>
+                    {video.isUploading && <Loader2 size={10} className="mr-1 inline animate-spin" />}
+                    {statusBadge.label}
+                  </div>
                   {video.isUploading && (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 backdrop-blur-[2px] z-20 pointer-events-none">
-                      <Loader2 className="animate-spin text-orange-500 mb-2" size={28} />
-                      <span className="text-[10px] text-white font-bold uppercase tracking-widest">{t.uploading}</span>
+                    <div className="absolute inset-x-0 bottom-0 h-[3px] overflow-hidden bg-black/40 z-40 pointer-events-none">
+                      <div className="h-full w-1/2 animate-pulse bg-orange-500" />
                     </div>
                   )}
                   <button

@@ -24,7 +24,7 @@ import { getSubscriptionTier, getUserLimits, waitForSubscriptionActive } from ".
 import { VideoIntelligenceService } from "./svcs/videoIntelligenceService";
 import { GracePeriodBanner } from "./comps/GracePeriodBanner";
 import { Menu, PanelLeft, Loader2, CheckCircle, XCircle, AlertTriangle, Clock } from "lucide-react";
-import { getVideoDurationLabel } from "./utl/videoUtils";
+import { generateVideoThumbnail, getVideoDurationLabel } from "./utl/videoUtils";
 
 function lazyNamed<T extends React.ComponentType<any>>(
   loader: () => Promise<Record<string, unknown>>,
@@ -109,6 +109,25 @@ type DataSyncState = {
   error?: string;
 };
 
+type CloudQuotaUsage = {
+  videosUsed: number;
+  videosLimit: number;
+  pdfsUsed: number;
+  pdfsLimit: number;
+  chatsUsed: number;
+  chatsLimit: number | 'unlimited';
+  period: string;
+  tier: string;
+};
+
+type QuotaLimitKind = 'video' | 'pdf';
+
+type QuotaLimitModalState = {
+  kind: QuotaLimitKind;
+  title: string;
+  message: string;
+};
+
 function logBootstrapDebug(event: string, payload?: Record<string, unknown>) {
   if (!DEV_BOOTSTRAP_LOGS) return;
   console.debug(`[AppBootstrap] ${event}`, payload || {});
@@ -141,8 +160,8 @@ function scheduleIdleTask(task: () => void, timeout = 400): () => void {
     };
   }
 
-  const handle = window.setTimeout(task, timeout);
-  return () => window.clearTimeout(handle);
+  const handle = globalThis.setTimeout(task, timeout);
+  return () => globalThis.clearTimeout(handle);
 }
 
 function ScreenLoader({ fullScreen = false }: { fullScreen?: boolean }) {
@@ -253,7 +272,8 @@ export default function App() {
   const [trainingRecords, setTrainingRecords] = useState<ThrowRecord[]>([]);
   const [matchRecords, setMatchRecords] = useState<MatchRecord[]>([]);
   const [customExercises, setCustomExercises] = useState<ExerciseDef[]>([]);
-  const [coachGlobalUsage, setCoachGlobalUsage] = useState<{ videosUsed: number, videosLimit: number, pdfsUsed: number, pdfsLimit: number } | null>(null);
+  const [coachGlobalUsage, setCoachGlobalUsage] = useState<CloudQuotaUsage | null>(null);
+  const [quotaLimitModal, setQuotaLimitModal] = useState<QuotaLimitModalState | null>(null);
   const [supplements, setSupplements] = useState<SupplementItem[]>([]);
 
   // Track videos that are currently uploading - used to prevent counter increment if deleted during upload
@@ -613,11 +633,7 @@ export default function App() {
     try {
       const data = await StorageService.getUserData(userData.id);
       setMyUsage(data.usage);
-      
-      // If coach, fetch global quota usage
-      if (userData.profile?.role === 'coach') {
-        refreshCoachGlobalUsage();
-      }
+      refreshCoachGlobalUsage();
     } catch (e) {
       console.error("Failed to load own usage", e);
     }
@@ -630,67 +646,36 @@ export default function App() {
   }, [currentUser, usage, viewedUserId, videos.length, plans.length]);
 
   const checkGracePeriod = async (user: User) => {
-    if (user.profile?.subscriptionTier !== 'FREE') {
+    if (!StorageService.isCloudMode()) {
       setGracePeriodInfo(null);
       return;
     }
 
-    const FREE_MAX_VIDEOS = 3;
-    const FREE_MAX_PDFS = 3;
-
-    const currentVideoCount = videos.length;
-    const currentPdfCount = plans.length;
-
-    const isVideoOver = currentVideoCount > FREE_MAX_VIDEOS;
-    const isPdfOver = currentPdfCount > FREE_MAX_PDFS;
-
-    if (isVideoOver || isPdfOver) {
-      let deadlineStr = user.profile?.gracePeriodDeadline;
-
-      if (!deadlineStr) {
-        const deadlineDate = new Date();
-        deadlineDate.setDate(deadlineDate.getDate() + 3);
-        deadlineStr = deadlineDate.toISOString();
-
-        const updatedProfile = { ...user.profile!, gracePeriodDeadline: deadlineStr };
-        await StorageService.updateUserProfile(user.id, updatedProfile);
-        setCurrentUser({ ...user, profile: updatedProfile });
+    try {
+      const snap = await db.collection('account_enforcement').doc(user.id).get();
+      const data = snap.exists ? snap.data() : null;
+      if (!data || data.status !== 'OVER_LIMIT_GRACE_PERIOD' || !data.gracePeriodEndsAt) {
+        setGracePeriodInfo(null);
+        return;
       }
 
-      const deadline = new Date(deadlineStr);
-      const now = new Date();
-      const diffMs = deadline.getTime() - now.getTime();
+      const deadline = typeof data.gracePeriodEndsAt.toDate === 'function'
+        ? data.gracePeriodEndsAt.toDate()
+        : new Date(data.gracePeriodEndsAt);
+      const diffMs = deadline.getTime() - Date.now();
 
-      if (diffMs <= 0) {
-        try {
-          await StorageService.deleteCurrentAccount();
-          await handleLogout();
-          setFatalError("El periodo de gracia ha terminado. Tu cuenta ha sido eliminada permanentemente por exceder los límites del plan gratuito.");
-          return;
-        } catch (e) {
-          setGracePeriodInfo({ deadline, isExpired: true, remainingText: "Eliminando cuenta..." });
-        }
-      } else {
-        let remainingText = "";
-        const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-        const hours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-        const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+      const days = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+      const hours = Math.max(0, Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60)));
+      const minutes = Math.max(0, Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60)));
+      const remainingText = diffMs <= 0
+        ? "Pendiente de ajuste automático"
+        : days > 0
+          ? `${days} días y ${hours} horas restantes`
+          : `${hours}h ${minutes}m restantes`;
 
-        if (days > 0) {
-          remainingText = `${days} días y ${hours} horas restantes`;
-        } else {
-          remainingText = `${hours}h ${minutes}m restantes`;
-        }
-
-        setGracePeriodInfo({ deadline, isExpired: false, remainingText });
-      }
-    } else {
-      if (user.profile?.gracePeriodDeadline) {
-        const updatedProfile = { ...user.profile!, gracePeriodDeadline: undefined };
-        await StorageService.updateUserProfile(user.id, updatedProfile);
-        setCurrentUser({ ...user, profile: updatedProfile });
-      }
-      setGracePeriodInfo(null);
+      setGracePeriodInfo({ deadline, isExpired: diffMs <= 0, remainingText });
+    } catch (error) {
+      console.warn("Could not read grace period state", error);
     }
   };
 
@@ -780,12 +765,26 @@ export default function App() {
     }
   };
 
-  const refreshCoachGlobalUsage = async () => {
+  const refreshCoachGlobalUsage = async (attempt = 0) => {
     try {
       const usage = await StorageService.getCoachQuotaUsage();
-      if (usage) setCoachGlobalUsage(usage);
+      if (usage) {
+        setCoachGlobalUsage(usage);
+        return;
+      }
+
+      if (StorageService.isOnline() && attempt < 3) {
+        window.setTimeout(() => {
+          void refreshCoachGlobalUsage(attempt + 1);
+        }, 750 * (attempt + 1));
+      }
     } catch (e) {
       console.warn("Failed to fetch coach global usage", e);
+      if (StorageService.isOnline() && attempt < 3) {
+        window.setTimeout(() => {
+          void refreshCoachGlobalUsage(attempt + 1);
+        }, 750 * (attempt + 1));
+      }
     }
   };
 
@@ -994,7 +993,11 @@ export default function App() {
     return { hydrated, repairedVideos };
   };
 
-  const hydratePlansForBootstrap = async (targetId: string, requestId: number, loadedPlans: PlanFile[]) => {
+  const hydratePlansForBootstrap = async (
+    targetId: string,
+    requestId: number,
+    loadedPlans: PlanFile[],
+  ): Promise<{ hydrated: PlanFile[]; repairedPlans: PlanFile[] }> => {
     const finish = startBootstrapTrace("hydrate-plans", {
       targetId,
       requestId,
@@ -1002,7 +1005,7 @@ export default function App() {
     });
 
     const hydrated = await Promise.all(
-      loadedPlans.map(async (plan) => {
+      loadedPlans.map(async (plan): Promise<PlanFile> => {
         const blob = await PlanStorage.getPlan(plan.id);
         if (blob) {
           return {
@@ -1252,6 +1255,31 @@ export default function App() {
     setIsMobileMenuOpen(false);
   };
 
+  const openQuotaLimitModal = (kind: QuotaLimitKind, limit: number, overrideMessage?: string) => {
+    const isVideo = kind === 'video';
+    const title = language === 'ing'
+      ? 'Subscription limit reached'
+      : language === 'eus'
+        ? 'Harpidetza muga gaindituta'
+        : 'Límite de suscripción alcanzado';
+    const message = overrideMessage || (language === 'ing'
+      ? `You have reached the monthly ${isVideo ? 'video' : 'PDF'} upload limit for your subscription (${limit}).`
+      : language === 'eus'
+        ? `Zure harpidetzaren hileko ${isVideo ? 'bideo' : 'PDF'} igoera muga gainditu duzu (${limit}).`
+        : `Has alcanzado el límite mensual de ${isVideo ? 'vídeos' : 'PDFs'} de tu suscripción (${limit}).`);
+
+    setQuotaLimitModal({ kind, title, message });
+  };
+
+  const isSubscriptionQuotaError = (error: unknown) => {
+    const code = typeof (error as any)?.code === 'string' ? String((error as any).code) : '';
+    const message = error instanceof Error ? error.message.toLowerCase() : String(error || '').toLowerCase();
+    return code.includes('resource-exhausted')
+      || message.includes('límite mensual')
+      || message.includes('monthly')
+      || message.includes('hileko');
+  };
+
   const handleAddStrength = async (record: Omit<StrengthRecord, "id">) => {
     if (!viewedUserId) return;
     const updated = [...strengthRecords, { ...record, id: Date.now().toString() }];
@@ -1308,7 +1336,7 @@ export default function App() {
     await StorageService.updateMatchRecords(viewedUserId, updated);
   };
 
-  const handleUploadVideo = async (file: File, thumbnail: string) => {
+  const handleUploadVideo = async (file: File, thumbnail?: string) => {
     if (!currentUser || !viewedUserId) return;
     if (!StorageService.isOnline()) {
       alert("No hay conexión. El vídeo no se puede subir hasta que vuelva Internet.");
@@ -1327,40 +1355,21 @@ export default function App() {
 
     if (!effectiveUsage) return;
 
-    const monthlyAnalysisLimit = userLimits.maxAnalysisPerMonth;
-    const storedVideoLimit = isCoach && coachGlobalUsage
-      ? coachGlobalUsage.videosLimit
-      : userLimits.maxStoredVideos;
+    const monthlyVideoLimit = coachGlobalUsage?.videosLimit ?? userLimits.maxStoredVideos;
+    const monthlyVideoCount = coachGlobalUsage?.videosUsed ?? (StorageService.isCloudMode() ? 0 : effectiveUsage.analysisCount ?? 0);
 
-    // Check monthly analysis limit
-    if (effectiveUsage.analysisCount >= monthlyAnalysisLimit) {
-      alert(language === 'ing'
-        ? 'You have reached your monthly analysis limit. Upgrade your plan or wait for the reset.'
-        : language === 'eus'
-          ? 'Hileko analisi muga gainditu duzu. Zure plana hobetu edo berrezarpena itxaron.'
-          : 'Has alcanzado el límite mensual de análisis. Mejora tu plan o espera al reseteo.');
-      return;
-    }
-
-    // Check TOTAL video storage limit - must delete old videos before uploading new ones
-    if (videos.length >= storedVideoLimit) {
-      alert(language === 'ing'
-        ? `You have ${storedVideoLimit} videos stored (maximum allowed). Delete some videos before uploading new ones.`
-        : language === 'eus'
-          ? `${storedVideoLimit} bideo gordeta dituzu (gehienezko baimena). Ezabatu bideo batzuk berriak igo aurretik.`
-          : `Tienes ${storedVideoLimit} vídeos guardados (máximo permitido). Elimina algunos vídeos antes de subir nuevos.`);
+    // Check monthly upload limit. This mirrors the cloud function; the backend remains authoritative.
+    if ((!StorageService.isCloudMode() || coachGlobalUsage) && monthlyVideoCount >= monthlyVideoLimit) {
+      openQuotaLimitModal('video', monthlyVideoLimit);
       return;
     }
 
     const newId = Date.now().toString();
     const storagePath = StorageService.buildVideoStoragePath(viewedUserId, newId, file.name);
-    const durationLabel = await getVideoDurationLabel(file);
     const localDisplayUrl = URL.createObjectURL(file);
     const createdAt = new Date().toISOString();
     const browserCanPlaySelectedType = StorageService.canPlayVideoContentType(file.type);
-    const initialPlaybackStatus = durationLabel
-      ? 'playable'
-      : browserCanPlaySelectedType === false
+    const initialPlaybackStatus = browserCanPlaySelectedType === false
         ? 'unplayable'
         : 'unknown';
     const initialPlaybackError = initialPlaybackStatus === 'unplayable'
@@ -1370,10 +1379,10 @@ export default function App() {
     const videoForState: VideoFile = {
       id: newId,
       url: localDisplayUrl,
-      thumbnail,
+      thumbnail: thumbnail || "",
       name: file.name,
       date: new Date().toLocaleDateString() + ", " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      duration: durationLabel || "00:00",
+      duration: "00:00",
       isLocal: true,
       isUploading: true,
       storagePath,
@@ -1390,23 +1399,48 @@ export default function App() {
     // Track this video as uploading
     uploadingVideosRef.current.add(newId);
     setVideos((prev) => [videoForState, ...prev]);
+    setSelectedVideo(videoForState);
+    setCurrentScreen("analyzer");
+
+    const localSavePromise = VideoStorage.saveVideo(newId, file).catch((localSaveError) => {
+      console.warn("[Video upload] Local video cache save failed", localSaveError);
+    });
+
+    void (async () => {
+      const [durationLabel, generatedThumbnail] = await Promise.all([
+        getVideoDurationLabel(file),
+        thumbnail ? Promise.resolve(thumbnail) : generateVideoThumbnail(file),
+      ]);
+
+      setVideos((prev) => prev.map((v) => v.id !== newId ? v : {
+        ...v,
+        duration: durationLabel || v.duration,
+        thumbnail: generatedThumbnail || v.thumbnail,
+        playbackStatus: durationLabel ? 'playable' : v.playbackStatus,
+      }));
+    })().catch((metadataError) => {
+      console.warn("[Video upload] Local metadata generation failed", metadataError);
+    });
 
     let cloudUrl = "";
     let uploadResult: Awaited<ReturnType<typeof StorageService.uploadVideoFile>> = null;
     try {
-      // OPTIMIZATION 1: Parallelize local save and cloud upload (independent operations)
       if (StorageService.isCloudMode() && viewedUserId !== 'MASTER_GOD_EUKEN') {
-        [, uploadResult] = await Promise.all([
-          VideoStorage.saveVideo(newId, file),
-          StorageService.uploadVideoFile(viewedUserId, file, storagePath)
-        ]);
+        uploadResult = await StorageService.uploadVideoFile(viewedUserId, file, storagePath);
         cloudUrl = uploadResult?.downloadURL || "";
       } else {
-        await VideoStorage.saveVideo(newId, file);
+        await localSavePromise;
       }
 
       if (StorageService.isCloudMode() && !uploadResult?.downloadURL) {
         throw new Error("Cloud upload failed");
+      }
+
+      if (!uploadingVideosRef.current.has(newId)) {
+        if (cloudUrl) {
+          await StorageService.deleteFileFromCloud(cloudUrl);
+        }
+        return;
       }
 
       const videoForDb: VideoFile = {
@@ -1425,24 +1459,34 @@ export default function App() {
       };
 
       // V3 Authoritative Video Storage (Backend verifies global coach quota)
-      const success = await StorageService.addVideoSafe(viewedUserId, videoForDb);
+      const registration = await StorageService.addVideoSafe(viewedUserId, videoForDb);
 
-      if (!success) {
+      if (!registration.success) {
         throw new Error("Límite de vídeos del plan excedido.");
       }
       
-      // Refresh global quota after successful upload
-      if (isCoach) refreshCoachGlobalUsage();
+      setCoachGlobalUsage(prev => prev ? {
+        ...prev,
+        videosUsed: typeof registration.count === 'number' ? registration.count : prev.videosUsed + 1,
+        videosLimit: typeof registration.limit === 'number' ? registration.limit : prev.videosLimit,
+        period: registration.period || prev.period,
+        tier: registration.tier || prev.tier,
+      } : prev);
+      refreshCoachGlobalUsage();
 
       // Only increment AI analysis counter if video wasn't deleted during upload
       if (uploadingVideosRef.current.has(newId)) {
         const payerId = isCoach ? currentUser.id : viewedUserId;
-        await StorageService.incrementUsage(payerId, 'analysis');
+        try {
+          await StorageService.incrementUsage(payerId, 'analysis');
 
-        if (isCoach) {
-          setMyUsage(prev => prev ? { ...prev, analysisCount: prev.analysisCount + 1 } : prev);
-        } else {
-          setUsage(prev => prev ? { ...prev, analysisCount: prev.analysisCount + 1 } : prev);
+          if (isCoach) {
+            setMyUsage(prev => prev ? { ...prev, analysisCount: prev.analysisCount + 1 } : prev);
+          } else {
+            setUsage(prev => prev ? { ...prev, analysisCount: prev.analysisCount + 1 } : prev);
+          }
+        } catch (usageError) {
+          console.warn("[Video upload] Legacy usage counter update failed", usageError);
         }
       }
 
@@ -1479,14 +1523,30 @@ export default function App() {
         console.error("[Video upload] Background context processing failed", processingError);
       });
     } catch (e) {
+      console.error("[Video upload] Failed", e);
       uploadingVideosRef.current.delete(newId);
-      if (cloudUrl) {
-        await StorageService.deleteFileFromCloud(cloudUrl);
+      const uploadMessage = StorageService.getUploadErrorMessage(e, 'videos', language);
+      if (isSubscriptionQuotaError(e)) {
+        if (cloudUrl) {
+          await StorageService.deleteFileFromCloud(cloudUrl);
+        }
+        await VideoStorage.deleteVideo(newId).catch(() => {});
+        revokeObjectUrlMaybe(localDisplayUrl);
+        setVideos((prev) => prev.filter((v) => v.id !== newId));
+        setSelectedVideo((prev) => prev?.id === newId ? null : prev);
+        setCurrentScreen("gallery");
+        openQuotaLimitModal('video', monthlyVideoLimit, uploadMessage);
+      } else {
+        setVideos((prev) => prev.map((v) => v.id !== newId ? v : {
+          ...v,
+          isUploading: false,
+          isLocal: true,
+          status: 'error',
+          errorCode: typeof (e as any)?.code === 'string' ? String((e as any).code) : 'storage/upload-failed',
+          errorMessage: uploadMessage,
+          url: localDisplayUrl,
+        }));
       }
-      await VideoStorage.deleteVideo(newId).catch(() => {});
-      revokeObjectUrlMaybe(localDisplayUrl);
-      setVideos((prev) => prev.filter((v) => v.id !== newId));
-      alert("No se pudo guardar el vídeo de forma persistente. Inténtalo de nuevo.");
     }
   };
 
@@ -1525,8 +1585,12 @@ export default function App() {
     const effectiveUsage = isCoach ? myUsage : usage;
     if (!effectiveUsage) return;
 
-    const planLimit = userLimits.maxPdfUploads;
-    if ((effectiveUsage.plansCount || 0) >= planLimit) return;
+    const planLimit = coachGlobalUsage?.pdfsLimit ?? userLimits.maxPdfUploads;
+    const planCount = coachGlobalUsage?.pdfsUsed ?? (StorageService.isCloudMode() ? 0 : effectiveUsage.plansCount || 0);
+    if ((!StorageService.isCloudMode() || coachGlobalUsage) && planCount >= planLimit) {
+      openQuotaLimitModal('pdf', planLimit);
+      return;
+    }
 
     const id = Date.now().toString();
     const storagePath = StorageService.buildPlanStoragePath(viewedUserId, id, file.name);
@@ -1582,21 +1646,32 @@ export default function App() {
         url: ""
       };
 
-      const success = await StorageService.addPdfSafe(viewedUserId, pdfForDb);
-      if (!success) {
+      const registration = await StorageService.addPdfSafe(viewedUserId, pdfForDb);
+      if (!registration.success) {
         throw new Error("Límite de PDFs del plan excedido.");
       }
       
-      if (isCoach) refreshCoachGlobalUsage();
+      setCoachGlobalUsage(prev => prev ? {
+        ...prev,
+        pdfsUsed: typeof registration.count === 'number' ? registration.count : prev.pdfsUsed + 1,
+        pdfsLimit: typeof registration.limit === 'number' ? registration.limit : prev.pdfsLimit,
+        period: registration.period || prev.period,
+        tier: registration.tier || prev.tier,
+      } : prev);
+      refreshCoachGlobalUsage();
 
       // Increment logic for AI/App usage analytics
       const payerId = isCoach ? currentUser.id : viewedUserId;
-      await StorageService.incrementUsage(payerId, 'plan');
+      try {
+        await StorageService.incrementUsage(payerId, 'plan');
 
-      if (isCoach) {
-        setMyUsage(prev => prev ? { ...prev, plansCount: (prev.plansCount || 0) + 1 } : prev);
-      } else {
-        setUsage(prev => prev ? { ...prev, plansCount: (prev.plansCount || 0) + 1 } : prev);
+        if (isCoach) {
+          setMyUsage(prev => prev ? { ...prev, plansCount: (prev.plansCount || 0) + 1 } : prev);
+        } else {
+          setUsage(prev => prev ? { ...prev, plansCount: (prev.plansCount || 0) + 1 } : prev);
+        }
+      } catch (usageError) {
+        console.warn("[PDF upload] Legacy usage counter update failed", usageError);
       }
 
       // Update local state to show it's no longer just local
@@ -1622,7 +1697,12 @@ export default function App() {
       await PlanStorage.deletePlan(id).catch(() => {});
       revokeObjectUrlMaybe(planForState.url);
       setPlans((prev) => prev.filter(p => p.id !== id));
-      alert("Error al subir el archivo. Inténtalo de nuevo.");
+      const uploadMessage = StorageService.getUploadErrorMessage(e, 'plans', language);
+      if (isSubscriptionQuotaError(e)) {
+        openQuotaLimitModal('pdf', planLimit, uploadMessage);
+      } else {
+        alert(uploadMessage);
+      }
     }
   };
 
@@ -1648,7 +1728,11 @@ export default function App() {
       const isCoach = currentUser.profile?.role === 'coach';
       const payerId = isCoach ? currentUser.id : viewedUserId;
 
-      await StorageService.incrementUsage(payerId, 'chat');
+      try {
+        await StorageService.incrementUsage(payerId, 'chat');
+      } catch (usageError) {
+        console.warn("[AI chat] Legacy usage counter update failed", usageError);
+      }
 
       // Optimistic local state update (no re-fetch needed)
       if (isCoach) {
@@ -1656,6 +1740,8 @@ export default function App() {
       } else {
         setUsage(prev => prev ? { ...prev, chatCount: (prev.chatCount || 0) + 1 } : prev);
       }
+
+      setCoachGlobalUsage(prev => prev ? { ...prev, chatsUsed: (prev.chatsUsed || 0) + 1 } : prev);
     }
   }
 
@@ -1771,26 +1857,35 @@ export default function App() {
   if (currentScreen === "onboarding") {
     return (
       <Suspense fallback={<ScreenLoader fullScreen />}>
-        <Onboarding user={currentUser} onComplete={(u) => handleLogin(u)} language={language} />
+        <Onboarding user={currentUser} onComplete={(u: User) => handleLogin(u)} language={language} />
       </Suspense>
     );
   }
 
   // Logic for display-only stats (Global if Coach active)
-  const isCoachView = currentUser?.profile?.role === 'coach';
-  const finalUserLimits = { ...userLimits };
-  if (isCoachView && coachGlobalUsage) {
-    // Override with backend-authoritative global limits
+  const finalUserLimits = coachGlobalUsage
+    ? { ...getUserLimits(coachGlobalUsage.tier as SubscriptionTier) }
+    : { ...userLimits };
+  if (coachGlobalUsage) {
+    // Override with backend-authoritative monthly limits for the quota payer.
     finalUserLimits.maxStoredVideos = coachGlobalUsage.videosLimit;
     finalUserLimits.maxPdfUploads = coachGlobalUsage.pdfsLimit;
+    finalUserLimits.maxChatMessagesPerMonth = coachGlobalUsage.chatsLimit;
   }
 
-  // Gallery video count override for coach
-  const galleryVideoCount = (isCoachView && coachGlobalUsage) ? coachGlobalUsage.videosUsed : videos.length;
-  // PlanGallery count override
-  const galleryPlanCount = (isCoachView && coachGlobalUsage) ? coachGlobalUsage.pdfsUsed : plans.length;
+  const isCloudQuotaPending = StorageService.isCloudMode() && Boolean(currentUser) && !coachGlobalUsage;
+  const galleryVideoCount = coachGlobalUsage?.videosUsed;
+  const galleryPlanCount = coachGlobalUsage?.pdfsUsed;
 
-  const displayedUsage = isCoach ? myUsage : usage;
+  const baseDisplayedUsage = isCoach ? myUsage : usage;
+  const displayedUsage = baseDisplayedUsage && coachGlobalUsage
+    ? {
+        ...baseDisplayedUsage,
+        chatCount: coachGlobalUsage.chatsUsed,
+        analysisCount: coachGlobalUsage.videosUsed,
+        plansCount: coachGlobalUsage.pdfsUsed,
+      }
+    : baseDisplayedUsage;
   const effectiveDataSyncState = dataSyncState.phase === "idle" && !isOnline
     ? {
         ...dataSyncState,
@@ -1857,7 +1952,7 @@ export default function App() {
                 <AlertTriangle size={40} className="text-red-500" />
               </div>
               <h2 className="text-2xl font-black text-white mb-2">LÍMITE EXCEDIDO</h2>
-              <p className="text-neutral-300 mb-6">Has cancelado tu suscripción pero tienes más elementos de los permitidos. Regulariza tu cuenta antes de que expire el tiempo.</p>
+              <p className="text-neutral-300 mb-6">Tu suscripción actual tiene menos capacidad que tus archivos guardados. Tienes 3 días para ajustarte; después se eliminarán solo los vídeos o PDFs que sobren.</p>
               {!gracePeriodInfo.isExpired && (
                 <div className="flex items-center gap-2 text-orange-400 bg-orange-900/20 px-4 py-2 rounded-lg mb-6 border border-orange-500/20">
                   <Clock size={18} /><span className="font-mono font-bold">{gracePeriodInfo.remainingText}</span>
@@ -1866,10 +1961,36 @@ export default function App() {
               <div className="flex flex-col gap-3 w-full">
                 <button onClick={() => navigateTo('pricing')} className="w-full py-4 bg-white text-black font-bold rounded-xl hover:bg-neutral-200 transition-colors">Mejorar Plan</button>
                 <div className="flex gap-3">
-                  <button onClick={() => { navigateTo('gallery'); setGracePeriodInfo(null); }} className="flex-1 py-3 bg-red-900/30 text-red-400 font-bold rounded-xl hover:bg-red-900/50 border border-red-800 transition-colors">Borrar Vídeos</button>
-                  <button onClick={() => { navigateTo('planning'); setGracePeriodInfo(null); }} className="flex-1 py-3 bg-red-900/30 text-red-400 font-bold rounded-xl hover:bg-red-900/50 border border-red-800 transition-colors">Borrar PDFs</button>
+                  <button onClick={() => { navigateTo('gallery'); setGracePeriodInfo(null); }} className="flex-1 py-3 bg-red-900/30 text-red-400 font-bold rounded-xl hover:bg-red-900/50 border border-red-800 transition-colors">Revisar Vídeos</button>
+                  <button onClick={() => { navigateTo('planning'); setGracePeriodInfo(null); }} className="flex-1 py-3 bg-red-900/30 text-red-400 font-bold rounded-xl hover:bg-red-900/50 border border-red-800 transition-colors">Revisar PDFs</button>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {quotaLimitModal && (
+        <div className="fixed inset-0 z-[160] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-neutral-900 border border-neutral-800 p-6 rounded-3xl max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="flex flex-col items-center text-center">
+              <div className="w-16 h-16 bg-orange-500/10 rounded-full flex items-center justify-center mb-4">
+                <AlertTriangle size={32} className="text-orange-500" />
+              </div>
+              <h3 className="text-xl font-bold text-white mb-2">{quotaLimitModal.title}</h3>
+              <p className="text-neutral-400 text-sm mb-6">{quotaLimitModal.message}</p>
+              <button
+                onClick={() => { setQuotaLimitModal(null); navigateTo('pricing'); }}
+                className="w-full py-3 px-4 bg-white text-black font-bold rounded-xl hover:bg-neutral-200 transition-colors"
+              >
+                {language === 'ing' ? 'View subscriptions' : language === 'eus' ? 'Ikusi harpidetzak' : 'Ver suscripciones'}
+              </button>
+              <button
+                onClick={() => setQuotaLimitModal(null)}
+                className="mt-3 text-sm text-neutral-500 hover:text-white transition-colors"
+              >
+                {language === 'ing' ? 'Close' : language === 'eus' ? 'Itxi' : 'Cerrar'}
+              </button>
             </div>
           </div>
         </div>
@@ -1958,18 +2079,18 @@ export default function App() {
         <div className="flex-1 min-h-0 overflow-hidden relative">
           <Suspense fallback={<ScreenLoader />}>
             {currentScreen === "dashboard" && <Dashboard userProfile={currentUser.profile} videos={videos} strengthRecords={strengthRecords} throwRecords={competitionRecords} trainingRecords={trainingRecords} onNavigate={navigateTo} language={language} />}
-            {currentScreen === "gallery" && <Gallery videos={videos} overrideCount={isCoachView ? galleryVideoCount : undefined} onSelectVideo={(v) => { setSelectedVideo(v); setCurrentScreen("analyzer"); }} onUpload={handleUploadVideo} onDelete={handleDeleteVideo} language={language} usage={displayedUsage} limits={finalUserLimits} onNavigate={navigateTo} />}
+            {currentScreen === "gallery" && <Gallery videos={videos} overrideCount={galleryVideoCount} quotaPending={isCloudQuotaPending} onSelectVideo={(v: VideoFile) => { setSelectedVideo(v); setCurrentScreen("analyzer"); }} onUpload={handleUploadVideo} onDelete={handleDeleteVideo} language={language} usage={displayedUsage} limits={finalUserLimits} onNavigate={navigateTo} />}
             {currentScreen === "analyzer" && selectedVideo && <VideoAnalyzer video={selectedVideo} targetUserId={viewedUserId!} onBack={() => navigateTo("gallery")} usage={displayedUsage} limits={finalUserLimits} onIncrementUsage={handleIncrementChat} language={language} onNavigate={navigateTo} userProfile={activeAnalysisProfile} />}
-            {currentScreen === "planning" && <PlanGallery plans={plans} overrideCount={isCoachView ? galleryPlanCount : undefined} onSelectPlan={(p) => { setSelectedPlan(p); setCurrentScreen("planViewer"); }} onUpload={handleUploadPlan} onDelete={handleDeletePlan} language={language} usage={displayedUsage} limits={finalUserLimits} onNavigate={navigateTo} />}
+            {currentScreen === "planning" && <PlanGallery plans={plans} overrideCount={galleryPlanCount} quotaPending={isCloudQuotaPending} onSelectPlan={(p: PlanFile) => { setSelectedPlan(p); setCurrentScreen("planViewer"); }} onUpload={handleUploadPlan} onDelete={handleDeletePlan} language={language} usage={displayedUsage} limits={finalUserLimits} onNavigate={navigateTo} />}
             {currentScreen === "planViewer" && selectedPlan && <PdfViewer plan={selectedPlan} onBack={() => navigateTo("planning")} />}
-            {currentScreen === "strength" && <StrengthTracker records={strengthRecords} onAddRecord={handleAddStrength} onDeleteRecord={handleDeleteStrength} exercises={customExercises} onUpdateExercises={(e) => { setCustomExercises(e); void StorageService.updateCustomExercises(viewedUserId!, e); }} language={language} />}
+            {currentScreen === "strength" && <StrengthTracker records={strengthRecords} onAddRecord={handleAddStrength} onDeleteRecord={handleDeleteStrength} exercises={customExercises} onUpdateExercises={(e: ExerciseDef[]) => { setCustomExercises(e); void StorageService.updateCustomExercises(viewedUserId!, e); }} language={language} />}
             {currentScreen === "competition" && <JavelinTracker profile={currentUser.profile!} records={competitionRecords} onAddRecord={handleAddCompetition} onDeleteRecord={handleDeleteCompetition} language={language} />}
             {currentScreen === "training" && <TrainingTracker profile={currentUser.profile!} records={trainingRecords} onAddRecord={handleAddTraining} onDeleteRecord={handleDeleteTraining} language={language} />}
             {currentScreen === "matches" && <MatchTracker profile={currentUser.profile!} records={matchRecords} onAddRecord={handleAddMatch} onDeleteRecord={handleDeleteMatch} language={language} />}
             {currentScreen === "calculator" && <PlateCalculator language={language} />}
             {currentScreen === "supplements" && <SupplementsTracker supplements={supplements} onUpdate={handleUpdateSupplements} language={language} />}
             {currentScreen === "coach" && <CoachChat language={language} usage={displayedUsage} limits={finalUserLimits} onMessageSent={handleIncrementChat} />}
-            {currentScreen === "team_management" && <CoachTeamManagement currentUser={currentUser} onSelectAthlete={handleSwitchAthlete} activeAthleteId={viewedUserId} language={language} onAthleteRemoved={(athleteId) => setManagedAthletes(prev => prev.filter(a => a.id !== athleteId))} />}
+            {currentScreen === "team_management" && <CoachTeamManagement currentUser={currentUser} onSelectAthlete={handleSwitchAthlete} activeAthleteId={viewedUserId} language={language} onAthleteRemoved={(athleteId: string) => setManagedAthletes(prev => prev.filter(a => a.id !== athleteId))} />}
             {currentScreen === "pricing" && <PricingSection currentUser={currentUser} language={language} />}
             {currentScreen === "profile" && <Profile currentUser={currentUser} onUpdateUser={setCurrentUser} onLogout={handleLogout} language={language} onRefreshData={() => { if (viewedUserId) void loadDataForUser(viewedUserId, { force: true, reason: "profile-refresh" }); }} />}
             {currentScreen === "app_downloads" && <AppDownloads language={language} />}

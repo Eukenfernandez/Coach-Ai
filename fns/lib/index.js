@@ -12,7 +12,7 @@ import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import { defineSecret } from "firebase-functions/params";
 import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 import { getApps, initializeApp } from 'firebase-admin/app';
-import { getAuth } from 'firebase-admin/auth';
+import { getStorage } from 'firebase-admin/storage';
 import { FieldValue, Timestamp, getFirestore } from 'firebase-admin/firestore';
 export { askVideoQuestion, upsertVideoContext } from './videoContext.js';
 if (!getApps().length) {
@@ -133,17 +133,7 @@ export const analizarFrame = onCall({
     if (!base64Image) {
         throw new HttpsError("invalid-argument", "Se requiere una imagen.");
     }
-    // Recuperar Plan Real Canónico
-    const userRef = db.collection("users").doc(uid);
-    const userSnap = await userRef.get();
-    let tier = userSnap.exists ? (userSnap.data()?.currentPlanId || 'FREE') : 'FREE';
-    // Bypass mapping for testing like in other functions
-    if (uid.startsWith('test-'))
-        tier = uid.includes('premium') ? 'PREMIUM' : (uid.includes('pro') ? 'PRO_ATHLETE' : tier);
-    const userEmail = request.auth?.token.email;
-    if (userEmail && ['alejandrosanchez@gmail.com', 'peioetxabe@hotmail.com', 'fernandezeuken@gmail.com', 'julianweber@gmail.com'].includes(userEmail.toLowerCase())) {
-        tier = 'PREMIUM';
-    }
+    const tier = await resolveUserTier(uid, request.auth?.token.email);
     const modelName = resolveAllowedModelForTier(tier);
     const genAI = new GoogleGenerativeAI(geminiApiKey.value());
     const systemContext = getSystemPromptForLang(language || 'es', 'frame');
@@ -206,17 +196,8 @@ export const chatWithCoach = onCall({
     if (!message) {
         throw new HttpsError("invalid-argument", "Se requiere un mensaje.");
     }
-    // Recuperar Plan Real Canónico
-    const userRef = db.collection("users").doc(uid);
-    const userSnap = await userRef.get();
-    let tier = userSnap.exists ? (userSnap.data()?.currentPlanId || 'FREE') : 'FREE';
-    // Bypass mapping
-    if (uid.startsWith('test-'))
-        tier = uid.includes('premium') ? 'PREMIUM' : (uid.includes('pro') ? 'PRO_ATHLETE' : tier);
-    const userEmail = request.auth?.token.email;
-    if (userEmail && ['alejandrosanchez@gmail.com', 'peioetxabe@hotmail.com', 'fernandezeuken@gmail.com', 'julianweber@gmail.com'].includes(userEmail.toLowerCase())) {
-        tier = 'PREMIUM';
-    }
+    const quota = await consumeMonthlyQuota(uid, request.auth?.token.email, 'chats');
+    const tier = quota.tier;
     const modelName = resolveAllowedModelForTier(tier);
     const genAI = new GoogleGenerativeAI(geminiApiKey.value());
     const systemInstruction = getSystemPromptForLang(language || 'es', 'chat');
@@ -252,18 +233,151 @@ const PLAN_LIMITS = {
 };
 // Premium bypass emails
 const PREMIUM_EMAILS = ['alejandrosanchez@gmail.com', 'peioetxabe@hotmail.com', 'fernandezeuken@gmail.com', 'julianweber@gmail.com'];
-// Resolve user tier from Firestore + bypass rules
-const resolveUserTier = (uid, userEmail, userData) => {
+const STRIPE_PRICE_TO_TIER = {
+    price_1Shp2GRpDniZdTBe8jaP3rKT: 'PRO_ATHLETE',
+    price_1Shp77RpDniZdTBeN9KYx4oM: 'PRO_COACH',
+    price_1Sj8emRpDniZdTBeCxkGvGnO: 'PREMIUM',
+};
+const ACTIVE_SUBSCRIPTION_STATUSES = ['active', 'trialing'];
+const getServerMonthKey = (date = new Date()) => `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+const getMonthKeyFromValue = (value) => {
+    if (!value)
+        return null;
+    const millis = toMillis(value);
+    if (!millis)
+        return null;
+    return getServerMonthKey(new Date(millis));
+};
+const isLegacyUsageInPeriod = (legacyUsage, period) => {
+    const explicitPeriod = legacyUsage?.period || legacyUsage?.monthKey || legacyUsage?.monthlyPeriod;
+    if (explicitPeriod)
+        return String(explicitPeriod) === period;
+    const resetPeriod = getMonthKeyFromValue(legacyUsage?.lastAnalysisReset || legacyUsage?.lastChatReset);
+    return resetPeriod === period;
+};
+const toMillis = (value) => {
+    if (!value)
+        return 0;
+    if (typeof value.toMillis === 'function')
+        return value.toMillis();
+    if (typeof value.toDate === 'function')
+        return value.toDate().getTime();
+    if (value instanceof Date)
+        return value.getTime();
+    if (typeof value === 'number')
+        return value;
+    if (typeof value === 'string') {
+        const parsed = Date.parse(value);
+        return Number.isNaN(parsed) ? 0 : parsed;
+    }
+    return 0;
+};
+const getAssetTimestamp = (asset) => toMillis(asset?.uploadedAt) ||
+    toMillis(asset?.createdAt) ||
+    toMillis(asset?.date) ||
+    (/^\d+$/.test(String(asset?.id || '')) ? Number(asset.id) : 0);
+const extractSubscriptionPriceId = (subscriptionData) => {
+    if (subscriptionData?.items?.data?.[0]?.price?.id)
+        return subscriptionData.items.data[0].price.id;
+    if (subscriptionData?.items?.[0]?.price?.id)
+        return subscriptionData.items[0].price.id;
+    if (subscriptionData?.price?.id)
+        return subscriptionData.price.id;
+    return undefined;
+};
+const getAuthBypassTier = (uid, userEmail) => {
     if (userEmail && PREMIUM_EMAILS.includes(userEmail.toLowerCase()))
         return 'PREMIUM';
     if (uid.startsWith('test-')) {
         if (uid.includes('premium'))
             return 'PREMIUM';
+        if (uid.includes('coach'))
+            return 'PRO_COACH';
         if (uid.includes('pro'))
             return 'PRO_ATHLETE';
         return 'FREE';
     }
-    return userData?.currentPlanId || userData?.profile?.subscriptionTier || 'FREE';
+    if (uid === 'MASTER_GOD_EUKEN')
+        return 'PREMIUM';
+    return null;
+};
+const resolveUserTier = async (uid, userEmail, transaction) => {
+    const userRef = db.collection("users").doc(uid);
+    const userSnap = transaction ? await transaction.get(userRef) : await userRef.get();
+    const userData = userSnap.exists ? userSnap.data() : {};
+    const resolvedEmail = userEmail || userData?.email || userData?.username;
+    const bypassTier = getAuthBypassTier(uid, resolvedEmail);
+    if (bypassTier)
+        return bypassTier;
+    const subscriptionQuery = db.collection('customers').doc(uid).collection('subscriptions')
+        .where('status', 'in', ACTIVE_SUBSCRIPTION_STATUSES);
+    const subscriptionSnap = transaction ? await transaction.get(subscriptionQuery) : await subscriptionQuery.get();
+    for (const doc of subscriptionSnap.docs) {
+        const priceId = extractSubscriptionPriceId(doc.data());
+        const tier = priceId ? STRIPE_PRICE_TO_TIER[priceId] : undefined;
+        if (tier)
+            return tier;
+    }
+    return 'FREE';
+};
+const normalizeMonthlyCounters = (rawCounters, period, legacyUsage) => {
+    const legacyOrCurrent = !rawCounters?.period || rawCounters.period === period;
+    if (!legacyOrCurrent) {
+        return { videos: 0, pdfs: 0, chats: 0 };
+    }
+    // First deployment after the old client counters may find quota_counters
+    // without a period. Seed the new monthly cloud counter from legacy cloud
+    // usage once, then future months are governed by the server period.
+    const shouldMergeLegacy = isLegacyUsageInPeriod(legacyUsage, period) || !rawCounters?.period;
+    const legacyVideos = shouldMergeLegacy ? Number(legacyUsage?.analysisCount ?? 0) || 0 : 0;
+    const legacyPdfs = shouldMergeLegacy ? Number(legacyUsage?.plansCount ?? 0) || 0 : 0;
+    const legacyChats = shouldMergeLegacy ? Number(legacyUsage?.chatCount ?? 0) || 0 : 0;
+    return {
+        videos: Math.max(Number(rawCounters?.videosMonthly ?? rawCounters?.videosGlobal ?? 0) || 0, legacyVideos),
+        pdfs: Math.max(Number(rawCounters?.pdfsMonthly ?? rawCounters?.pdfsGlobal ?? 0) || 0, legacyPdfs),
+        chats: Math.max(Number(rawCounters?.chatsMonthly ?? rawCounters?.chatCount ?? 0) || 0, legacyChats),
+    };
+};
+const buildCounterUpdate = (period, counters) => ({
+    period,
+    videosMonthly: counters.videos,
+    pdfsMonthly: counters.pdfs,
+    chatsMonthly: counters.chats,
+    // Backwards-compatible aliases for existing client reads and migrations.
+    videosGlobal: counters.videos,
+    pdfsGlobal: counters.pdfs,
+    chatCount: counters.chats,
+    lastUpdated: FieldValue.serverTimestamp(),
+});
+const consumeMonthlyQuota = async (uid, userEmail, kind) => {
+    const period = getServerMonthKey();
+    return db.runTransaction(async (transaction) => {
+        const tier = await resolveUserTier(uid, userEmail, transaction);
+        const limits = PLAN_LIMITS[tier] || PLAN_LIMITS.FREE;
+        const limit = kind === 'videos' ? limits.videos :
+            kind === 'pdfs' ? limits.pdfs :
+                limits.chats;
+        const counterRef = db.collection("quota_counters").doc(uid);
+        const userDataRef = db.collection("userdata").doc(uid);
+        const [counterSnap, userDataSnap] = await Promise.all([
+            transaction.get(counterRef),
+            transaction.get(userDataRef),
+        ]);
+        const counters = normalizeMonthlyCounters(counterSnap.exists ? counterSnap.data() : {}, period, userDataSnap.exists ? userDataSnap.data()?.usage : undefined);
+        const current = kind === 'videos' ? counters.videos :
+            kind === 'pdfs' ? counters.pdfs :
+                counters.chats;
+        if (limit !== 'unlimited' && current >= limit) {
+            const label = kind === 'videos' ? 'vídeos' : kind === 'pdfs' ? 'PDFs' : 'mensajes de IA';
+            throw new HttpsError("resource-exhausted", `Has alcanzado el límite mensual de ${label} de tu suscripción.`);
+        }
+        const nextCounters = {
+            ...counters,
+            [kind]: current + 1,
+        };
+        transaction.set(counterRef, buildCounterUpdate(period, nextCounters), { merge: true });
+        return { count: current + 1, limit, tier, period };
+    });
 };
 // Validate that caller has access to the target user profile
 const validateTargetAccess = async (t, callerId, targetUserId) => {
@@ -293,23 +407,25 @@ export const registerVideoInGallery = onCall({ region: "europe-west1", maxInstan
         const enforcSnap = await t.get(enforcementRef);
         if (enforcSnap.exists) {
             const status = enforcSnap.data()?.status;
-            if (status === 'OVER_LIMIT_GRACE_PERIOD' || status === 'PENDING_ACCOUNT_DELETION' || status === 'DELETION_IN_PROGRESS') {
+            if (['OVER_LIMIT_GRACE_PERIOD', 'PENDING_ASSET_DELETION', 'ASSET_DELETION_IN_PROGRESS', 'PENDING_ACCOUNT_DELETION', 'DELETION_IN_PROGRESS'].includes(status)) {
                 throw new HttpsError("failed-precondition", "No puedes subir vídeos en periodo de gracia. Elimina vídeos primero o sube de plan.");
             }
         }
         // 3. Resolve tier from the UPLOADER (quota payer), not the target
-        const userRef = db.collection("users").doc(uid);
-        const userSnap = await t.get(userRef);
-        const userData = userSnap.exists ? userSnap.data() : {};
-        const tier = resolveUserTier(uid, request.auth?.token.email, userData);
+        const tier = await resolveUserTier(uid, request.auth?.token.email, t);
         const limits = PLAN_LIMITS[tier] || PLAN_LIMITS.FREE;
-        // 4. Read or initialize the quota counter (atomic, race-condition safe)
+        // 4. Read or initialize the monthly quota counter (atomic, race-condition safe)
+        const period = getServerMonthKey();
         const counterRef = db.collection("quota_counters").doc(uid);
-        const counterSnap = await t.get(counterRef);
-        const counters = counterSnap.exists ? counterSnap.data() : { videosGlobal: 0, pdfsGlobal: 0 };
-        const currentVideoCount = counters.videosGlobal || 0;
+        const userDataRef = db.collection("userdata").doc(uid);
+        const [counterSnap, userDataSnap] = await Promise.all([
+            t.get(counterRef),
+            t.get(userDataRef),
+        ]);
+        const counters = normalizeMonthlyCounters(counterSnap.exists ? counterSnap.data() : {}, period, userDataSnap.exists ? userDataSnap.data()?.usage : undefined);
+        const currentVideoCount = counters.videos;
         if (currentVideoCount >= limits.videos) {
-            throw new HttpsError("resource-exhausted", `Límite excedido. Tu plan permite máximo ${limits.videos} vídeos globales.`);
+            throw new HttpsError("resource-exhausted", `Has alcanzado el límite mensual de vídeos de tu suscripción. Tu plan permite ${limits.videos}.`);
         }
         // 5. Tag ownership on the video data
         const taggedVideoData = {
@@ -321,12 +437,12 @@ export const registerVideoInGallery = onCall({ region: "europe-west1", maxInstan
         // 6. Write video to the TARGET user's subcollection
         const newVideoRef = db.collection(`userdata/${targetUserId}/videos`).doc(videoData.id);
         t.set(newVideoRef, taggedVideoData);
-        // 7. Atomically increment the UPLOADER's global counter
-        t.set(counterRef, {
-            videosGlobal: currentVideoCount + 1,
-            lastUpdated: FieldValue.serverTimestamp(),
-        }, { merge: true });
-        return { success: true, count: currentVideoCount + 1, limit: limits.videos };
+        // 7. Atomically increment the UPLOADER's monthly counter.
+        t.set(counterRef, buildCounterUpdate(period, {
+            ...counters,
+            videos: currentVideoCount + 1,
+        }), { merge: true });
+        return { success: true, count: currentVideoCount + 1, limit: limits.videos, period, tier };
     });
 });
 export const registerPdfInGallery = onCall({ region: "europe-west1", maxInstances: 10 }, async (request) => {
@@ -346,23 +462,25 @@ export const registerPdfInGallery = onCall({ region: "europe-west1", maxInstance
         const enforcSnap = await t.get(enforcementRef);
         if (enforcSnap.exists) {
             const status = enforcSnap.data()?.status;
-            if (status === 'OVER_LIMIT_GRACE_PERIOD' || status === 'PENDING_ACCOUNT_DELETION' || status === 'DELETION_IN_PROGRESS') {
+            if (['OVER_LIMIT_GRACE_PERIOD', 'PENDING_ASSET_DELETION', 'ASSET_DELETION_IN_PROGRESS', 'PENDING_ACCOUNT_DELETION', 'DELETION_IN_PROGRESS'].includes(status)) {
                 throw new HttpsError("failed-precondition", "No puedes subir PDFs en periodo de gracia.");
             }
         }
         // 3. Resolve tier from the UPLOADER
-        const userRef = db.collection("users").doc(uid);
-        const userSnap = await t.get(userRef);
-        const userData = userSnap.exists ? userSnap.data() : {};
-        const tier = resolveUserTier(uid, request.auth?.token.email, userData);
+        const tier = await resolveUserTier(uid, request.auth?.token.email, t);
         const limits = PLAN_LIMITS[tier] || PLAN_LIMITS.FREE;
-        // 4. Quota counter
+        // 4. Monthly quota counter
+        const period = getServerMonthKey();
         const counterRef = db.collection("quota_counters").doc(uid);
-        const counterSnap = await t.get(counterRef);
-        const counters = counterSnap.exists ? counterSnap.data() : { videosGlobal: 0, pdfsGlobal: 0 };
-        const currentPdfCount = counters.pdfsGlobal || 0;
+        const userDataRef = db.collection("userdata").doc(uid);
+        const [counterSnap, userDataSnap] = await Promise.all([
+            t.get(counterRef),
+            t.get(userDataRef),
+        ]);
+        const counters = normalizeMonthlyCounters(counterSnap.exists ? counterSnap.data() : {}, period, userDataSnap.exists ? userDataSnap.data()?.usage : undefined);
+        const currentPdfCount = counters.pdfs;
         if (currentPdfCount >= limits.pdfs) {
-            throw new HttpsError("resource-exhausted", `Límite excedido. Tu plan permite máximo ${limits.pdfs} PDFs globales.`);
+            throw new HttpsError("resource-exhausted", `Has alcanzado el límite mensual de PDFs de tu suscripción. Tu plan permite ${limits.pdfs}.`);
         }
         // 5. Tag ownership
         const taggedPdfData = {
@@ -374,12 +492,12 @@ export const registerPdfInGallery = onCall({ region: "europe-west1", maxInstance
         // 6. Write to target's plans subcollection
         const newPdfRef = db.collection(`userdata/${targetUserId}/plans`).doc(pdfData.id);
         t.set(newPdfRef, taggedPdfData);
-        // 7. Atomically increment uploader's global PDF counter
-        t.set(counterRef, {
-            pdfsGlobal: currentPdfCount + 1,
-            lastUpdated: FieldValue.serverTimestamp(),
-        }, { merge: true });
-        return { success: true, count: currentPdfCount + 1, limit: limits.pdfs };
+        // 7. Atomically increment uploader's monthly PDF counter
+        t.set(counterRef, buildCounterUpdate(period, {
+            ...counters,
+            pdfs: currentPdfCount + 1,
+        }), { merge: true });
+        return { success: true, count: currentPdfCount + 1, limit: limits.pdfs, period, tier };
     });
 });
 // Callable: Get coach's global quota usage
@@ -387,41 +505,128 @@ export const getCoachQuotaUsage = onCall({ region: "europe-west1", maxInstances:
     if (!request.auth)
         throw new HttpsError("unauthenticated", "Debes iniciar sesión.");
     const uid = request.auth.uid;
-    const counterSnap = await db.collection("quota_counters").doc(uid).get();
-    const counters = counterSnap.exists ? counterSnap.data() : { videosGlobal: 0, pdfsGlobal: 0 };
-    const userSnap = await db.collection("users").doc(uid).get();
-    const userData = userSnap.exists ? userSnap.data() : {};
-    const tier = resolveUserTier(uid, request.auth?.token.email, userData);
+    const period = getServerMonthKey();
+    const [counterSnap, userDataSnap] = await Promise.all([
+        db.collection("quota_counters").doc(uid).get(),
+        db.collection("userdata").doc(uid).get(),
+    ]);
+    const counters = normalizeMonthlyCounters(counterSnap.exists ? counterSnap.data() : {}, period, userDataSnap.exists ? userDataSnap.data()?.usage : undefined);
+    const tier = await resolveUserTier(uid, request.auth?.token.email);
     const limits = PLAN_LIMITS[tier] || PLAN_LIMITS.FREE;
     return {
-        videosUsed: counters.videosGlobal || 0,
+        videosUsed: counters.videos,
         videosLimit: limits.videos,
-        pdfsUsed: counters.pdfsGlobal || 0,
+        pdfsUsed: counters.pdfs,
         pdfsLimit: limits.pdfs,
+        chatsUsed: counters.chats,
+        chatsLimit: limits.chats,
+        period,
         tier
     };
 });
-// Helper Centralizado: Revisa el cumplimiento tras borrar/cambiar tier
-export const evaluateVideoQuotaCompliance = async (uid) => {
-    const userRef = db.collection("users").doc(uid);
-    const userSnap = await userRef.get();
+const readStoredAssets = async (uid, kind) => {
+    const rootRef = db.collection("userdata").doc(uid);
+    const [rootSnap, subSnap] = await Promise.all([
+        rootRef.get(),
+        rootRef.collection(kind).get(),
+    ]);
+    const merged = new Map();
+    subSnap.docs.forEach((doc) => {
+        merged.set(doc.id, {
+            id: doc.id,
+            data: { id: doc.id, ...doc.data() },
+            ref: doc.ref,
+        });
+    });
+    const arrayField = kind === 'videos' ? 'videos' : 'plans';
+    const legacyAssets = Array.isArray(rootSnap.data()?.[arrayField]) ? rootSnap.data()?.[arrayField] : [];
+    legacyAssets.forEach((asset) => {
+        const id = String(asset?.id || '');
+        if (!id)
+            return;
+        if (!merged.has(id)) {
+            merged.set(id, { id, data: asset });
+        }
+    });
+    return Array.from(merged.values()).sort((a, b) => getAssetTimestamp(b.data) - getAssetTimestamp(a.data));
+};
+const deleteStorageObjectForAsset = async (asset) => {
+    const storagePath = asset.data?.storagePath;
+    if (!storagePath)
+        return;
+    try {
+        await getStorage().bucket().file(storagePath).delete({ ignoreNotFound: true });
+    }
+    catch (error) {
+        console.warn(`[Subscription Enforcement] Could not delete storage object ${storagePath}`, error);
+    }
+};
+const deleteExcessStoredAssets = async (uid, kind, allowedCount) => {
+    const rootRef = db.collection("userdata").doc(uid);
+    const allAssets = await readStoredAssets(uid, kind);
+    const keep = allAssets.slice(0, Math.max(0, allowedCount));
+    const remove = allAssets.slice(Math.max(0, allowedCount));
+    if (remove.length === 0)
+        return 0;
+    const keepIds = new Set(keep.map((asset) => asset.id));
+    const batch = db.batch();
+    remove.forEach((asset) => {
+        if (asset.ref)
+            batch.delete(asset.ref);
+    });
+    const rootSnap = await rootRef.get();
+    const arrayField = kind === 'videos' ? 'videos' : 'plans';
+    const legacyAssets = Array.isArray(rootSnap.data()?.[arrayField]) ? rootSnap.data()?.[arrayField] : [];
+    batch.set(rootRef, {
+        [arrayField]: legacyAssets.filter((asset) => keepIds.has(String(asset?.id || ''))),
+    }, { merge: true });
+    await batch.commit();
+    await Promise.all(remove.map(deleteStorageObjectForAsset));
+    return remove.length;
+};
+const enforceStoredAssetLimits = async (uid) => {
+    const userSnap = await db.collection("users").doc(uid).get();
     const userData = userSnap.exists ? userSnap.data() : {};
-    const tier = resolveUserTier(uid, undefined, userData);
+    const tier = await resolveUserTier(uid, userData?.email || userData?.username);
     const limits = PLAN_LIMITS[tier] || PLAN_LIMITS.FREE;
-    // Use the authoritative quota counter
-    const counterSnap = await db.collection("quota_counters").doc(uid).get();
-    const counters = counterSnap.exists ? counterSnap.data() : { videosGlobal: 0, pdfsGlobal: 0 };
-    const videoCount = counters.videosGlobal || 0;
+    const [videoAssets, pdfAssets] = await Promise.all([
+        readStoredAssets(uid, 'videos'),
+        readStoredAssets(uid, 'plans'),
+    ]);
+    const deletedVideos = videoAssets.length > limits.videos
+        ? await deleteExcessStoredAssets(uid, 'videos', limits.videos)
+        : 0;
+    const deletedPdfs = pdfAssets.length > limits.pdfs
+        ? await deleteExcessStoredAssets(uid, 'plans', limits.pdfs)
+        : 0;
+    return { tier, limits, deletedVideos, deletedPdfs };
+};
+// Helper Centralizado: revisa el cumplimiento de vídeos/PDFs guardados tras borrar o cambiar de tier.
+export const evaluateVideoQuotaCompliance = async (uid) => {
+    const userSnap = await db.collection("users").doc(uid).get();
+    const userData = userSnap.exists ? userSnap.data() : {};
+    const tier = await resolveUserTier(uid, userData?.email || userData?.username);
+    const limits = PLAN_LIMITS[tier] || PLAN_LIMITS.FREE;
+    const [videoAssets, pdfAssets] = await Promise.all([
+        readStoredAssets(uid, 'videos'),
+        readStoredAssets(uid, 'plans'),
+    ]);
+    const videoCount = videoAssets.length;
+    const pdfCount = pdfAssets.length;
+    const isVideoOver = videoCount > limits.videos;
+    const isPdfOver = pdfCount > limits.pdfs;
     const enforcementRef = db.collection("account_enforcement").doc(uid);
     const enforcSnap = await enforcementRef.get();
-    if (videoCount <= limits.videos) {
+    if (!isVideoOver && !isPdfOver) {
         // COMPLIANT -> Levantar restricciones
-        if (enforcSnap.exists && (enforcSnap.data()?.status === 'OVER_LIMIT_GRACE_PERIOD' || enforcSnap.data()?.status === 'PENDING_ACCOUNT_DELETION')) {
+        if (enforcSnap.exists && ['OVER_LIMIT_GRACE_PERIOD', 'PENDING_ASSET_DELETION', 'ASSET_DELETION_IN_PROGRESS', 'PENDING_ACCOUNT_DELETION'].includes(enforcSnap.data()?.status)) {
             await enforcementRef.update({
                 status: 'COMPLIANT',
                 gracePeriodEndsAt: null,
                 currentVideoCount: videoCount,
                 allowedVideoLimit: limits.videos,
+                currentPdfCount: pdfCount,
+                allowedPdfLimit: limits.pdfs,
                 lastEvaluatedAt: FieldValue.serverTimestamp()
             });
             await db.collection("notifications").add({
@@ -442,14 +647,33 @@ export const evaluateVideoQuotaCompliance = async (uid) => {
                 status: 'OVER_LIMIT_GRACE_PERIOD',
                 allowedVideoLimit: limits.videos,
                 currentVideoCount: videoCount,
+                allowedPdfLimit: limits.pdfs,
+                currentPdfCount: pdfCount,
+                overVideoLimit: isVideoOver,
+                overPdfLimit: isPdfOver,
                 gracePeriodEndsAt: Timestamp.fromDate(endLimitTime),
                 lastEvaluatedAt: FieldValue.serverTimestamp()
             }, { merge: true });
+            const overParts = [
+                isVideoOver ? `${videoCount} vídeos (límite ${limits.videos})` : '',
+                isPdfOver ? `${pdfCount} PDFs (límite ${limits.pdfs})` : '',
+            ].filter(Boolean).join(' y ');
             await db.collection("notifications").add({
                 userId: uid, title: "¡Límite excedido por Downgrade!",
-                body: `Tu plan actual permite ${limits.videos} vídeos, pero tienes ${videoCount}. Tienes 3 días completos para borrar el exceso o tu cuenta será inhabilitada y purgada de forma automática irrevocablemente.`,
+                body: `Tu plan actual tiene menos capacidad: tienes ${overParts}. Tienes 3 días para ajustarte; si no, se eliminarán solo los vídeos o PDFs que sobren.`,
                 severity: "critical", read: false, createdAt: new Date().toISOString()
             });
+        }
+        else if (enforcSnap.exists && enforcSnap.data()?.status === 'OVER_LIMIT_GRACE_PERIOD') {
+            await enforcementRef.set({
+                allowedVideoLimit: limits.videos,
+                currentVideoCount: videoCount,
+                allowedPdfLimit: limits.pdfs,
+                currentPdfCount: pdfCount,
+                overVideoLimit: isVideoOver,
+                overPdfLimit: isPdfOver,
+                lastEvaluatedAt: FieldValue.serverTimestamp()
+            }, { merge: true });
         }
     }
 };
@@ -466,41 +690,61 @@ export const enforcementCronJob = onSchedule({
     const batch = db.batch();
     overdueSnap.docs.forEach(doc => {
         batch.update(doc.ref, {
-            status: 'PENDING_ACCOUNT_DELETION',
+            status: 'PENDING_ASSET_DELETION',
             lastEvaluatedAt: FieldValue.serverTimestamp()
         });
     });
     if (overdueSnap.size > 0)
         await batch.commit();
     const pendingSnap = await db.collection("account_enforcement")
-        .where("status", "==", "PENDING_ACCOUNT_DELETION")
+        .where("status", "in", ["PENDING_ASSET_DELETION", "PENDING_ACCOUNT_DELETION"])
         .limit(10) // Chunk handling safe
         .get();
     for (const doc of pendingSnap.docs) {
-        await doc.ref.update({ status: 'DELETION_IN_PROGRESS' });
+        await doc.ref.update({ status: 'ASSET_DELETION_IN_PROGRESS' });
         const uid = doc.data().userId;
         try {
-            await getAuth().deleteUser(uid);
-            await db.collection("userdata").doc(uid).delete();
-            await db.collection("users").doc(uid).delete();
-            // Subcollections are generally skipped without Firebase Firebase CLI tools, but we ensure enforcement prevents login.
+            const result = await enforceStoredAssetLimits(uid);
             await doc.ref.update({
-                status: 'DELETED',
-                deletedAt: FieldValue.serverTimestamp()
+                status: 'COMPLIANT',
+                deletedVideoCount: result.deletedVideos,
+                deletedPdfCount: result.deletedPdfs,
+                gracePeriodEndsAt: null,
+                lastEvaluatedAt: FieldValue.serverTimestamp(),
+                resolvedAt: FieldValue.serverTimestamp()
             });
-            console.log(`[Subscription Enforcement] CRITICAL: Purged account ${uid} per overdue bounds.`);
+            await db.collection("notifications").add({
+                userId: uid,
+                title: "Archivos ajustados al plan",
+                body: `El periodo de gracia terminó. Se eliminaron ${result.deletedVideos} vídeos y ${result.deletedPdfs} PDFs para ajustarte a tu suscripción actual.`,
+                severity: "warning",
+                read: false,
+                createdAt: new Date().toISOString()
+            });
+            console.log(`[Subscription Enforcement] Deleted excess assets for ${uid}:`, result);
         }
         catch (e) {
-            console.error(`Error deleting user ${uid}`, e);
-            await doc.ref.update({ status: 'PENDING_ACCOUNT_DELETION' }); // Safe retry structure
+            console.error(`Error deleting excess assets for ${uid}`, e);
+            await doc.ref.update({ status: 'PENDING_ASSET_DELETION' }); // Safe retry structure
         }
     }
 });
 // Trigger: Downgrade detection when Stripe updates the user's subscription record
 export const onSubscriptionChange = onDocumentWritten({ document: "customers/{uid}/subscriptions/{subscriptionId}", region: "europe-west1" }, async (event) => {
     const uid = event.params.uid;
-    // After Stripe webhook has modified the record, we trigger the compliance check
-    // It will assess their current videos and push them to Grace Period if out-of-bounds
+    const userRef = db.collection("users").doc(uid);
+    const userSnap = await userRef.get();
+    const userData = userSnap.exists ? userSnap.data() : {};
+    const tier = await resolveUserTier(uid, userData?.email || userData?.username);
+    await userRef.set({
+        currentPlanId: tier,
+        profile: {
+            ...(userData?.profile || {}),
+            subscriptionTier: tier,
+        },
+        subscriptionTierUpdatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+    // After Stripe webhook has modified the record, assess stored assets and start grace period if out-of-bounds.
     console.log(`[Subscription Trigger] Evaluating quota compliance for UID: ${uid}`);
     await evaluateVideoQuotaCompliance(uid);
 });
@@ -513,10 +757,23 @@ export const onVideoCreatedFallback = onDocumentWritten({ document: "userdata/{u
     if (createdData?.quotaCounted !== false)
         return;
     const quotaPayer = createdData?.uploadedByCoachId || uid;
-    await db.collection("quota_counters").doc(quotaPayer).set({
-        videosGlobal: FieldValue.increment(1),
-        lastUpdated: FieldValue.serverTimestamp()
-    }, { merge: true });
+    try {
+        await consumeMonthlyQuota(quotaPayer, undefined, 'videos');
+    }
+    catch (error) {
+        await deleteStorageObjectForAsset({ id: event.params.videoId, data: createdData, ref: event.data.after.ref });
+        await event.data.after.ref.delete();
+        await db.collection("notifications").add({
+            userId: quotaPayer,
+            title: "Límite mensual alcanzado",
+            body: "Se ha bloqueado una subida de vídeo porque tu suscripción ya alcanzó el límite mensual.",
+            severity: "warning",
+            read: false,
+            createdAt: new Date().toISOString()
+        });
+        console.warn(`[Video Fallback Trigger] Removed over-limit direct-write upload for UID: ${quotaPayer}`, error);
+        return;
+    }
     await event.data.after.ref.set({
         quotaCounted: true,
         fallbackCountedAt: FieldValue.serverTimestamp()
@@ -533,10 +790,23 @@ export const onPdfCreatedFallback = onDocumentWritten({ document: "userdata/{uid
     if (createdData?.quotaCounted !== false)
         return;
     const quotaPayer = createdData?.uploadedByCoachId || uid;
-    await db.collection("quota_counters").doc(quotaPayer).set({
-        pdfsGlobal: FieldValue.increment(1),
-        lastUpdated: FieldValue.serverTimestamp()
-    }, { merge: true });
+    try {
+        await consumeMonthlyQuota(quotaPayer, undefined, 'pdfs');
+    }
+    catch (error) {
+        await deleteStorageObjectForAsset({ id: event.params.planId, data: createdData, ref: event.data.after.ref });
+        await event.data.after.ref.delete();
+        await db.collection("notifications").add({
+            userId: quotaPayer,
+            title: "Límite mensual alcanzado",
+            body: "Se ha bloqueado una subida de PDF porque tu suscripción ya alcanzó el límite mensual.",
+            severity: "warning",
+            read: false,
+            createdAt: new Date().toISOString()
+        });
+        console.warn(`[PDF Fallback Trigger] Removed over-limit direct-write upload for UID: ${quotaPayer}`, error);
+        return;
+    }
     await event.data.after.ref.set({
         quotaCounted: true,
         fallbackCountedAt: FieldValue.serverTimestamp()
@@ -546,7 +816,7 @@ export const onPdfCreatedFallback = onDocumentWritten({ document: "userdata/{uid
 // Trigger: Video deletion check
 export const onVideoDeletion = onDocumentWritten({ document: "userdata/{uid}/videos/{videoId}", region: "europe-west1" }, async (event) => {
     const uid = event.params.uid;
-    // Only run on deletes (to clear grace periods and decrement counters)
+    // Only run on deletes to clear/update grace periods. Monthly upload counters are never decremented.
     if (!event.data?.after.exists) {
         const deletedData = event.data?.before.data();
         if (deletedData?.quotaCounted === false) {
@@ -554,23 +824,11 @@ export const onVideoDeletion = onDocumentWritten({ document: "userdata/{uid}/vid
         }
         // Determine who "paid" for this video: the coach who uploaded it, or the profile owner
         const quotaPayer = deletedData?.uploadedByCoachId || uid;
-        // Decrement the quota counter for the payer
-        const counterRef = db.collection("quota_counters").doc(quotaPayer);
-        const counterSnap = await counterRef.get();
-        if (counterSnap.exists) {
-            const current = counterSnap.data()?.videosGlobal || 0;
-            if (current > 0) {
-                await counterRef.update({
-                    videosGlobal: current - 1,
-                    lastUpdated: FieldValue.serverTimestamp()
-                });
-            }
-        }
-        console.log(`[Video Deletion Trigger] Re-evaluating compliance for UID: ${quotaPayer}`);
+        console.log(`[Video Deletion Trigger] Re-evaluating stored asset compliance for UID: ${quotaPayer}`);
         await evaluateVideoQuotaCompliance(quotaPayer);
     }
 });
-// Trigger: PDF deletion (decrement counter)
+// Trigger: PDF deletion check. Monthly upload counters are never decremented.
 export const onPdfDeletion = onDocumentWritten({ document: "userdata/{uid}/plans/{planId}", region: "europe-west1" }, async (event) => {
     const uid = event.params.uid;
     if (!event.data?.after.exists) {
@@ -579,17 +837,7 @@ export const onPdfDeletion = onDocumentWritten({ document: "userdata/{uid}/plans
             return;
         }
         const quotaPayer = deletedData?.uploadedByCoachId || uid;
-        const counterRef = db.collection("quota_counters").doc(quotaPayer);
-        const counterSnap = await counterRef.get();
-        if (counterSnap.exists) {
-            const current = counterSnap.data()?.pdfsGlobal || 0;
-            if (current > 0) {
-                await counterRef.update({
-                    pdfsGlobal: current - 1,
-                    lastUpdated: FieldValue.serverTimestamp()
-                });
-            }
-        }
-        console.log(`[PDF Deletion Trigger] Decremented counter for UID: ${quotaPayer}`);
+        console.log(`[PDF Deletion Trigger] Re-evaluating stored asset compliance for UID: ${quotaPayer}`);
+        await evaluateVideoQuotaCompliance(quotaPayer);
     }
 });

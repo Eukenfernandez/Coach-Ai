@@ -1,6 +1,27 @@
 // Coach AI - Service Worker for PWA installability
 const CACHE_NAME = 'coach-ai-v2';
 const MEDIA_EXTENSIONS = /\.(mp4|mov|webm|m4v|avi|mp3|wav|ogg)$/i;
+const LOCAL_DEV_HOSTS = ['localhost', '127.0.0.1', '::1'];
+const IS_LOCAL_DEV = LOCAL_DEV_HOSTS.includes(self.location.hostname);
+
+if (IS_LOCAL_DEV) {
+    self.addEventListener('install', (event) => {
+        self.skipWaiting();
+    });
+
+    self.addEventListener('activate', (event) => {
+        event.waitUntil(
+            caches.keys()
+                .then((cacheNames) => Promise.all(
+                    cacheNames
+                        .filter((name) => name.startsWith('coach-ai'))
+                        .map((name) => caches.delete(name))
+                ))
+                .then(() => self.registration.unregister())
+                .then(() => self.clients.claim())
+        );
+    });
+} else {
 
 // Install event - cache essential assets
 self.addEventListener('install', (event) => {
@@ -65,7 +86,8 @@ self.addEventListener('fetch', (event) => {
             })
             .catch(() => {
                 // Fallback to cache if network fails
-                return caches.match(event.request);
-            })
+        return caches.match(event.request);
+    })
     );
 });
+}

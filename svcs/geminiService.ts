@@ -74,8 +74,11 @@ export const chatWithCoach = async (
     console.error("Error llamando a Cloud Function chatWithCoach:", error);
 
     if (error.code === 'unauthenticated') {
-      return "Debes iniciar sesión para chatear con el entrenador.";
+      throw new Error("Debes iniciar sesión para chatear con el entrenador.");
     }
-    return "Error al conectar con el entrenador.";
+    if (error.code === 'resource-exhausted' || error.code === 'functions/resource-exhausted') {
+      throw new Error(error.message || "Has alcanzado el límite mensual de mensajes de IA de tu suscripción.");
+    }
+    throw new Error("Error al conectar con el entrenador.");
   }
 };
