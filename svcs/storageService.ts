@@ -558,17 +558,23 @@ const fetchAssetSubcollection = async <T>(path: string): Promise<T[]> => {
 };
 
 const DB_NAME = 'CoachAI_StorageV2';
-const STORES = { VIDEOS: 'videos', PLANS: 'plans' };
+const STORES = { VIDEOS: 'videos', PLANS: 'plans', FILMSTRIPS: 'filmstrips' };
 
 const openDB = (): Promise<IDBDatabase> => {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, 2);
+    const request = indexedDB.open(DB_NAME, 3);
     request.onerror = () => reject(request.error);
     request.onsuccess = () => resolve(request.result);
+    // Another tab still holding the previous version blocks the upgrade. Without
+    // this the request never settles and every caller awaits forever; failing
+    // fast lets callers fall back to the network instead.
+    request.onblocked = () =>
+      reject(new Error('IndexedDB upgrade blocked by another open tab of CoachAI.'));
     request.onupgradeneeded = (e) => {
       const db = (e.target as IDBOpenDBRequest).result;
       if (!db.objectStoreNames.contains(STORES.VIDEOS)) db.createObjectStore(STORES.VIDEOS);
       if (!db.objectStoreNames.contains(STORES.PLANS)) db.createObjectStore(STORES.PLANS);
+      if (!db.objectStoreNames.contains(STORES.FILMSTRIPS)) db.createObjectStore(STORES.FILMSTRIPS);
     };
   });
 };
@@ -600,6 +606,37 @@ export const VideoStorage = {
       tx.onabort = () => rej(tx.error);
     });
   }
+};
+
+// Scrubbing proxies for high-resolution video. Rebuildable from the cached
+// video, so a miss is never an error — it just means the drag falls back to
+// decoding real frames.
+export const FilmstripStorage = {
+  saveFilmstrip: async (id: string, filmstrip: unknown) => {
+    const db = await openDB();
+    const tx = db.transaction(STORES.FILMSTRIPS, 'readwrite');
+    tx.objectStore(STORES.FILMSTRIPS).put(filmstrip, id);
+    return new Promise<void>((res, rej) => {
+      tx.oncomplete = () => res();
+      tx.onerror = () => rej(tx.error);
+      tx.onabort = () => rej(tx.error);
+    });
+  },
+  getFilmstrip: async <T,>(id: string): Promise<T | null> => {
+    const db = await openDB();
+    const req = db.transaction(STORES.FILMSTRIPS, 'readonly').objectStore(STORES.FILMSTRIPS).get(id);
+    return new Promise<T | null>((res) => { req.onsuccess = () => res((req.result as T) || null); });
+  },
+  deleteFilmstrip: async (id: string) => {
+    const db = await openDB();
+    const tx = db.transaction(STORES.FILMSTRIPS, 'readwrite');
+    tx.objectStore(STORES.FILMSTRIPS).delete(id);
+    return new Promise<void>((res) => {
+      tx.oncomplete = () => res();
+      tx.onerror = () => res();
+      tx.onabort = () => res();
+    });
+  },
 };
 
 export const PlanStorage = {

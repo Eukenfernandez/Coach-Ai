@@ -2,7 +2,13 @@
 import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { VideoContextDoc, VideoFile, ChatMessage, UserUsage, UserLimits, Language, UserProfile, Screen, VideoPoseSnapshot, VideoQuestionMode } from '../types';
 import { VideoIntelligenceService } from '../svcs/videoIntelligenceService';
-import { StorageService, VideoStorage } from '../svcs/storageService';
+import { StorageService, VideoStorage, FilmstripStorage } from '../svcs/storageService';
+import {
+   generateFilmstrip,
+   findFilmstripIndex,
+   FILMSTRIP_MIN_VIDEO_WIDTH,
+   type Filmstrip,
+} from '../utl/filmstrip';
 import { usePoseDetection, drawPoseOnCanvas, drawPoseOnCanvasWithOffset, POSE_CONNECTIONS, BODY_KEYPOINTS } from '../hks/usePoseDetection';
 import { getBiomechanicalContext } from '../utl/biomechanics';
 import {
@@ -569,6 +575,14 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
    const primarySeekInFlightRef = useRef(false);
    const primaryLastDragSeekTargetRef = useRef<number | null>(null);
    const primarySeekGenerationRef = useRef(0);
+   // Time of the frame actually on screen. Distinct from currentTime, which the
+   // spec advances the moment a seek is *issued*, long before it is decoded.
+   const presentedFrameTimeRef = useRef(0);
+   const filmstripRef = useRef<Filmstrip | null>(null);
+   const filmstripBitmapRef = useRef<ImageBitmap | null>(null);
+   const previewCanvasRef = useRef<HTMLCanvasElement>(null);
+   const isScrubbingRef = useRef(false);
+   const isPlayingRef = useRef(false);
    const primarySeekWatchdogRef = useRef<number | null>(null);
    const primaryDragDirtyRef = useRef(false);
    const secondarySeekIssuedAtRef = useRef(0);
@@ -672,6 +686,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
            }
 
            primaryDisplayedFrameTimeRef.current = mediaTime;
+           presentedFrameTimeRef.current = mediaTime;
            primaryFrameMetadataRef.current = metadata;
         }
 
@@ -689,6 +704,135 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
         primaryFrameMetadataRef.current = null;
      };
   }, [activeUrl, video.id]);
+
+  useEffect(() => {
+     isScrubbingRef.current = isScrubbing;
+  }, [isScrubbing]);
+
+  useEffect(() => {
+     isPlayingRef.current = isPlaying;
+  }, [isPlaying]);
+
+  // Load the scrubbing proxy for this video, building it once if the footage is
+  // high-resolution enough that the decoder cannot follow a drag on its own.
+  useEffect(() => {
+     let cancelled = false;
+     const abort = new AbortController();
+     let startTimer: number | null = null;
+
+     const releaseFilmstrip = () => {
+        filmstripBitmapRef.current?.close();
+        filmstripBitmapRef.current = null;
+        filmstripRef.current = null;
+        const canvas = previewCanvasRef.current;
+        if (canvas) canvas.style.display = 'none';
+     };
+
+     releaseFilmstrip();
+
+     const adopt = async (filmstrip: Filmstrip) => {
+        const bitmap = await createImageBitmap(filmstrip.sprite);
+        if (cancelled) {
+           bitmap.close();
+           return;
+        }
+        filmstripRef.current = filmstrip;
+        filmstripBitmapRef.current = bitmap;
+
+        // Match the proxy canvas to a single frame so the shared object-contain
+        // box letterboxes it exactly like the video element.
+        const canvas = previewCanvasRef.current;
+        if (canvas) {
+           canvas.width = filmstrip.frameWidth;
+           canvas.height = filmstrip.frameHeight;
+        }
+     };
+
+     void (async () => {
+        if (!video.id) return;
+
+        try {
+           const stored = await FilmstripStorage.getFilmstrip<Filmstrip>(video.id);
+           if (cancelled) return;
+           if (stored?.times?.length) {
+              await adopt(stored);
+              return;
+           }
+        } catch {
+           // Cache miss or unreadable store: fall through and try to build one.
+        }
+
+        // Only worth building from a locally cached blob; sampling a remote
+        // stream would download the whole file a second time.
+        if (!activeUrl.startsWith('blob:')) return;
+
+        startTimer = window.setTimeout(() => {
+           void (async () => {
+              const element = videoRef.current;
+              if (cancelled || !element || element.videoWidth < FILMSTRIP_MIN_VIDEO_WIDTH) return;
+
+              const built = await generateFilmstrip(activeUrl, {
+                 signal: abort.signal,
+                 shouldPause: () => isScrubbingRef.current || isPlayingRef.current,
+              });
+              if (cancelled || !built) return;
+
+              await adopt(built);
+              try {
+                 await FilmstripStorage.saveFilmstrip(video.id, built);
+              } catch (error) {
+                 console.warn('[Filmstrip] Could not persist scrubbing proxy', error);
+              }
+           })();
+        }, 2000);
+     })();
+
+     return () => {
+        cancelled = true;
+        abort.abort();
+        if (startTimer !== null) window.clearTimeout(startTimer);
+        releaseFilmstrip();
+     };
+  }, [activeUrl, video.id]);
+
+  // While dragging, paint the nearest sampled frame whenever the decoder has
+  // fallen behind the pointer; hide it as soon as the real frame catches up so
+  // slow, precise scrubbing still shows full resolution.
+  const updateScrubPreview = useCallback((targetTime: number) => {
+     const canvas = previewCanvasRef.current;
+     const strip = filmstripRef.current;
+     const bitmap = filmstripBitmapRef.current;
+     if (!canvas || !strip || !bitmap) return;
+
+     if (Math.abs(presentedFrameTimeRef.current - targetTime) <= 0.1) {
+        canvas.style.display = 'none';
+        return;
+     }
+
+     const index = findFilmstripIndex(strip.times, targetTime);
+     if (index < 0) return;
+
+     const ctx = canvas.getContext('2d');
+     if (!ctx) return;
+
+     ctx.drawImage(
+        bitmap,
+        (index % strip.cols) * strip.frameWidth,
+        Math.floor(index / strip.cols) * strip.frameHeight,
+        strip.frameWidth,
+        strip.frameHeight,
+        0,
+        0,
+        canvas.width,
+        canvas.height,
+     );
+     canvas.style.display = 'block';
+  }, []);
+
+  const hideScrubPreview = useCallback(() => {
+     const canvas = previewCanvasRef.current;
+     if (canvas) canvas.style.display = 'none';
+  }, []);
 
   const getVideoErrorMessage = useCallback((errorCode?: string, fallback?: string | null) => {
      if (errorCode === 'storage/object-not-found') {
@@ -1725,6 +1869,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
 
    const handleScrubEnd = useCallback(() => {
       setIsScrubbing(false);
+      hideScrubPreview();
 
       // Aterriza exactamente donde el usuario soltó: un target en cola pero aún no
       // emitido se perdería con el reset de abajo. Solo si este arrastre alimentó
@@ -1783,6 +1928,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
          primaryPendingSeekRef.current = time;
          primaryPendingSeekExactRef.current = isBackwardScrub;
          drainPrimarySeekQueue();
+         updateScrubPreview(time);
       } else {
          primaryLastDragSeekTargetRef.current = null;
          primaryPendingSeekExactRef.current = false;
@@ -2285,6 +2431,16 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
                                onPlaying={handlePlaying}
                                onError={handleError}
                                onTimeUpdate={handleTimeUpdatePrimary}
+                           />
+                           {/* Scrubbing proxy: same intrinsic aspect ratio as the
+                               video and the same object-contain box, so it lines up
+                               with the frame it stands in for. */}
+                           <canvas
+                              ref={previewCanvasRef}
+                              width={256}
+                              height={144}
+                              className="absolute inset-0 z-[5] pointer-events-none w-full h-full object-contain"
+                              style={{ display: 'none' }}
                            />
                            {/* Pose Detection Canvas Overlay */}
                            {isPoseEnabled && (

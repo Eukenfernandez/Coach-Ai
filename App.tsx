@@ -18,7 +18,7 @@ import {
   SupplementItem,
   UserData
 } from "./types";
-import { StorageService, VideoStorage, PlanStorage, db } from "./svcs/storageService";
+import { StorageService, VideoStorage, PlanStorage, FilmstripStorage, db } from "./svcs/storageService";
 import { EXTERNAL_RETURN_EVENT, type ExternalReturnPayload, initializeNativeAppShell, isNativeApp } from "./svcs/nativeAppService";
 import { getSubscriptionTier, getUserLimits, waitForSubscriptionActive } from "./svcs/subscriptionService";
 import { VideoIntelligenceService } from "./svcs/videoIntelligenceService";
@@ -1668,6 +1668,7 @@ export default function App() {
       await StorageService.deleteFileByPath(video.storagePath);
     }
     await VideoStorage.deleteVideo(id);
+    await FilmstripStorage.deleteFilmstrip(id);
     revokeObjectUrlMaybe(video?.url);
     const updatedVideos = videos.filter((v) => v.id !== id);
     setVideos(updatedVideos);
