@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { Check, Zap, ShieldCheck, Loader2, Star, Circle, XCircle, Crown, AlertTriangle, Settings } from 'lucide-react';
 import { createCheckoutSession, createPortalSession, STRIPE_PRICES, getUserLimits } from '../svcs/subscriptionService';
 import { StorageService } from '../svcs/storageService';
-import { User, Language } from '../types';
+import { User, Language, SubscriptionTier } from '../types';
 
 interface PricingSectionProps {
   currentUser: User;
@@ -51,7 +51,17 @@ const TEXTS = {
     downgradeConfirmBtn: 'Ir a Cancelar Suscripción',
     cancelBtn: 'Volver',
     mostPopular: 'Más Popular',
-    bestValue: 'Elite'
+    bestValue: 'Elite',
+    featVideos: (n: number) => `${n} vídeos guardados`,
+    featAnalyses: (n: number) => `${n} análisis con IA/mes`,
+    featChats: (n: number) => `${n} mensajes de chat/mes`,
+    featChatsUnlimited: 'Mensajes de chat ilimitados',
+    featPdfs: (n: number) => `${n} PDFs de planes`,
+    featComparator: 'Comparador de vídeo',
+    featNoComparator: 'Sin comparador',
+    featModel: (model: string) => `Análisis con ${model}`,
+    featAthletes: (n: number) => `Gestión de ${n} atletas`,
+    featAthletesUnlimited: 'Gestión de atletas ilimitada'
   },
   ing: {
     title: 'Master Your Training',
@@ -77,7 +87,17 @@ const TEXTS = {
     downgradeConfirmBtn: 'Go to Cancel Subscription',
     cancelBtn: 'Go Back',
     mostPopular: 'Most Popular',
-    bestValue: 'Elite'
+    bestValue: 'Elite',
+    featVideos: (n: number) => `${n} stored videos`,
+    featAnalyses: (n: number) => `${n} AI analyses/mo`,
+    featChats: (n: number) => `${n} chat messages/mo`,
+    featChatsUnlimited: 'Unlimited chat messages',
+    featPdfs: (n: number) => `${n} plan PDFs`,
+    featComparator: 'Video comparator',
+    featNoComparator: 'No comparator',
+    featModel: (model: string) => `Analysis with ${model}`,
+    featAthletes: (n: number) => `Manage ${n} athletes`,
+    featAthletesUnlimited: 'Unlimited athlete management'
   },
   eus: {
     title: 'Entrenamendua Menderatu',
@@ -103,7 +123,17 @@ const TEXTS = {
     downgradeConfirmBtn: 'Joan Harpidetza Ezeztatzera',
     cancelBtn: 'Itzuli',
     mostPopular: 'Ezagunena',
-    bestValue: 'Elite'
+    bestValue: 'Elite',
+    featVideos: (n: number) => `Gordetako ${n} bideo`,
+    featAnalyses: (n: number) => `Hileko ${n} analisi IArekin`,
+    featChats: (n: number) => `Hileko ${n} txat mezu`,
+    featChatsUnlimited: 'Txat mezu mugagabeak',
+    featPdfs: (n: number) => `Planen ${n} PDF`,
+    featComparator: 'Bideo konparatzailea',
+    featNoComparator: 'Konparatzailerik ez',
+    featModel: (model: string) => `${model} bidezko analisia`,
+    featAthletes: (n: number) => `${n} atleta kudeatzeko`,
+    featAthletesUnlimited: 'Atleta kudeaketa mugagabea'
   }
 };
 
@@ -157,13 +187,42 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ currentUser, lan
 
   // --- PLAN DEFINITIONS ---
 
+  // Mirrors resolveAllowedModelForTier() in fns/src/quota.ts. Keep both in step:
+  // the cards previously advertised a "Gemini 3 Pro" the backend never calls.
+  const modelForTier = (tierId: SubscriptionTier) =>
+    tierId === 'PREMIUM' || tierId === 'PRO_COACH' ? 'Gemini 2.5 Pro' : 'Gemini 2.5 Flash';
+
+  // Features are derived from the same limits the app enforces, so a card can
+  // never promise capacity or a model the plan does not actually grant.
+  const buildFeatures = (tierId: SubscriptionTier): string[] => {
+    const limits = getUserLimits(tierId);
+    const features = [
+      t.featVideos(limits.maxStoredVideos),
+      t.featAnalyses(limits.maxAnalysisPerMonth),
+      limits.maxChatMessagesPerMonth === 'unlimited'
+        ? t.featChatsUnlimited
+        : t.featChats(limits.maxChatMessagesPerMonth),
+      t.featPdfs(limits.maxPdfUploads),
+      limits.canCompareVideos ? t.featComparator : t.featNoComparator,
+      t.featModel(modelForTier(tierId)),
+    ];
+
+    if (limits.maxManagedAthletes === 'unlimited') {
+      features.push(t.featAthletesUnlimited);
+    } else if (limits.maxManagedAthletes > 0) {
+      features.push(t.featAthletes(limits.maxManagedAthletes));
+    }
+
+    return features;
+  };
+
   const freePlan: PlanItem = {
     id: 'FREE',
     name: t.free,
     price: '0€',
     period: t.monthly,
     icon: <Circle className="text-neutral-400" size={24} />,
-    features: ['3 Análisis/mes', '10 Mensajes chat/mes', '3 Vídeos Máximos', '5 PDFs Máximos', 'Sin Comparador'],
+    features: buildFeatures('FREE'),
     buttonText: currentTier === 'FREE' ? t.current : t.downgrade,
     actionType: currentTier === 'FREE' ? 'none' : 'portal',
     disabled: currentTier === 'FREE',
@@ -179,7 +238,7 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ currentUser, lan
       price: '19,99€',
       period: t.monthly,
       icon: <Zap className="text-orange-500" size={24} />,
-      features: ['15 Vídeos/mes', '100 Mensajes chat/mes', 'Comparador de Vídeo', 'Gemini 2.5 Flash', 'Prioridad Soporte'],
+      features: buildFeatures('PRO_ATHLETE'),
       buttonText: currentTier === 'PRO_ATHLETE' ? t.current : (currentTier === 'FREE' ? t.upgrade : t.select),
       actionType: currentTier === 'PRO_ATHLETE' ? 'none' : 'checkout',
       disabled: currentTier === 'PRO_ATHLETE',
@@ -192,7 +251,7 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ currentUser, lan
       price: '49,99€',
       period: t.monthly,
       icon: <Crown className="text-yellow-500" size={24} />,
-      features: ['100 Vídeos/mes', '200 Mensajes chat/mes', 'Comparador 4K', 'Gemini 3 Pro', 'Máxima Prioridad'],
+      features: buildFeatures('PRO_COACH'),
       // PREMIUM outranks this card, so an athlete on PREMIUM is already at or
       // above it: offering "upgrade" here would check out a lower plan.
       buttonText: hasTopAthletePlan ? t.current : t.upgrade,
@@ -213,7 +272,7 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ currentUser, lan
       price: '49,99€',
       period: t.monthly,
       icon: <ShieldCheck className="text-blue-500" size={24} />,
-      features: ['100 Vídeos/mes', '200 Mensajes chat/mes', 'Comparador de Vídeo', 'Gemini 2.5 Flash', 'Gestión de 20 Atletas'],
+      features: buildFeatures('PRO_COACH'),
       buttonText: currentTier === 'PRO_COACH' ? t.current : t.select,
       actionType: currentTier === 'PRO_COACH' ? 'none' : 'checkout',
       disabled: currentTier === 'PRO_COACH',
@@ -226,7 +285,7 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ currentUser, lan
       price: '79,99€',
       period: t.monthly,
       icon: <Crown className="text-yellow-500" size={24} />,
-      features: ['300 Vídeos/mes', '500 Mensajes chat/mes', 'Comparador 4K', 'Gemini 3 Pro (Deep Analysis)', 'Gestión de 50 Atletas'],
+      features: buildFeatures('PREMIUM'),
       buttonText: currentTier === 'PREMIUM' ? t.current : t.upgrade,
       actionType: currentTier === 'PREMIUM' ? 'none' : 'checkout',
       disabled: currentTier === 'PREMIUM',
