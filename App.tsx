@@ -79,6 +79,13 @@ function toErrorMessage(err: unknown): string {
   }
 }
 
+const TIER_ORDER: Record<SubscriptionTier, number> = {
+  FREE: 0,
+  PRO_ATHLETE: 1,
+  PRO_COACH: 2,
+  PREMIUM: 3,
+};
+
 function revokeObjectUrlMaybe(url?: string) {
   if (!url) return;
   if (url.startsWith("blob:")) {
@@ -1964,10 +1971,17 @@ export default function App() {
     );
   }
 
-  // Logic for display-only stats (Global if Coach active)
-  const finalUserLimits = coachGlobalUsage
-    ? { ...getUserLimits(coachGlobalUsage.tier as SubscriptionTier) }
-    : { ...userLimits };
+  // Logic for display-only stats (Global if Coach active).
+  // Features follow whichever tier is higher: taking the server's tier alone
+  // strips capabilities from an account the client resolved as premium (the
+  // owner allow-list) whenever the deployed backend has not caught up. Monthly
+  // counts still come from the server, which is what actually enforces them.
+  const serverTier = coachGlobalUsage?.tier as SubscriptionTier | undefined;
+  const effectiveTier: SubscriptionTier =
+    serverTier && (TIER_ORDER[serverTier] ?? 0) > (TIER_ORDER[userLimits.tier] ?? 0)
+      ? serverTier
+      : userLimits.tier;
+  const finalUserLimits = { ...getUserLimits(effectiveTier) };
   if (coachGlobalUsage) {
     // Override with backend-authoritative monthly limits for the quota payer.
     finalUserLimits.maxStoredVideos = coachGlobalUsage.videosLimit;
