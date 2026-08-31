@@ -3,6 +3,20 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
 
+    // Coach with an ACCEPTED relationship (mirrors firestore.rules)
+    function isAcceptedCoachOf(userId) {
+      return firestore.exists(/databases/(default)/documents/requests/$(request.auth.uid + '_' + userId))
+        && firestore.get(/databases/(default)/documents/requests/$(request.auth.uid + '_' + userId)).data.status == 'accepted';
+    }
+
+    function canAccessUserFiles(userId) {
+      return request.auth != null && (
+        request.auth.uid == userId ||
+        request.auth.uid == 'MASTER_GOD_EUKEN' ||
+        isAcceptedCoachOf(userId)
+      );
+    }
+
     // ========== PUBLIC ASSETS (landing video, etc.) ==========
     match /pub/{allPaths=**} {
       allow read: if true;
@@ -16,39 +30,25 @@ service firebase.storage {
 
     // ========== USER VIDEOS ==========
     // Path pattern: videos/{userId}/{filename}
+    // Uploads are capped in size and restricted to video content: without
+    // these checks a direct API call could bypass the client-side 512MB
+    // limit and store arbitrary files at the project's expense.
     match /videos/{userId}/{fileName} {
-      allow read: if request.auth != null && (
-        request.auth.uid == userId ||
-        request.auth.uid == 'MASTER_GOD_EUKEN' ||
-        firestore.exists(/databases/(default)/documents/requests/$(request.auth.uid + '_' + userId))
-        && firestore.get(/databases/(default)/documents/requests/$(request.auth.uid + '_' + userId)).data.status == 'accepted'
-      );
-      allow write: if request.auth != null && (
-        request.auth.uid == userId ||
-        request.auth.uid == 'MASTER_GOD_EUKEN' ||
-        // Coach with accepted relationship can upload to athlete's folder
-        firestore.exists(/databases/(default)/documents/requests/$(request.auth.uid + '_' + userId))
-        && firestore.get(/databases/(default)/documents/requests/$(request.auth.uid + '_' + userId)).data.status == 'accepted'
-      );
+      allow read: if canAccessUserFiles(userId);
+      allow create, update: if canAccessUserFiles(userId)
+        && request.resource.size < 512 * 1024 * 1024
+        && request.resource.contentType.matches('video/.*');
+      allow delete: if canAccessUserFiles(userId);
     }
 
     // ========== USER PLANS (PDFs) ==========
     // Path pattern: plans/{userId}/{filename}
     match /plans/{userId}/{fileName} {
-      allow read: if request.auth != null && (
-        request.auth.uid == userId ||
-        request.auth.uid == 'MASTER_GOD_EUKEN' ||
-        // Check accepted relationship for read access
-        firestore.exists(/databases/(default)/documents/requests/$(request.auth.uid + '_' + userId))
-        && firestore.get(/databases/(default)/documents/requests/$(request.auth.uid + '_' + userId)).data.status == 'accepted'
-      );
-      allow write: if request.auth != null && (
-        request.auth.uid == userId ||
-        request.auth.uid == 'MASTER_GOD_EUKEN' ||
-        // Coach with accepted relationship can upload to athlete's folder
-        firestore.exists(/databases/(default)/documents/requests/$(request.auth.uid + '_' + userId))
-        && firestore.get(/databases/(default)/documents/requests/$(request.auth.uid + '_' + userId)).data.status == 'accepted'
-      );
+      allow read: if canAccessUserFiles(userId);
+      allow create, update: if canAccessUserFiles(userId)
+        && request.resource.size < 50 * 1024 * 1024
+        && request.resource.contentType.matches('application/pdf');
+      allow delete: if canAccessUserFiles(userId);
     }
 
     // ========== CATCH-ALL: Deny everything else ==========

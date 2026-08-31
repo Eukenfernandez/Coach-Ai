@@ -1007,6 +1007,17 @@ export const StorageService = {
     try { return JSON.parse(localStorage.getItem(USERS_KEY) || '[]'); } catch { return []; }
   },
 
+  // Local-mode passwords are stored salted+hashed, never in plaintext:
+  // localStorage is readable by any script that reaches the page.
+  _hashLocalPassword: async (password: string, salt: string): Promise<string> => {
+    const data = new TextEncoder().encode(`${salt}:${password}`);
+    const digest = await crypto.subtle.digest('SHA-256', data);
+    return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
+  },
+
+  _newLocalSalt: (): string =>
+    Array.from(crypto.getRandomValues(new Uint8Array(16))).map((b) => b.toString(16).padStart(2, '0')).join(''),
+
   _saveLocalUserData: (userId: string, data: UserData) => {
     localStorage.setItem(`${DATA_PREFIX}${userId}`, JSON.stringify(cleanDataForStorage(data)));
   },
@@ -1040,8 +1051,10 @@ export const StorageService = {
     } else {
       const users = StorageService._getLocalUsers();
       if (users.find(u => u.username === cleanUsername)) throw new Error('Usuario ya existe.');
-      const newUser: User = { id: Date.now().toString(), username: cleanUsername, password: cleanPassword, createdAt: new Date().toISOString() };
-      users.push(newUser);
+      const newUser: User = { id: Date.now().toString(), username: cleanUsername, createdAt: new Date().toISOString() };
+      const passwordSalt = StorageService._newLocalSalt();
+      const passwordHash = await StorageService._hashLocalPassword(cleanPassword, passwordSalt);
+      users.push({ ...newUser, passwordSalt, passwordHash } as User);
       localStorage.setItem(USERS_KEY, JSON.stringify(users));
       StorageService._saveLocalUserData(newUser.id, initialData);
       localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(newUser));
@@ -1065,10 +1078,27 @@ export const StorageService = {
       return user;
     } else {
       const users = StorageService._getLocalUsers();
-      const user = users.find(u => u.username === cleanUsername);
-      if (!user || user.password !== cleanPassword) throw new Error('Credenciales incorrectas.');
-      localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(user));
-      return user;
+      const user = users.find(u => u.username === cleanUsername) as (User & { passwordHash?: string; passwordSalt?: string }) | undefined;
+      if (!user) throw new Error('Credenciales incorrectas.');
+
+      let valid = false;
+      if (user.passwordHash && user.passwordSalt) {
+        valid = (await StorageService._hashLocalPassword(cleanPassword, user.passwordSalt)) === user.passwordHash;
+      } else if (typeof user.password === 'string') {
+        // Legacy plaintext record: verify once, then migrate to salted hash.
+        valid = user.password === cleanPassword;
+        if (valid) {
+          user.passwordSalt = StorageService._newLocalSalt();
+          user.passwordHash = await StorageService._hashLocalPassword(cleanPassword, user.passwordSalt);
+          delete user.password;
+          localStorage.setItem(USERS_KEY, JSON.stringify(users));
+        }
+      }
+      if (!valid) throw new Error('Credenciales incorrectas.');
+
+      const { password: _pw, passwordHash: _ph, passwordSalt: _ps, ...safeUser } = user;
+      localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(safeUser));
+      return safeUser as User;
     }
   },
 
@@ -1553,11 +1583,13 @@ export const StorageService = {
 
   getManagedAthletes: async (athleteIds: string[]): Promise<User[]> => {
     if (!isFirebaseConfigured || !isBrowserOnline() || athleteIds.length === 0) return [];
+    // Tolerate per-athlete failures (e.g. a stale managedAthletes entry whose
+    // relationship was revoked, which rules now reject) instead of failing all.
     const snapshots = await Promise.all(
-      athleteIds.map((id) => db.collection("users").doc(id).get())
+      athleteIds.map((id) => db.collection("users").doc(id).get().catch(() => null))
     );
     return snapshots
-      .filter((snapshot) => snapshot.exists)
+      .filter((snapshot): snapshot is NonNullable<typeof snapshot> => Boolean(snapshot && snapshot.exists))
       .map((snapshot) => ({ id: snapshot.id, ...(snapshot.data() as any) } as User));
   },
 
@@ -1655,6 +1687,9 @@ export const StorageService = {
 
   respondToCoachRequest: async (request: CoachRequest, accept: boolean, athleteUser: User) => {
     if (!isFirebaseConfigured || !isBrowserOnline()) return;
+    // The status change is the single source of truth: the backend trigger
+    // (onCoachRequestWritten) syncs managedAthletes/coaches on both user docs.
+    // The old client-side cross-user writes were denied by Firestore rules.
     await db.collection("requests").doc(request.id).update({ status: accept ? 'accepted' : 'rejected' });
     const athleteEmail = request.athleteEmail.toLowerCase();
     const remainingRequests = getCachedPendingRequestsForEmail(athleteEmail)
@@ -1662,46 +1697,30 @@ export const StorageService = {
     saveCachedPendingRequestsForEmail(athleteEmail, remainingRequests);
     pendingRequestsMemoryCache.delete(athleteEmail);
 
-    if (accept) {
-      await db.collection("users").doc(request.coachId).update({ "profile.managedAthletes": firebase.firestore.FieldValue.arrayUnion(athleteUser.id) });
-      const current = athleteUser.profile?.coaches || [];
-      await StorageService.updateUserProfile(athleteUser.id, { ...athleteUser.profile!, coaches: [...current, request.coachId] });
+    if (accept && athleteUser.profile) {
+      const current = athleteUser.profile.coaches || [];
+      if (!current.includes(request.coachId)) {
+        await StorageService.updateUserProfile(athleteUser.id, { ...athleteUser.profile, coaches: [...current, request.coachId] });
+      }
     }
   },
 
-  sendCoachRequest: async (coach: User, athleteEmail: string) => {
+  sendCoachRequest: async (_coach: User, athleteEmail: string) => {
     if (!isFirebaseConfigured) throw new Error("Solo disponible en modo nube.");
     if (!isBrowserOnline()) throw new Error("Sin conexión. Inténtalo de nuevo cuando vuelva Internet.");
-    const snap = await db.collection("users").where("username", "==", athleteEmail.toLowerCase()).get();
-    if (snap.empty) throw new Error("Atleta no encontrado.");
-    const athleteDoc = snap.docs[0];
-    const athleteId = athleteDoc.id;
-    const athleteData = athleteDoc.data() as any;
-
-    // Use canonical composite ID for authorization lookups
-    const reqId = `${coach.id}_${athleteId}`;
-
-    await db.collection("requests").doc(reqId).set({
-      coachId: coach.id,
-      coachName: `${coach.profile?.firstName} ${coach.profile?.lastName}`,
-      athleteId: athleteId,
-      athleteEmail: athleteEmail.toLowerCase(),
-      athleteName: `${athleteData.profile?.firstName} ${athleteData.profile?.lastName}`,
-      athleteDiscipline: athleteData.profile?.discipline || 'Atleta',
-      status: 'pending',
-      createdAt: new Date().toISOString()
-    }, { merge: true });
+    // Server-side callable: keeps user profiles non-enumerable and prevents
+    // forged request documents (the create rule is now server-only).
+    const callableFunc = firebase.app().functions('europe-west1').httpsCallable('sendCoachRequest');
+    await callableFunc({ athleteEmail: athleteEmail.trim().toLowerCase() });
   },
 
   removeAthleteFromCoach: async (coachId: string, athleteId: string) => {
     if (isFirebaseConfigured) {
       try {
-        await db.collection("users").doc(coachId).update({ "profile.managedAthletes": firebase.firestore.FieldValue.arrayRemove(athleteId) });
-        await db.collection("users").doc(athleteId).update({ "profile.coaches": firebase.firestore.FieldValue.arrayRemove(coachId) });
-        
+        // Rejecting the request is what revokes access; the backend trigger
+        // cleans up both users' relationship arrays.
         const reqId = `${coachId}_${athleteId}`;
-        await db.collection("requests").doc(reqId).update({ status: 'rejected' }).catch(() => {});
-        
+        await db.collection("requests").doc(reqId).update({ status: 'rejected' });
         console.log("Successfully removed athlete from coach:", { coachId, athleteId });
       } catch (e) {
         console.error("Error removing athlete from coach:", e);
@@ -1732,8 +1751,13 @@ export const StorageService = {
     const report: any[] = [];
     for (const d of snap.docs) {
       const u = { id: d.id, ...(d.data() as any) } as User;
-      const data = await StorageService.getUserData(u.id);
-      report.push({ user: u, stats: { videos: data.videos.length, plans: data.plans.length, strengthRecords: data.strengthRecords.length, competitionRecords: data.competitionRecords.length, trainingRecords: data.trainingRecords.length } });
+      try {
+        const data = await StorageService.getUserData(u.id);
+        report.push({ user: u, stats: { videos: data.videos.length, plans: data.plans.length, strengthRecords: data.strengthRecords.length, competitionRecords: data.competitionRecords.length, trainingRecords: data.trainingRecords.length } });
+      } catch (e) {
+        // Keep the report usable even if one user's data can't be read.
+        report.push({ user: u, stats: null, error: getErrorMessage(e) });
+      }
     }
     return report;
   }

@@ -78,8 +78,10 @@ function isIOSorSafari(): boolean {
 // Create a new PoseLandmarker instance
 async function createPoseLandmarkerInstance(): Promise<PoseLandmarker | null> {
     try {
+        // Pinned to the same version as package.json: @latest can silently
+        // ship breaking changes (and is a supply-chain risk) at page load.
         const vision = await FilesetResolver.forVisionTasks(
-            'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm'
+            'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22-rc.20250304/wasm'
         );
 
         const useGPU = !isIOSorSafari();
@@ -253,8 +255,9 @@ export function usePoseDetection(
             return;
         }
 
-        // Process PRIMARY video with model1
-        if (video && video.readyState >= 2 && video.videoWidth > 0) {
+        // Process PRIMARY video with model1. While video.seeking the displayed frame
+        // is still the old one: detecting it wastes 10-60ms per rAF during scrubbing.
+        if (video && video.readyState >= 2 && video.videoWidth > 0 && !video.seeking) {
             const currentTime = video.currentTime;
             // Only process if time changed (avoid processing paused frame repeatedly)
             if (Math.abs(currentTime - lastTime1.current) > 0.001 || lastTime1.current === -1) {
@@ -276,7 +279,7 @@ export function usePoseDetection(
         }
 
         // Process SECONDARY video with model2 (SEPARATE instance!)
-        if (video2 && video2.readyState >= 2 && video2.videoWidth > 0 && model2) {
+        if (video2 && video2.readyState >= 2 && video2.videoWidth > 0 && !video2.seeking && model2) {
             const currentTime2 = video2.currentTime;
             if (Math.abs(currentTime2 - lastTime2.current) > 0.001 || lastTime2.current === -1) {
                 lastTime2.current = currentTime2;

@@ -15,6 +15,16 @@ import { GoogleGenerativeAI, Schema, SchemaType } from "@google/generative-ai";
 import { getApps, initializeApp } from 'firebase-admin/app';
 import { getStorage } from 'firebase-admin/storage';
 import { FieldValue, Timestamp, getFirestore } from 'firebase-admin/firestore';
+import {
+    PLAN_LIMITS,
+    consumeMonthlyQuota,
+    getServerMonthKey,
+    normalizeMonthlyCounters,
+    buildCounterUpdate,
+    resolveUserTier,
+    resolveAllowedModelForTier,
+    toMillis,
+} from './quota.js';
 export { askVideoQuestion, upsertVideoContext } from './videoContext.js';
 
 if (!getApps().length) {
@@ -91,21 +101,6 @@ Responde en español con entusiasmo!`;
     }
 };
 
-// Resolutor de Tier Autoritativo
-const resolveAllowedModelForTier = (tier: string): string => {
-    switch (tier) {
-        case 'PREMIUM':
-        case 'ATLETA_PREMIUM':
-        case 'PRO_COACH':
-            return 'gemini-2.5-pro';
-        case 'PRO_ATHLETE':
-        case 'ATLETA_PRO':
-        case 'FREE':
-        default:
-            return 'gemini-2.5-flash';
-    }
-};
-
 const FRAME_ANALYSIS_SCHEMA: Schema = {
     type: SchemaType.OBJECT,
     properties: {
@@ -142,17 +137,31 @@ export const analizarFrame = onCall(
         const { base64Image, promptText, chatHistory, language } = request.data;
         const uid = request.auth.uid;
 
-        if (!base64Image) {
+        if (!base64Image || typeof base64Image !== 'string') {
             throw new HttpsError("invalid-argument", "Se requiere una imagen.");
         }
+        // ~10MB decoded; anything larger inflates Gemini cost and risks the function timeout.
+        if (base64Image.length > 14_000_000) {
+            throw new HttpsError("invalid-argument", "La imagen es demasiado grande.");
+        }
+        if (promptText !== undefined && (typeof promptText !== 'string' || promptText.length > 4000)) {
+            throw new HttpsError("invalid-argument", "El texto de la consulta no es válido.");
+        }
+        if (chatHistory !== undefined && !Array.isArray(chatHistory)) {
+            throw new HttpsError("invalid-argument", "El historial no es válido.");
+        }
+        const boundedHistory = (Array.isArray(chatHistory) ? chatHistory : [])
+            .slice(-2)
+            .map((entry: unknown) => String(entry).slice(0, 2000));
 
-        const tier = await resolveUserTier(uid, request.auth?.token.email);
+        const quota = await consumeMonthlyQuota(uid, request.auth?.token.email, 'analyses');
+        const tier = quota.tier;
 
         const modelName = resolveAllowedModelForTier(tier);
 
         const genAI = new GoogleGenerativeAI(geminiApiKey.value());
         const systemContext = getSystemPromptForLang(language || 'es', 'frame');
-        const fullPrompt = `${systemContext}\n\nContexto previo: ${(chatHistory || []).slice(-2).join('\n')}\n\nPregunta del usuario: ${promptText || 'Analiza estrictamente lo visible en esta imagen'}`;
+        const fullPrompt = `${systemContext}\n\nContexto previo: ${boundedHistory.join('\n')}\n\nPregunta del usuario: ${promptText || 'Analiza estrictamente lo visible en esta imagen'}`;
 
         console.log(`[analizarFrame API Call] UID: ${uid} | Tier: ${tier} | Resuelto a Modelo: ${modelName}`);
 
@@ -192,13 +201,15 @@ export const analizarFrame = onCall(
             timestamp: FieldValue.serverTimestamp()
             });
 
-            return { 
-                result: finalUserAnswer, 
-                metadata: parsedPayload 
+            return {
+                result: finalUserAnswer,
+                metadata: parsedPayload,
+                analysesUsed: quota.count,
+                analysesLimit: quota.limit,
             };
         } catch (error: any) {
-            console.error("[analizarFrame] Error completo:", JSON.stringify(error, null, 2));
-            console.error("[analizarFrame] Error status:", error?.status);
+            // Log only message/status: the SDK error object can embed request config.
+            console.error("[analizarFrame] Error:", error?.message, "| status:", error?.status);
             throw new HttpsError("internal", "Error al analizar la imagen y extraer contexto.");
         }
     }
@@ -220,8 +231,11 @@ export const chatWithCoach = onCall(
         const { message, history, language } = request.data;
         const uid = request.auth.uid;
 
-        if (!message) {
+        if (!message || typeof message !== 'string') {
             throw new HttpsError("invalid-argument", "Se requiere un mensaje.");
+        }
+        if (message.length > 8000) {
+            throw new HttpsError("invalid-argument", "El mensaje es demasiado largo.");
         }
 
         const quota = await consumeMonthlyQuota(uid, request.auth?.token.email, 'chats');
@@ -253,37 +267,14 @@ export const chatWithCoach = onCall(
 
             return { result: responseText };
         } catch (error: any) {
-            console.error("[chatWithCoach] Error completo:", JSON.stringify(error, null, 2));
+            console.error("[chatWithCoach] Error:", error?.message, "| status:", error?.status);
             throw new HttpsError("internal", "Error al conectar con el entrenador.");
         }
     }
 );
 
 // ========== SUBSCRIPTION ENFORCEMENT ==========
-
-// Central source of truth for plan limits (must mirror subscriptionService.ts on frontend)
-const PLAN_LIMITS: Record<string, { videos: number; pdfs: number; analyses: number; chats: number | 'unlimited'; athletes: number | 'unlimited' }> = {
-  FREE:         { videos: 3,   pdfs: 5,   analyses: 3,   chats: 10,  athletes: 0  },
-  PRO_ATHLETE:  { videos: 15,  pdfs: 15,  analyses: 15,  chats: 100, athletes: 0  },
-  PRO_COACH:    { videos: 50,  pdfs: 100, analyses: 100, chats: 200, athletes: 20 },
-  PREMIUM:      { videos: 300, pdfs: 300, analyses: 300, chats: 500, athletes: 50 },
-};
-
-// Premium bypass emails
-const PREMIUM_EMAILS = ['alejandrosanchez@gmail.com', 'peioetxabe@hotmail.com', 'fernandezeuken@gmail.com', 'julianweber@gmail.com'];
-
-const STRIPE_PRICE_TO_TIER: Record<string, string> = {
-    price_1Shp2GRpDniZdTBe8jaP3rKT: 'PRO_ATHLETE',
-    price_1Shp77RpDniZdTBeN9KYx4oM: 'PRO_COACH',
-    price_1Sj8emRpDniZdTBeCxkGvGnO: 'PREMIUM',
-};
-
-type CounterKind = 'videos' | 'pdfs' | 'chats';
-type MonthlyCounters = {
-    videos: number;
-    pdfs: number;
-    chats: number;
-};
+// Plan limits, tier resolution and quota counters live in quota.ts.
 
 type StoredAssetKind = 'videos' | 'plans';
 
@@ -293,168 +284,22 @@ type StoredAssetRecord = {
     ref?: FirebaseFirestore.DocumentReference;
 };
 
-const ACTIVE_SUBSCRIPTION_STATUSES = ['active', 'trialing'];
-
-const getServerMonthKey = (date = new Date()) =>
-    `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
-
-const getMonthKeyFromValue = (value: any): string | null => {
-    if (!value) return null;
-    const millis = toMillis(value);
-    if (!millis) return null;
-    return getServerMonthKey(new Date(millis));
-};
-
-const isLegacyUsageInPeriod = (legacyUsage: any, period: string) => {
-    const explicitPeriod = legacyUsage?.period || legacyUsage?.monthKey || legacyUsage?.monthlyPeriod;
-    if (explicitPeriod) return String(explicitPeriod) === period;
-    const resetPeriod = getMonthKeyFromValue(legacyUsage?.lastAnalysisReset || legacyUsage?.lastChatReset);
-    return resetPeriod === period;
-};
-
-const toMillis = (value: any): number => {
-    if (!value) return 0;
-    if (typeof value.toMillis === 'function') return value.toMillis();
-    if (typeof value.toDate === 'function') return value.toDate().getTime();
-    if (value instanceof Date) return value.getTime();
-    if (typeof value === 'number') return value;
-    if (typeof value === 'string') {
-        const parsed = Date.parse(value);
-        return Number.isNaN(parsed) ? 0 : parsed;
-    }
-    return 0;
-};
-
 const getAssetTimestamp = (asset: any) =>
     toMillis(asset?.uploadedAt) ||
     toMillis(asset?.createdAt) ||
     toMillis(asset?.date) ||
     (/^\d+$/.test(String(asset?.id || '')) ? Number(asset.id) : 0);
 
-const extractSubscriptionPriceId = (subscriptionData: any): string | undefined => {
-    if (subscriptionData?.items?.data?.[0]?.price?.id) return subscriptionData.items.data[0].price.id;
-    if (subscriptionData?.items?.[0]?.price?.id) return subscriptionData.items[0].price.id;
-    if (subscriptionData?.price?.id) return subscriptionData.price.id;
-    return undefined;
-};
-
-const getAuthBypassTier = (uid: string, userEmail?: string): string | null => {
-    if (userEmail && PREMIUM_EMAILS.includes(userEmail.toLowerCase())) return 'PREMIUM';
-    if (uid.startsWith('test-')) {
-        if (uid.includes('premium')) return 'PREMIUM';
-        if (uid.includes('coach')) return 'PRO_COACH';
-        if (uid.includes('pro')) return 'PRO_ATHLETE';
-        return 'FREE';
+// A registered asset's storagePath must live under the target user's own
+// Storage prefix. The enforcement cron later deletes that path with admin
+// credentials, so a client-supplied path pointing elsewhere would let a
+// caller destroy another user's files.
+const assertOwnedStoragePath = (storagePath: unknown, kind: StoredAssetKind, targetUserId: string): void => {
+    if (storagePath === undefined || storagePath === null || storagePath === '') return;
+    const prefix = `${kind}/${targetUserId}/`;
+    if (typeof storagePath !== 'string' || storagePath.includes('..') || !storagePath.startsWith(prefix)) {
+        throw new HttpsError("invalid-argument", `storagePath inválido: debe estar bajo ${prefix}`);
     }
-    if (uid === 'MASTER_GOD_EUKEN') return 'PREMIUM';
-    return null;
-};
-
-const resolveUserTier = async (
-    uid: string,
-    userEmail?: string,
-    transaction?: FirebaseFirestore.Transaction,
-): Promise<string> => {
-    const userRef = db.collection("users").doc(uid);
-    const userSnap = transaction ? await transaction.get(userRef) : await userRef.get();
-    const userData = userSnap.exists ? userSnap.data() : {};
-    const resolvedEmail = userEmail || userData?.email || userData?.username;
-    const bypassTier = getAuthBypassTier(uid, resolvedEmail);
-    if (bypassTier) return bypassTier;
-
-    const subscriptionQuery = db.collection('customers').doc(uid).collection('subscriptions')
-        .where('status', 'in', ACTIVE_SUBSCRIPTION_STATUSES);
-    const subscriptionSnap = transaction ? await transaction.get(subscriptionQuery) : await subscriptionQuery.get();
-
-    for (const doc of subscriptionSnap.docs) {
-        const priceId = extractSubscriptionPriceId(doc.data());
-        const tier = priceId ? STRIPE_PRICE_TO_TIER[priceId] : undefined;
-        if (tier) return tier;
-    }
-
-    return 'FREE';
-};
-
-const normalizeMonthlyCounters = (rawCounters: any, period: string, legacyUsage?: any): MonthlyCounters => {
-    const legacyOrCurrent = !rawCounters?.period || rawCounters.period === period;
-    if (!legacyOrCurrent) {
-        return { videos: 0, pdfs: 0, chats: 0 };
-    }
-
-    // First deployment after the old client counters may find quota_counters
-    // without a period. Seed the new monthly cloud counter from legacy cloud
-    // usage once, then future months are governed by the server period.
-    const shouldMergeLegacy = isLegacyUsageInPeriod(legacyUsage, period) || !rawCounters?.period;
-    const legacyVideos = shouldMergeLegacy ? Number(legacyUsage?.analysisCount ?? 0) || 0 : 0;
-    const legacyPdfs = shouldMergeLegacy ? Number(legacyUsage?.plansCount ?? 0) || 0 : 0;
-    const legacyChats = shouldMergeLegacy ? Number(legacyUsage?.chatCount ?? 0) || 0 : 0;
-
-    return {
-        videos: Math.max(Number(rawCounters?.videosMonthly ?? rawCounters?.videosGlobal ?? 0) || 0, legacyVideos),
-        pdfs: Math.max(Number(rawCounters?.pdfsMonthly ?? rawCounters?.pdfsGlobal ?? 0) || 0, legacyPdfs),
-        chats: Math.max(Number(rawCounters?.chatsMonthly ?? rawCounters?.chatCount ?? 0) || 0, legacyChats),
-    };
-};
-
-const buildCounterUpdate = (period: string, counters: MonthlyCounters) => ({
-    period,
-    videosMonthly: counters.videos,
-    pdfsMonthly: counters.pdfs,
-    chatsMonthly: counters.chats,
-    // Backwards-compatible aliases for existing client reads and migrations.
-    videosGlobal: counters.videos,
-    pdfsGlobal: counters.pdfs,
-    chatCount: counters.chats,
-    lastUpdated: FieldValue.serverTimestamp(),
-});
-
-const consumeMonthlyQuota = async (
-    uid: string,
-    userEmail: string | undefined,
-    kind: CounterKind,
-): Promise<{ count: number; limit: number | 'unlimited'; tier: string; period: string }> => {
-    const period = getServerMonthKey();
-    return db.runTransaction(async (transaction) => {
-        const tier = await resolveUserTier(uid, userEmail, transaction);
-        const limits = PLAN_LIMITS[tier] || PLAN_LIMITS.FREE;
-        const limit =
-            kind === 'videos' ? limits.videos :
-            kind === 'pdfs' ? limits.pdfs :
-            limits.chats;
-
-        const counterRef = db.collection("quota_counters").doc(uid);
-        const userDataRef = db.collection("userdata").doc(uid);
-        const [counterSnap, userDataSnap] = await Promise.all([
-            transaction.get(counterRef),
-            transaction.get(userDataRef),
-        ]);
-        const counters = normalizeMonthlyCounters(
-            counterSnap.exists ? counterSnap.data() : {},
-            period,
-            userDataSnap.exists ? userDataSnap.data()?.usage : undefined,
-        );
-        const current =
-            kind === 'videos' ? counters.videos :
-            kind === 'pdfs' ? counters.pdfs :
-            counters.chats;
-
-        if (limit !== 'unlimited' && current >= limit) {
-            const label = kind === 'videos' ? 'vídeos' : kind === 'pdfs' ? 'PDFs' : 'mensajes de IA';
-            throw new HttpsError(
-                "resource-exhausted",
-                `Has alcanzado el límite mensual de ${label} de tu suscripción.`
-            );
-        }
-
-        const nextCounters = {
-            ...counters,
-            [kind]: current + 1,
-        } as MonthlyCounters;
-
-        transaction.set(counterRef, buildCounterUpdate(period, nextCounters), { merge: true });
-
-        return { count: current + 1, limit, tier, period };
-    });
 };
 
 // Validate that caller has access to the target user profile
@@ -481,6 +326,7 @@ export const registerVideoInGallery = onCall(
         if (!videoData || !videoData.id) {
             throw new HttpsError("invalid-argument", "Missing videoData.");
         }
+        assertOwnedStoragePath(videoData.storagePath, 'videos', targetUserId);
 
         return await db.runTransaction(async (t) => {
             // 1. Validate target access (own profile or accepted coach relationship)
@@ -554,6 +400,7 @@ export const registerPdfInGallery = onCall(
         if (!pdfData || !pdfData.id) {
             throw new HttpsError("invalid-argument", "Missing pdfData.");
         }
+        assertOwnedStoragePath(pdfData.storagePath, 'plans', targetUserId);
 
         return await db.runTransaction(async (t) => {
             // 1. Validate target access
@@ -643,9 +490,100 @@ export const getCoachQuotaUsage = onCall(
             pdfsLimit: limits.pdfs,
             chatsUsed: counters.chats,
             chatsLimit: limits.chats,
+            analysesUsed: counters.analyses,
+            analysesLimit: limits.analyses,
             period,
             tier
         };
+    }
+);
+
+// ========== COACH-ATHLETE RELATIONSHIP (server-managed) ==========
+
+// Callable: look up an athlete by email and create/refresh the coach request.
+// This replaces the old client flow, which required world-readable `users`
+// documents (PII enumeration) and client-created request docs (forgeable).
+export const sendCoachRequest = onCall(
+    { region: "europe-west1", maxInstances: 10 },
+    async (request) => {
+        if (!request.auth) throw new HttpsError("unauthenticated", "Debes iniciar sesión.");
+        const coachId = request.auth.uid;
+
+        const rawEmail = request.data?.athleteEmail;
+        if (typeof rawEmail !== 'string' || !rawEmail.trim() || rawEmail.length > 320) {
+            throw new HttpsError("invalid-argument", "Email de atleta inválido.");
+        }
+        const athleteEmail = rawEmail.trim().toLowerCase();
+
+        const tier = await resolveUserTier(coachId, request.auth.token.email);
+        const limits = PLAN_LIMITS[tier] || PLAN_LIMITS.FREE;
+        if (limits.athletes <= 0) {
+            throw new HttpsError("permission-denied", "Tu plan no permite gestionar atletas. Mejora tu suscripción.");
+        }
+
+        const acceptedSnap = await db.collection("requests")
+            .where("coachId", "==", coachId)
+            .where("status", "==", "accepted")
+            .get();
+        if (acceptedSnap.size >= limits.athletes) {
+            throw new HttpsError("resource-exhausted", `Tu plan permite gestionar ${limits.athletes} atletas como máximo.`);
+        }
+
+        const athleteSnap = await db.collection("users").where("username", "==", athleteEmail).limit(1).get();
+        if (athleteSnap.empty) throw new HttpsError("not-found", "Atleta no encontrado.");
+        const athleteDoc = athleteSnap.docs[0];
+        const athleteId = athleteDoc.id;
+        if (athleteId === coachId) throw new HttpsError("invalid-argument", "No puedes enviarte una solicitud a ti mismo.");
+        const athleteData = athleteDoc.data() as any;
+
+        const coachSnap = await db.collection("users").doc(coachId).get();
+        const coachProfile = coachSnap.exists ? (coachSnap.data() as any)?.profile : null;
+
+        const reqRef = db.collection("requests").doc(`${coachId}_${athleteId}`);
+        const existing = await reqRef.get();
+        if (existing.exists && existing.data()?.status === 'accepted') {
+            return { success: true, alreadyAccepted: true };
+        }
+
+        await reqRef.set({
+            coachId,
+            coachName: `${coachProfile?.firstName || ''} ${coachProfile?.lastName || ''}`.trim() || 'Entrenador',
+            athleteId,
+            athleteEmail,
+            athleteName: `${athleteData?.profile?.firstName || ''} ${athleteData?.profile?.lastName || ''}`.trim(),
+            athleteDiscipline: athleteData?.profile?.discipline || 'Atleta',
+            status: 'pending',
+            createdAt: new Date().toISOString()
+        }, { merge: true });
+
+        return { success: true };
+    }
+);
+
+// Trigger: keep users' managedAthletes/coaches arrays in sync with request
+// status transitions. The clients used to write these cross-user updates
+// directly, which Firestore rules (correctly) deny — so acceptance was
+// silently half-broken. The server is now the only writer.
+export const onCoachRequestWritten = onDocumentWritten(
+    { document: "requests/{requestId}", region: "europe-west1" },
+    async (event) => {
+        const before = event.data?.before.exists ? event.data.before.data() : null;
+        const after = event.data?.after.exists ? event.data.after.data() : null;
+        const wasAccepted = before?.status === 'accepted';
+        const isAccepted = after?.status === 'accepted';
+        if (wasAccepted === isAccepted) return;
+
+        const coachId = (after ?? before)?.coachId;
+        const athleteId = (after ?? before)?.athleteId;
+        if (typeof coachId !== 'string' || typeof athleteId !== 'string' || !coachId || !athleteId) return;
+
+        const op = isAccepted ? FieldValue.arrayUnion : FieldValue.arrayRemove;
+        await Promise.allSettled([
+            db.collection("users").doc(coachId).set(
+                { profile: { managedAthletes: op(athleteId) } }, { merge: true }),
+            db.collection("users").doc(athleteId).set(
+                { profile: { coaches: op(coachId) } }, { merge: true }),
+        ]);
     }
 );
 
@@ -679,9 +617,15 @@ const readStoredAssets = async (uid: string, kind: StoredAssetKind): Promise<Sto
     return Array.from(merged.values()).sort((a, b) => getAssetTimestamp(b.data) - getAssetTimestamp(a.data));
 };
 
-const deleteStorageObjectForAsset = async (asset: StoredAssetRecord) => {
+const deleteStorageObjectForAsset = async (asset: StoredAssetRecord, expectedPrefix: string) => {
     const storagePath = asset.data?.storagePath;
     if (!storagePath) return;
+    // Never delete outside the owner's prefix: storagePath originates from
+    // client-written documents and must not be trusted with admin credentials.
+    if (typeof storagePath !== 'string' || !storagePath.startsWith(expectedPrefix)) {
+        console.warn(`[Subscription Enforcement] Refusing to delete storage object outside ${expectedPrefix}: ${storagePath}`);
+        return;
+    }
     try {
         await getStorage().bucket().file(storagePath).delete({ ignoreNotFound: true } as any);
     } catch (error) {
@@ -715,14 +659,14 @@ const deleteExcessStoredAssets = async (
     }, { merge: true });
 
     await batch.commit();
-    await Promise.all(remove.map(deleteStorageObjectForAsset));
+    await Promise.all(remove.map((asset) => deleteStorageObjectForAsset(asset, `${kind}/${uid}/`)));
     return remove.length;
 };
 
 const enforceStoredAssetLimits = async (uid: string) => {
-    const userSnap = await db.collection("users").doc(uid).get();
-    const userData = userSnap.exists ? userSnap.data() : {};
-    const tier = await resolveUserTier(uid, userData?.email || userData?.username);
+    // No ID token in this context: resolveUserTier falls back to the trusted
+    // Auth-record email (never the client-writable users/{uid} profile).
+    const tier = await resolveUserTier(uid);
     const limits = PLAN_LIMITS[tier] || PLAN_LIMITS.FREE;
 
     const [videoAssets, pdfAssets] = await Promise.all([
@@ -742,9 +686,7 @@ const enforceStoredAssetLimits = async (uid: string) => {
 
 // Helper Centralizado: revisa el cumplimiento de vídeos/PDFs guardados tras borrar o cambiar de tier.
 export const evaluateVideoQuotaCompliance = async (uid: string) => {
-    const userSnap = await db.collection("users").doc(uid).get();
-    const userData = userSnap.exists ? userSnap.data() : {};
-    const tier = await resolveUserTier(uid, userData?.email || userData?.username);
+    const tier = await resolveUserTier(uid);
     const limits = PLAN_LIMITS[tier] || PLAN_LIMITS.FREE;
 
     const [videoAssets, pdfAssets] = await Promise.all([
@@ -891,7 +833,7 @@ export const onSubscriptionChange = onDocumentWritten(
         const userRef = db.collection("users").doc(uid);
         const userSnap = await userRef.get();
         const userData = userSnap.exists ? userSnap.data() : {};
-        const tier = await resolveUserTier(uid, userData?.email || userData?.username);
+        const tier = await resolveUserTier(uid);
 
         await userRef.set({
             currentPlanId: tier,
@@ -908,6 +850,16 @@ export const onSubscriptionChange = onDocumentWritten(
     }
 );
 
+// Resolve who pays the quota for a direct-write upload. The client-supplied
+// uploadedByCoachId is only honored when that coach really has an accepted
+// relationship with the profile owner — otherwise a forged value would bill
+// an arbitrary victim's quota.
+const resolveQuotaPayer = async (ownerUid: string, uploadedByCoachId: unknown): Promise<string> => {
+    if (typeof uploadedByCoachId !== 'string' || !uploadedByCoachId || uploadedByCoachId === ownerUid) return ownerUid;
+    const relSnap = await db.collection('requests').doc(`${uploadedByCoachId}_${ownerUid}`).get();
+    return relSnap.exists && relSnap.data()?.status === 'accepted' ? uploadedByCoachId : ownerUid;
+};
+
 // Trigger: count direct-write fallback video uploads when callable flow was unavailable
 export const onVideoCreatedFallback = onDocumentWritten(
     { document: "userdata/{uid}/videos/{videoId}", region: "europe-west1" },
@@ -916,14 +868,17 @@ export const onVideoCreatedFallback = onDocumentWritten(
 
         const uid = event.params.uid;
         const createdData = event.data.after.data();
-        if (createdData?.quotaCounted !== false) return;
+        // Only docs the server itself marked as counted are exempt. Anything a
+        // client writes directly (with or without the flag) must be counted —
+        // rules forbid clients from setting quotaCounted:true themselves.
+        if (createdData?.quotaCounted === true) return;
 
-        const quotaPayer = createdData?.uploadedByCoachId || uid;
+        const quotaPayer = await resolveQuotaPayer(uid, createdData?.uploadedByCoachId);
 
         try {
             await consumeMonthlyQuota(quotaPayer, undefined, 'videos');
         } catch (error) {
-            await deleteStorageObjectForAsset({ id: event.params.videoId, data: createdData, ref: event.data.after.ref });
+            await deleteStorageObjectForAsset({ id: event.params.videoId, data: createdData, ref: event.data.after.ref }, `videos/${uid}/`);
             await event.data.after.ref.delete();
             await db.collection("notifications").add({
                 userId: quotaPayer,
@@ -955,14 +910,14 @@ export const onPdfCreatedFallback = onDocumentWritten(
 
         const uid = event.params.uid;
         const createdData = event.data.after.data();
-        if (createdData?.quotaCounted !== false) return;
+        if (createdData?.quotaCounted === true) return;
 
-        const quotaPayer = createdData?.uploadedByCoachId || uid;
+        const quotaPayer = await resolveQuotaPayer(uid, createdData?.uploadedByCoachId);
 
         try {
             await consumeMonthlyQuota(quotaPayer, undefined, 'pdfs');
         } catch (error) {
-            await deleteStorageObjectForAsset({ id: event.params.planId, data: createdData, ref: event.data.after.ref });
+            await deleteStorageObjectForAsset({ id: event.params.planId, data: createdData, ref: event.data.after.ref }, `plans/${uid}/`);
             await event.data.after.ref.delete();
             await db.collection("notifications").add({
                 userId: quotaPayer,

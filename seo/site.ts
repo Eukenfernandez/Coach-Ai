@@ -27,6 +27,9 @@ export type PublicPageId =
   | "training-tracking"
   | "personal-records"
   | "progress-tracking"
+  | "fitness-app"
+  | "ai-coach"
+  | "training-app"
   | "faq"
   | "access";
 
@@ -256,7 +259,7 @@ Object.assign(pageMap, {
       shortTitle: "Inicio",
       metaTitle: withSuffix("App de entrenamiento con IA para analizar vídeo, técnica y progreso"),
       metaDescription:
-        "Analiza tus vídeos con inteligencia artificial, corrige tu técnica con precisión, registra tus mejores marcas y sigue tu evolución en un solo lugar. Coach AI convierte cada entrenamiento en una oportunidad real de progresar.",
+        "Analiza tus vídeos con inteligencia artificial, corrige tu técnica con precisión, registra tus mejores marcas y sigue tu evolución deportiva y de fitness en un solo lugar. Coach AI convierte cada entrenamiento en una oportunidad real de progresar.",
       socialTitle: "App de entrenamiento con IA para analizar vídeo y progreso",
       socialDescription:
         "Analiza tus vídeos con inteligencia artificial, corrige tu técnica con precisión, registra tus mejores marcas y sigue tu evolución en un solo lugar.",
@@ -348,6 +351,9 @@ Object.assign(pageMap, {
         "training-tracking",
         "personal-records",
         "progress-tracking",
+        "fitness-app",
+        "ai-coach",
+        "training-app",
         "faq",
         "access",
       ],
@@ -362,7 +368,7 @@ Object.assign(pageMap, {
       shortTitle: "Home",
       metaTitle: withSuffix("AI training app for video analysis, technique, and progress"),
       metaDescription:
-        "CoachAI is an AI training app for sports video analysis, exercise technique review, personal records logging, and training progress tracking.",
+        "CoachAI is an AI training and fitness app for sports video analysis, exercise technique review, personal records logging, and training progress tracking.",
       socialTitle: "AI training app for video analysis and progress tracking",
       socialDescription:
         "Analyze workout videos, improve technique, log records, and track progress with CoachAI.",
@@ -431,6 +437,9 @@ Object.assign(pageMap, {
         "training-tracking",
         "personal-records",
         "progress-tracking",
+        "fitness-app",
+        "ai-coach",
+        "training-app",
         "faq",
         "access",
       ],
@@ -445,7 +454,7 @@ Object.assign(pageMap, {
       shortTitle: "Hasiera",
       metaTitle: withSuffix("Entrenamendu appa IArekin bideoa, teknika eta aurrerapena aztertzeko"),
       metaDescription:
-        "CoachAI entrenamendu app bat da IArekin: kirol bideoak aztertu, ariketen teknika hobetu, marka pertsonalak erregistratu eta aurrerapena jarraitzeko.",
+        "CoachAI entrenamendu eta fitness app bat da IArekin: kirol bideoak aztertu, ariketen teknika hobetu, marka pertsonalak erregistratu eta aurrerapena jarraitzeko.",
       socialTitle: "Entrenamendu appa IArekin bideoa eta aurrerapena aztertzeko",
       socialDescription:
         "Aztertu bideoak, hobetu teknika, erregistratu markak eta jarraitu aurrerapena CoachAI-rekin.",
@@ -514,6 +523,9 @@ Object.assign(pageMap, {
         "training-tracking",
         "personal-records",
         "progress-tracking",
+        "fitness-app",
+        "ai-coach",
+        "training-app",
         "faq",
         "access",
       ],
@@ -1804,6 +1816,570 @@ Object.assign(pageMap, {
         "Sartu appan bideoak aztertzeko, entrenamenduak jarraitzeko eta marka pertsonalak erregistratzeko.",
       footerSummary:
         "CoachAI-ren sarbide eta erregistro orri publikoa, eremu pribatu autentifikatutik bereizia.",
+    }),
+  },
+});
+
+Object.assign(pageMap, {
+  "fitness-app": {
+    es: entry("fitness-app", "es", {
+      path: "/es/app-fitness-ia",
+      shortTitle: "App de fitness",
+      metaTitle: withSuffix("App de fitness con IA"),
+      metaDescription:
+        "CoachAI es una app de fitness con inteligencia artificial: analiza tus ejercicios en vídeo, corrige tu técnica, registra marcas y sigue tu progreso físico.",
+      eyebrow: "Fitness con IA",
+      h1: "App de fitness con IA para entrenar con técnica y datos",
+      intro:
+        "CoachAI lleva la inteligencia artificial a tu rutina de fitness: revisa tus ejercicios en vídeo, corrige la técnica y sigue tu progreso físico con datos reales.",
+      supportingPoints: [
+        "Graba tus ejercicios y revísalos con IA.",
+        "Corrige la técnica de tus ejercicios de fuerza.",
+        "Registra marcas y sigue tu progreso físico.",
+      ],
+      sections: [
+        {
+          title: "Qué aporta la IA a tu rutina de fitness",
+          body:
+            "Ver tu ejecución desde fuera cambia cómo entrenas: la app detecta fallos de postura y patrones repetidos que en el espejo no se aprecian.",
+          bullets: [
+            "Revisión de ejercicios en vídeo.",
+            "Esqueleto articular sobre la imagen.",
+            "Feedback técnico con IA.",
+          ],
+        },
+        {
+          title: "Del gimnasio al progreso medible",
+          body:
+            "CoachAI reúne tus sesiones, vídeos y marcas para que el progreso no se quede en sensaciones.",
+          bullets: [
+            "Historial de entrenamientos.",
+            "Registro de marcas personales.",
+            "Evolución visible a lo largo del tiempo.",
+          ],
+        },
+      ],
+      heroMedia: imageHero("Interfaz de CoachAI analizando un ejercicio de fitness"),
+      faqItems: [
+        {
+          question: "¿Sirve CoachAI para fitness y gimnasio?",
+          answer:
+            "Sí. Puedes grabar ejercicios de fuerza o movilidad, revisarlos con IA y llevar el control de tus marcas y sesiones.",
+        },
+        {
+          question: "¿Necesito material especial para grabar?",
+          answer:
+            "No. Basta con el móvil: subes el vídeo y la app lo analiza con detección de postura.",
+        },
+        {
+          question: "¿Puedo llevar el seguimiento de mis rutinas?",
+          answer:
+            "Sí. La app registra entrenamientos, marcas y progreso junto al análisis técnico en vídeo.",
+        },
+      ],
+      relatedPages: ["technique-analysis", "training-tracking", "personal-records", "ai-coach", "faq", "access"],
+      finalCtaTitle: "Entrena fitness con técnica, vídeo y datos",
+      finalCtaDescription:
+        "Entra en CoachAI para revisar tus ejercicios con IA y seguir tu progreso físico.",
+      footerSummary:
+        "App de fitness con IA para revisar técnica en vídeo y seguir el progreso físico.",
+    }),
+    en: entry("fitness-app", "en", {
+      path: "/en/ai-fitness-app",
+      shortTitle: "Fitness app",
+      metaTitle: withSuffix("AI fitness app"),
+      metaDescription:
+        "CoachAI is an AI fitness app: analyze your exercises on video, fix your technique, log personal records, and track your fitness progress.",
+      eyebrow: "AI fitness",
+      h1: "AI fitness app to train with technique and data",
+      intro:
+        "CoachAI brings AI to your fitness routine: review your exercises on video, fix technique, and track physical progress with real data.",
+      supportingPoints: [
+        "Record exercises and review them with AI.",
+        "Fix technique on your strength exercises.",
+        "Log records and track fitness progress.",
+      ],
+      sections: [
+        {
+          title: "What AI adds to your fitness routine",
+          body:
+            "Seeing your execution from the outside changes how you train: the app detects posture issues and repeated patterns a mirror can't show.",
+          bullets: [
+            "Video exercise review.",
+            "Joint skeleton over the image.",
+            "AI technique feedback.",
+          ],
+        },
+        {
+          title: "From the gym to measurable progress",
+          body:
+            "CoachAI gathers your sessions, videos, and records so progress isn't just a feeling.",
+          bullets: [
+            "Workout history.",
+            "Personal records log.",
+            "Visible evolution over time.",
+          ],
+        },
+      ],
+      heroMedia: imageHero("CoachAI interface analyzing a fitness exercise"),
+      faqItems: [
+        {
+          question: "Does CoachAI work for fitness and gym training?",
+          answer:
+            "Yes. Record strength or mobility exercises, review them with AI, and keep control of your records and sessions.",
+        },
+        {
+          question: "Do I need special equipment to record?",
+          answer:
+            "No. Your phone is enough: upload the video and the app analyzes it with pose detection.",
+        },
+        {
+          question: "Can I track my routines?",
+          answer:
+            "Yes. The app logs workouts, records, and progress next to the video analysis.",
+        },
+      ],
+      relatedPages: ["technique-analysis", "training-tracking", "personal-records", "ai-coach", "faq", "access"],
+      finalCtaTitle: "Train fitness with technique, video, and data",
+      finalCtaDescription:
+        "Open CoachAI to review your exercises with AI and track your progress.",
+      footerSummary:
+        "AI fitness app for video technique review and physical progress tracking.",
+    }),
+    eu: entry("fitness-app", "eu", {
+      path: "/eu/fitness-app-ia",
+      shortTitle: "Fitness appa",
+      metaTitle: withSuffix("Fitness appa IArekin"),
+      metaDescription:
+        "CoachAI adimen artifizialdun fitness appa da: aztertu zure ariketak bideoan, zuzendu teknika, erregistratu markak eta jarraitu zure aurrerapen fisikoa.",
+      eyebrow: "Fitness IArekin",
+      h1: "Fitness appa IArekin, teknikarekin eta datuekin entrenatzeko",
+      intro:
+        "CoachAIk IA dakar zure fitness errutinara: berrikusi ariketak bideoan, zuzendu teknika eta jarraitu aurrerapen fisikoa benetako datuekin.",
+      supportingPoints: [
+        "Grabatu ariketak eta berrikusi IArekin.",
+        "Zuzendu teknika indar-ariketetan.",
+        "Erregistratu markak eta jarraitu aurrerapena.",
+      ],
+      sections: [
+        {
+          title: "Zer dakar IAk zure fitness errutinara",
+          body:
+            "Zure exekuzioa kanpotik ikusteak entrenatzeko modua aldatzen du: appak posturako akatsak eta errepikatzen diren patroiak detektatzen ditu, ispiluan ikusten ez direnak.",
+          bullets: [
+            "Ariketen bideo-berrikusketa.",
+            "Artikulazioen eskeletoa irudiaren gainean.",
+            "Teknika-feedbacka IArekin.",
+          ],
+        },
+        {
+          title: "Gimnasiotik aurrerapen neurgarrira",
+          body:
+            "CoachAIk saioak, bideoak eta markak biltzen ditu, aurrerapena sentsazio hutsean gera ez dadin.",
+          bullets: [
+            "Entrenamenduen historiala.",
+            "Marka pertsonalen erregistroa.",
+            "Bilakaera ikusgai denboran zehar.",
+          ],
+        },
+      ],
+      heroMedia: imageHero("CoachAI fitness ariketa bat aztertzen"),
+      faqItems: [
+        {
+          question: "CoachAIk fitness eta gimnasiorako balio du?",
+          answer:
+            "Bai. Grabatu indar- edo mugikortasun-ariketak, berrikusi IArekin eta eraman marken eta saioen kontrola.",
+        },
+        {
+          question: "Material berezirik behar dut grabatzeko?",
+          answer:
+            "Ez. Mugikorra nahikoa da: igo bideoa eta appak postura-detekzioarekin aztertzen du.",
+        },
+        {
+          question: "Nire errutinen jarraipena egin dezaket?",
+          answer:
+            "Bai. Appak entrenamenduak, markak eta aurrerapena erregistratzen ditu bideo-analisiarekin batera.",
+        },
+      ],
+      relatedPages: ["technique-analysis", "training-tracking", "personal-records", "ai-coach", "faq", "access"],
+      finalCtaTitle: "Entrenatu fitness-a teknikarekin, bideoarekin eta datuekin",
+      finalCtaDescription:
+        "Sartu CoachAIn zure ariketak IArekin berrikusteko eta aurrerapena jarraitzeko.",
+      footerSummary:
+        "Fitness appa IArekin: teknika bideoan berrikusi eta aurrerapen fisikoa jarraitu.",
+    }),
+  },
+  "ai-coach": {
+    es: entry("ai-coach", "es", {
+      path: "/es/entrenador-personal-ia",
+      shortTitle: "Entrenador IA",
+      metaTitle: withSuffix("Entrenador personal con IA"),
+      metaDescription:
+        "CoachAI funciona como un entrenador personal con IA: analiza tus vídeos, corrige tu técnica, responde a tus preguntas y sigue tu progreso deportivo.",
+      eyebrow: "Entrenador personal IA",
+      h1: "Un entrenador personal con IA que ve cómo entrenas",
+      intro:
+        "CoachAI combina análisis de vídeo, feedback técnico y chat con IA para acompañarte como un entrenador: con contexto de tus sesiones, marcas y evolución.",
+      supportingPoints: [
+        "Feedback técnico sobre tus vídeos.",
+        "Chat de IA con contexto de tu entrenamiento.",
+        "Seguimiento de marcas y progreso.",
+      ],
+      sections: [
+        {
+          title: "Qué hace un entrenador con IA por ti",
+          body:
+            "No solo responde: analiza tus vídeos, entiende tu ejecución y te dice qué corregir y por qué.",
+          bullets: [
+            "Análisis técnico automático.",
+            "Preguntas sobre tu propio vídeo.",
+            "Recomendaciones con contexto.",
+          ],
+        },
+        {
+          title: "Para atletas y entrenadores",
+          body:
+            "Sirve tanto para entrenar por tu cuenta con criterio como para apoyar el trabajo de un entrenador real con datos y vídeo.",
+          bullets: [
+            "Trabajo autónomo con guía.",
+            "Herramienta de apoyo para coaches.",
+            "Historial de progreso compartible.",
+          ],
+        },
+      ],
+      heroMedia: imageHero("Chat del entrenador de IA de CoachAI sobre un vídeo de entrenamiento"),
+      faqItems: [
+        {
+          question: "¿Sustituye a un entrenador real?",
+          answer:
+            "No pretende sustituirlo: te da criterio y feedback cuando entrenas solo, y a los entrenadores les ahorra tiempo de revisión.",
+        },
+        {
+          question: "¿Qué puedo preguntarle a la IA?",
+          answer:
+            "Dudas sobre tu ejecución en el vídeo, la técnica del ejercicio y el contexto de tu progreso; responde usando tu propio material.",
+        },
+        {
+          question: "¿En qué idiomas funciona?",
+          answer: "La app está disponible en castellano, euskera e inglés.",
+        },
+      ],
+      relatedPages: ["video-analysis", "technique-analysis", "fitness-app", "progress-tracking", "faq", "access"],
+      finalCtaTitle: "Entrena con un entrenador de IA que ve tus vídeos",
+      finalCtaDescription:
+        "Accede a CoachAI y recibe feedback técnico sobre tu propio entrenamiento.",
+      footerSummary:
+        "Entrenador personal con IA: análisis de vídeo, feedback técnico y seguimiento del progreso.",
+    }),
+    en: entry("ai-coach", "en", {
+      path: "/en/ai-personal-trainer",
+      shortTitle: "AI trainer",
+      metaTitle: withSuffix("AI personal trainer"),
+      metaDescription:
+        "CoachAI works like an AI personal trainer: it analyzes your videos, fixes your technique, answers your questions, and tracks your training progress.",
+      eyebrow: "AI personal trainer",
+      h1: "An AI personal trainer that sees how you train",
+      intro:
+        "CoachAI combines video analysis, technique feedback, and an AI chat that knows the context of your sessions, records, and progress.",
+      supportingPoints: [
+        "Technique feedback on your videos.",
+        "AI chat with your training context.",
+        "Records and progress tracking.",
+      ],
+      sections: [
+        {
+          title: "What an AI trainer does for you",
+          body:
+            "It doesn't just answer: it analyzes your videos, understands your execution, and tells you what to fix and why.",
+          bullets: [
+            "Automatic technical analysis.",
+            "Questions about your own video.",
+            "Recommendations with context.",
+          ],
+        },
+        {
+          title: "For athletes and coaches",
+          body:
+            "Use it to train on your own with better judgment, or to support a real coach's work with data and video.",
+          bullets: [
+            "Guided independent training.",
+            "Support tool for coaches.",
+            "Shareable progress history.",
+          ],
+        },
+      ],
+      heroMedia: imageHero("CoachAI AI trainer chat over a training video"),
+      faqItems: [
+        {
+          question: "Does it replace a real coach?",
+          answer:
+            "It doesn't try to: it gives you judgment and feedback when you train alone, and saves coaches review time.",
+        },
+        {
+          question: "What can I ask the AI?",
+          answer:
+            "Questions about your execution in the video, exercise technique, and your progress context; it answers using your own material.",
+        },
+        {
+          question: "Which languages does it support?",
+          answer: "The app is available in Spanish, Basque, and English.",
+        },
+      ],
+      relatedPages: ["video-analysis", "technique-analysis", "fitness-app", "progress-tracking", "faq", "access"],
+      finalCtaTitle: "Train with an AI trainer that sees your videos",
+      finalCtaDescription:
+        "Open CoachAI and get technical feedback on your own training.",
+      footerSummary:
+        "AI personal trainer: video analysis, technique feedback, and progress tracking.",
+    }),
+    eu: entry("ai-coach", "eu", {
+      path: "/eu/entrenatzaile-pertsonala-ia",
+      shortTitle: "IA entrenatzailea",
+      metaTitle: withSuffix("Entrenatzaile pertsonala IArekin"),
+      metaDescription:
+        "CoachAI IAdun entrenatzaile pertsonal baten modukoa da: bideoak aztertzen ditu, teknika zuzentzen du, galderei erantzuten die eta aurrerapena jarraitzen du.",
+      eyebrow: "IA entrenatzailea",
+      h1: "Nola entrenatzen duzun ikusten duen IA entrenatzailea",
+      intro:
+        "CoachAIk bideo-analisia, teknika-feedbacka eta IA txata uztartzen ditu, zure saio, marka eta bilakaeraren testuinguruarekin.",
+      supportingPoints: [
+        "Teknika-feedbacka zure bideoen gainean.",
+        "IA txata zure entrenamenduaren testuinguruarekin.",
+        "Marken eta aurrerapenaren jarraipena.",
+      ],
+      sections: [
+        {
+          title: "Zer egiten du IA entrenatzaile batek zuretzat",
+          body:
+            "Ez du erantzun soilik ematen: zure bideoak aztertzen ditu, exekuzioa ulertzen du eta zer zuzendu eta zergatik esaten dizu.",
+          bullets: [
+            "Analisi tekniko automatikoa.",
+            "Galderak zure bideoari buruz.",
+            "Gomendioak testuinguruarekin.",
+          ],
+        },
+        {
+          title: "Atleta eta entrenatzaileentzat",
+          body:
+            "Zure kabuz irizpidez entrenatzeko balio du, eta benetako entrenatzaile baten lana datu eta bideoekin laguntzeko ere bai.",
+          bullets: [
+            "Lan autonomoa gidarekin.",
+            "Laguntza-tresna entrenatzaileentzat.",
+            "Aurrerapenaren historial partekagarria.",
+          ],
+        },
+      ],
+      heroMedia: imageHero("CoachAIren IA entrenatzailearen txata entrenamendu bideo baten gainean"),
+      faqItems: [
+        {
+          question: "Benetako entrenatzaile bat ordezkatzen du?",
+          answer:
+            "Ez du hori bilatzen: bakarrik entrenatzen duzunean irizpidea eta feedbacka ematen dizkizu, eta entrenatzaileei berrikusketa-denbora aurrezten die.",
+        },
+        {
+          question: "Zer galdetu diezaioket IAri?",
+          answer:
+            "Bideoko exekuzioari, ariketaren teknikari eta zure aurrerapenaren testuinguruari buruzko zalantzak; zure materiala erabiliz erantzuten du.",
+        },
+        {
+          question: "Zein hizkuntzatan dabil?",
+          answer: "Appa gaztelaniaz, euskaraz eta ingelesez dago erabilgarri.",
+        },
+      ],
+      relatedPages: ["video-analysis", "technique-analysis", "fitness-app", "progress-tracking", "faq", "access"],
+      finalCtaTitle: "Entrenatu zure bideoak ikusten dituen IA entrenatzailearekin",
+      finalCtaDescription:
+        "Sartu CoachAIn eta jaso feedback teknikoa zure entrenamenduaren gainean.",
+      footerSummary:
+        "Entrenatzaile pertsonala IArekin: bideo-analisia, feedback teknikoa eta aurrerapenaren jarraipena.",
+    }),
+  },
+  "training-app": {
+    es: entry("training-app", "es", {
+      path: "/es/app-entrenamiento",
+      shortTitle: "App para entrenar",
+      metaTitle: withSuffix("App para entrenar mejor: vídeo, técnica y progreso"),
+      metaDescription:
+        "¿Buscas una app de entrenamiento? CoachAI une análisis de vídeo con IA, técnica, registro de marcas y seguimiento del progreso para entrenar con criterio.",
+      eyebrow: "App de entrenamiento",
+      h1: "Una app de entrenamiento para entrenar con criterio",
+      intro:
+        "CoachAI reúne en una sola app lo que otras separan: vídeo con IA, corrección técnica, marcas personales y evolución del entrenamiento.",
+      supportingPoints: [
+        "Registra tus sesiones y entrenamientos.",
+        "Revisa la técnica de cada ejercicio en vídeo.",
+        "Mide tu progreso con marcas y métricas.",
+      ],
+      sections: [
+        {
+          title: "Qué debería tener una app de entrenamiento",
+          body:
+            "Registrar sesiones no basta: para mejorar necesitas ver tu ejecución y conectar los datos con lo que haces en la pista o en el gimnasio.",
+          bullets: [
+            "Registro de entrenamientos y sesiones.",
+            "Análisis de vídeo integrado.",
+            "Datos de fuerza, marcas y competición.",
+          ],
+        },
+        {
+          title: "Pensada para deporte real",
+          body:
+            "Del atletismo a los deportes de fuerza: la app se adapta a disciplinas donde la técnica y la progresión importan.",
+          bullets: [
+            "Perfiles de atleta y entrenador.",
+            "Historial por disciplina.",
+            "Acceso web y móvil.",
+          ],
+        },
+      ],
+      heroMedia: imageHero("Panel de entrenamientos de CoachAI"),
+      faqItems: [
+        {
+          question: "¿Es una app de rutinas o de análisis?",
+          answer:
+            "Las dos cosas: registra entrenamientos y marcas, y además analiza tu técnica en vídeo con IA.",
+        },
+        {
+          question: "¿Funciona en el móvil?",
+          answer:
+            "Sí. Funciona en el navegador del móvil y también como app, y los vídeos se graban directamente con la cámara.",
+        },
+        {
+          question: "¿Es para principiantes o avanzados?",
+          answer:
+            "Para ambos: los principiantes corrigen antes los errores y los avanzados afinan detalles con vídeo y datos.",
+        },
+      ],
+      relatedPages: ["training-tracking", "personal-records", "progress-tracking", "fitness-app", "faq", "access"],
+      finalCtaTitle: "Empieza a entrenar con vídeo, datos y criterio",
+      finalCtaDescription:
+        "Entra en CoachAI y convierte tus sesiones en progreso medible.",
+      footerSummary:
+        "App de entrenamiento con análisis de vídeo, técnica, marcas y progreso.",
+    }),
+    en: entry("training-app", "en", {
+      path: "/en/training-app",
+      shortTitle: "Training app",
+      metaTitle: withSuffix("Training app for video, technique, and progress"),
+      metaDescription:
+        "Looking for a training app? CoachAI combines AI video analysis, technique review, records logging, and progress tracking so you train with judgment.",
+      eyebrow: "Training app",
+      h1: "A training app built for training with judgment",
+      intro:
+        "CoachAI brings together what other apps keep separate: AI video, technique correction, personal records, and training evolution.",
+      supportingPoints: [
+        "Log your sessions and workouts.",
+        "Review each exercise's technique on video.",
+        "Measure progress with records and metrics.",
+      ],
+      sections: [
+        {
+          title: "What a training app should include",
+          body:
+            "Logging sessions isn't enough: to improve you need to see your execution and connect the data with what you do on the track or in the gym.",
+          bullets: [
+            "Workout and session logging.",
+            "Built-in video analysis.",
+            "Strength, records, and competition data.",
+          ],
+        },
+        {
+          title: "Built for real sport",
+          body:
+            "From athletics to strength sports: the app fits disciplines where technique and progression matter.",
+          bullets: [
+            "Athlete and coach profiles.",
+            "History per discipline.",
+            "Web and mobile access.",
+          ],
+        },
+      ],
+      heroMedia: imageHero("CoachAI training dashboard"),
+      faqItems: [
+        {
+          question: "Is it a routines app or an analysis app?",
+          answer:
+            "Both: it logs workouts and records, and it also analyzes your technique on video with AI.",
+        },
+        {
+          question: "Does it work on mobile?",
+          answer:
+            "Yes. It works in the mobile browser and as an app, and videos record straight from the camera.",
+        },
+        {
+          question: "Is it for beginners or advanced athletes?",
+          answer:
+            "Both: beginners fix mistakes earlier, and advanced athletes fine-tune details with video and data.",
+        },
+      ],
+      relatedPages: ["training-tracking", "personal-records", "progress-tracking", "fitness-app", "faq", "access"],
+      finalCtaTitle: "Start training with video, data, and judgment",
+      finalCtaDescription:
+        "Open CoachAI and turn your sessions into measurable progress.",
+      footerSummary:
+        "Training app with video analysis, technique review, records, and progress.",
+    }),
+    eu: entry("training-app", "eu", {
+      path: "/eu/entrenamendu-aplikazioa",
+      shortTitle: "Entrenatzeko appa",
+      metaTitle: withSuffix("Entrenatzeko appa: bideoa, teknika eta aurrerapena"),
+      metaDescription:
+        "Entrenatzeko app baten bila? CoachAIk IA bidezko bideo-analisia, teknika, marken erregistroa eta aurrerapenaren jarraipena batzen ditu irizpidez entrenatzeko.",
+      eyebrow: "Entrenamendu appa",
+      h1: "Irizpidez entrenatzeko pentsatutako entrenamendu appa",
+      intro:
+        "CoachAIk beste app batzuek bereizten dutena biltzen du: IA bidezko bideoa, teknika-zuzenketa, marka pertsonalak eta entrenamenduaren bilakaera.",
+      supportingPoints: [
+        "Erregistratu zure saioak eta entrenamenduak.",
+        "Berrikusi ariketa bakoitzaren teknika bideoan.",
+        "Neurtu aurrerapena marka eta metrikekin.",
+      ],
+      sections: [
+        {
+          title: "Zer izan beharko luke entrenamendu app batek",
+          body:
+            "Saioak erregistratzea ez da nahikoa: hobetzeko zure exekuzioa ikusi behar duzu eta datuak pistan edo gimnasioan egiten duzunarekin lotu.",
+          bullets: [
+            "Entrenamenduen eta saioen erregistroa.",
+            "Bideo-analisia integratuta.",
+            "Indarraren, marken eta lehiaketen datuak.",
+          ],
+        },
+        {
+          title: "Benetako kirolerako pentsatua",
+          body:
+            "Atletismotik indar-kiroletara: appa teknika eta progresioa garrantzitsuak diren diziplinetara egokitzen da.",
+          bullets: [
+            "Atleta eta entrenatzaile profilak.",
+            "Historiala diziplinaka.",
+            "Web eta mugikorreko sarbidea.",
+          ],
+        },
+      ],
+      heroMedia: imageHero("CoachAIren entrenamendu panela"),
+      faqItems: [
+        {
+          question: "Errutina appa da ala analisi appa?",
+          answer:
+            "Biak: entrenamenduak eta markak erregistratzen ditu, eta gainera zure teknika bideoan aztertzen du IArekin.",
+        },
+        {
+          question: "Mugikorrean dabil?",
+          answer:
+            "Bai. Mugikorreko nabigatzailean eta app gisa dabil, eta bideoak zuzenean kamerarekin grabatzen dira.",
+        },
+        {
+          question: "Hasiberrientzat ala aurreratuentzat da?",
+          answer:
+            "Bientzat: hasiberriek akatsak lehenago zuzentzen dituzte eta aurreratuek xehetasunak fintzen dituzte bideo eta datuekin.",
+        },
+      ],
+      relatedPages: ["training-tracking", "personal-records", "progress-tracking", "fitness-app", "faq", "access"],
+      finalCtaTitle: "Hasi entrenatzen bideoarekin, datuekin eta irizpidearekin",
+      finalCtaDescription:
+        "Sartu CoachAIn eta bihurtu zure saioak aurrerapen neurgarri.",
+      footerSummary:
+        "Entrenamendu appa: bideo-analisia, teknika, markak eta aurrerapena.",
     }),
   },
 });

@@ -6,6 +6,17 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
+build_log*.txt
+build_output.txt
+packager_log.txt
+
+# Secrets — never commit env files or service-account keys
+.env
+.env.*
+!.env.*.example
+!*.example
+*serviceAccount*.json
+*service-account*.json
 
 node_modules
 dist
@@ -30,3 +41,7 @@ fns/output/
 *.sw?
 
 .vercel
+
+# Local tooling artifacts
+.claude/
+graphify-out/

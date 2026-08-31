@@ -691,11 +691,10 @@ export default function App() {
       let tier: SubscriptionTier = "FREE";
 
       // --- PLAN DETERMINATION LOGIC ---
-      if (user.username.toLowerCase() === 'fernandezeuken@gmail.com') {
-        tier = 'PREMIUM';
-      }
+      // Premium allow-listing lives server-side (getCoachQuotaUsage resolves
+      // the authoritative tier); no emails are hardcoded in the bundle.
       // Test accounts always use the hardcoded logic regardless of cloud mode
-      else if (user.id.startsWith('test-')) {
+      if (user.id.startsWith('test-')) {
         tier = await getSubscriptionTier(user.id, user.email || user.username);
       }
       // Real accounts use cloud subscription check
@@ -765,31 +764,35 @@ export default function App() {
     }
   };
 
+  const coachUsageRetryTimeoutRef = useRef<number | null>(null);
+
   const refreshCoachGlobalUsage = async (attempt = 0) => {
+    const scheduleRetry = () => {
+      if (StorageService.isOnline() && attempt < 3) {
+        coachUsageRetryTimeoutRef.current = window.setTimeout(() => {
+          void refreshCoachGlobalUsage(attempt + 1);
+        }, 750 * (attempt + 1));
+      }
+    };
     try {
       const usage = await StorageService.getCoachQuotaUsage();
       if (usage) {
         setCoachGlobalUsage(usage);
         return;
       }
-
-      if (StorageService.isOnline() && attempt < 3) {
-        window.setTimeout(() => {
-          void refreshCoachGlobalUsage(attempt + 1);
-        }, 750 * (attempt + 1));
-      }
+      scheduleRetry();
     } catch (e) {
       console.warn("Failed to fetch coach global usage", e);
-      if (StorageService.isOnline() && attempt < 3) {
-        window.setTimeout(() => {
-          void refreshCoachGlobalUsage(attempt + 1);
-        }, 750 * (attempt + 1));
-      }
+      scheduleRetry();
     }
   };
 
   const handleLogout = async () => {
     try {
+      if (coachUsageRetryTimeoutRef.current !== null) {
+        window.clearTimeout(coachUsageRetryTimeoutRef.current);
+        coachUsageRetryTimeoutRef.current = null;
+      }
       pendingRepairCleanupRef.current?.();
       bootstrapLoadRef.current = {
         requestId: bootstrapLoadRef.current.requestId + 1,
@@ -870,6 +873,101 @@ export default function App() {
         }
       })();
     }, 600);
+  };
+
+  // --- Local video cache (IndexedDB) for cloud videos ---
+  // Streaming from Firebase Storage makes scrubbing and pose analysis choppy; once the
+  // file is cached, hydration serves a blob URL and playback behaves like a local file.
+  const videoCacheInFlightRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    // Ask the browser not to evict the cached videos from IndexedDB under storage pressure.
+    try {
+      void navigator.storage?.persist?.();
+    } catch {
+      // no-op
+    }
+  }, []);
+
+  const cacheRemoteVideoLocally = async (video: VideoFile): Promise<void> => {
+    if (!video?.id || video.isUploading) return;
+    if (video.status === 'error' || video.playbackStatus === 'unplayable') return;
+    if (video.url?.startsWith('blob:')) return;
+    const remoteUrl = video.downloadURL || video.remoteUrl || (/^https?:/i.test(video.url || '') ? video.url : '');
+    if (!remoteUrl) return;
+    if (videoCacheInFlightRef.current.has(video.id)) return;
+    videoCacheInFlightRef.current.add(video.id);
+
+    try {
+      const expectedSize = typeof video.size === 'number' && video.size > 0 ? video.size : undefined;
+      let blob = await VideoStorage.getVideo(video.id);
+
+      if (!blob) {
+        if (expectedSize && navigator.storage?.estimate) {
+          try {
+            const { quota, usage } = await navigator.storage.estimate();
+            if (typeof quota === 'number' && typeof usage === 'number' && quota - usage < expectedSize * 1.2) {
+              return;
+            }
+          } catch {
+            // estimate unavailable: attempt the download anyway
+          }
+        }
+
+        const response = await fetch(remoteUrl, { mode: 'cors', credentials: 'omit' });
+        if (!response.ok) return;
+        const downloaded = await response.blob();
+        if (!downloaded.size) return;
+        // A size mismatch means a truncated or stale download; keep streaming in that case.
+        if (expectedSize && downloaded.size !== expectedSize) return;
+
+        await VideoStorage.saveVideo(video.id, downloaded);
+        blob = downloaded;
+      }
+
+      const blobUrl = URL.createObjectURL(blob);
+      let adopted = false;
+      setVideos((prev) => prev.map((v) => {
+        if (v.id !== video.id || v.isUploading || v.url?.startsWith('blob:')) return v;
+        adopted = true;
+        return {
+          ...v,
+          url: blobUrl,
+          isLocal: true,
+          contentType: v.contentType || blob!.type || undefined,
+          size: v.size || blob!.size,
+        };
+      }));
+      if (!adopted) revokeObjectUrlMaybe(blobUrl);
+    } catch (error) {
+      console.warn('[VideoCache] No se pudo cachear el video localmente', video.id, error);
+    } finally {
+      videoCacheInFlightRef.current.delete(video.id);
+    }
+  };
+
+  const warmVideoCacheInBackground = (targetId: string, requestId: number, hydratedVideos: VideoFile[]) => {
+    if ((navigator as any).connection?.saveData) return;
+
+    const BACKGROUND_VIDEO_CACHE_LIMIT = 6;
+    const candidates = hydratedVideos
+      .filter((v) =>
+        !v.isUploading &&
+        v.status === 'ready' &&
+        v.playbackStatus !== 'unplayable' &&
+        !v.url?.startsWith('blob:') &&
+        Boolean(v.downloadURL || v.remoteUrl)
+      )
+      .slice(0, BACKGROUND_VIDEO_CACHE_LIMIT);
+    if (!candidates.length) return;
+
+    void (async () => {
+      // Sequential on purpose: don't compete with the app's own requests for bandwidth.
+      for (const candidate of candidates) {
+        if (bootstrapLoadRef.current.requestId !== requestId || bootstrapLoadRef.current.userId !== targetId) return;
+        await cacheRemoteVideoLocally(candidate);
+      }
+    })();
   };
 
   const hydrateVideosForBootstrap = async (targetId: string, requestId: number, loadedVideos: VideoFile[]) => {
@@ -1175,6 +1273,7 @@ export default function App() {
             }
 
             scheduleMetadataRepair(targetId, requestId, videoResult.repairedVideos, planResult.repairedPlans);
+            warmVideoCacheInBackground(targetId, requestId, videoResult.hydrated);
             setDataSyncState({
               phase: StorageService.isOnline() ? "idle" : "offline",
               source: loadInfo?.source || "local",
@@ -2079,7 +2178,7 @@ export default function App() {
         <div className="flex-1 min-h-0 overflow-hidden relative">
           <Suspense fallback={<ScreenLoader />}>
             {currentScreen === "dashboard" && <Dashboard userProfile={currentUser.profile} videos={videos} strengthRecords={strengthRecords} throwRecords={competitionRecords} trainingRecords={trainingRecords} onNavigate={navigateTo} language={language} />}
-            {currentScreen === "gallery" && <Gallery videos={videos} overrideCount={galleryVideoCount} quotaPending={isCloudQuotaPending} onSelectVideo={(v: VideoFile) => { setSelectedVideo(v); setCurrentScreen("analyzer"); }} onUpload={handleUploadVideo} onDelete={handleDeleteVideo} language={language} usage={displayedUsage} limits={finalUserLimits} onNavigate={navigateTo} />}
+            {currentScreen === "gallery" && <Gallery videos={videos} overrideCount={galleryVideoCount} quotaPending={isCloudQuotaPending} onSelectVideo={(v: VideoFile) => { setSelectedVideo(v); setCurrentScreen("analyzer"); void cacheRemoteVideoLocally(v); }} onUpload={handleUploadVideo} onDelete={handleDeleteVideo} language={language} usage={displayedUsage} limits={finalUserLimits} onNavigate={navigateTo} />}
             {currentScreen === "analyzer" && selectedVideo && <VideoAnalyzer video={selectedVideo} targetUserId={viewedUserId!} onBack={() => navigateTo("gallery")} usage={displayedUsage} limits={finalUserLimits} onIncrementUsage={handleIncrementChat} language={language} onNavigate={navigateTo} userProfile={activeAnalysisProfile} />}
             {currentScreen === "planning" && <PlanGallery plans={plans} overrideCount={galleryPlanCount} quotaPending={isCloudQuotaPending} onSelectPlan={(p: PlanFile) => { setSelectedPlan(p); setCurrentScreen("planViewer"); }} onUpload={handleUploadPlan} onDelete={handleDeletePlan} language={language} usage={displayedUsage} limits={finalUserLimits} onNavigate={navigateTo} />}
             {currentScreen === "planViewer" && selectedPlan && <PdfViewer plan={selectedPlan} onBack={() => navigateTo("planning")} />}

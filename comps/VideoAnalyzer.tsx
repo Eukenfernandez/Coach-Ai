@@ -1,8 +1,8 @@
 
-import React, { useRef, useState, useEffect, useCallback } from 'react';
+import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { VideoContextDoc, VideoFile, ChatMessage, UserUsage, UserLimits, Language, UserProfile, Screen, VideoPoseSnapshot, VideoQuestionMode } from '../types';
 import { VideoIntelligenceService } from '../svcs/videoIntelligenceService';
-import { StorageService } from '../svcs/storageService';
+import { StorageService, VideoStorage } from '../svcs/storageService';
 import { usePoseDetection, drawPoseOnCanvas, drawPoseOnCanvasWithOffset, POSE_CONNECTIONS, BODY_KEYPOINTS } from '../hks/usePoseDetection';
 import { getBiomechanicalContext } from '../utl/biomechanics';
 import {
@@ -277,6 +277,11 @@ const formatContextSourcesLabel = (sources: string[], language: Language) => {
    return sources.map((source) => dictionary[source as keyof typeof dictionary] || source).join(' + ');
 };
 
+const TICK_GAP = 10;
+const TICKS_PER_GROUP = 10;
+const PATTERN_WIDTH = TICK_GAP * TICKS_PER_GROUP;
+const PIXELS_PER_SECOND = 80;
+
 interface DualScrubberProps {
    curr: number;
    dur: number;
@@ -301,11 +306,6 @@ const DualScrubber: React.FC<DualScrubberProps> = ({
    const rafRef = useRef<number | null>(null);
 
    const pendingClientX = useRef<number | null>(null);
-
-   const TICK_GAP = 10;
-   const TICKS_PER_GROUP = 10;
-   const PATTERN_WIDTH = TICK_GAP * TICKS_PER_GROUP;
-   const PIXELS_PER_SECOND = 80;
 
    useEffect(() => {
       const updateWidth = () => { if (slowRef.current) setContainerWidth(slowRef.current.clientWidth); };
@@ -385,13 +385,29 @@ const DualScrubber: React.FC<DualScrubberProps> = ({
          if (e.currentTarget.hasPointerCapture(e.pointerId)) {
              e.currentTarget.releasePointerCapture(e.pointerId);
          }
-         dragState.current = { ...dragState.current, fast: false, slow: false, activePointerId: null };
+         const state = dragState.current;
+
+         // Despacha la posición final del puntero: el rAF de throttling puede tener
+         // hasta un frame de movimiento sin emitir. En pointercancel clientX puede
+         // ser obsoleto, así que ahí no se despacha.
+         if (e.type !== 'pointercancel' && dur > 0) {
+            if (state.fast && fastRef.current) {
+               const rect = fastRef.current.getBoundingClientRect();
+               const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+               setTime(pct * dur, true);
+            } else if (state.slow) {
+               const timeDelta = -(e.clientX - state.startX) / PIXELS_PER_SECOND;
+               setTime(Math.max(0, Math.min(dur, state.startTime + timeDelta)), true);
+            }
+         }
+
+         dragState.current = { ...state, fast: false, slow: false, activePointerId: null };
          setLocalTime(null);
          pendingClientX.current = null;
-         
+
          if (rafRef.current) cancelAnimationFrame(rafRef.current);
          rafRef.current = null;
-         
+
          onScrubEnd();
       }
    };
@@ -400,6 +416,18 @@ const DualScrubber: React.FC<DualScrubberProps> = ({
    const progress = dur > 0 ? (activeTime / dur) * 100 : 0;
    const numPatterns = Math.ceil(containerWidth / PATTERN_WIDTH) + 3;
    const scrollOffset = (activeTime * PIXELS_PER_SECOND) % PATTERN_WIDTH;
+
+   // La tira de ticks solo depende de cuántos patrones caben; su movimiento aparente
+   // viene del transform del contenedor. Evita reconstruir ~260 elementos por frame.
+   const tickStrip = useMemo(() => (
+      <div className="flex" style={{ width: numPatterns * PATTERN_WIDTH, justifyContent: 'center' }}>
+         {Array.from({ length: numPatterns * TICKS_PER_GROUP }).map((_, i) => (
+            <div key={i} style={{ width: TICK_GAP }} className="flex justify-center items-end h-full flex-shrink-0 pb-2">
+               <div className={`w-[1.5px] bg-neutral-500 ${i % TICKS_PER_GROUP === 0 ? 'h-5 bg-neutral-300' : 'h-2'}`}></div>
+            </div>
+         ))}
+      </div>
+   ), [numPatterns]);
 
    return (
       <div className="flex flex-col w-full select-none relative group mb-1 touch-none">
@@ -431,13 +459,7 @@ const DualScrubber: React.FC<DualScrubberProps> = ({
             className="relative h-12 w-full bg-black border-y border-neutral-900 overflow-hidden flex items-center justify-center cursor-default hover:cursor-grab active:cursor-grabbing touch-none"
          >
             <div className="flex absolute top-0 bottom-0 items-center left-1/2 opacity-40" style={{ transform: `translateX(calc(-50% - ${scrollOffset}px))` }}>
-               <div className="flex" style={{ width: numPatterns * PATTERN_WIDTH, justifyContent: 'center' }}>
-                  {Array.from({ length: numPatterns * TICKS_PER_GROUP }).map((_, i) => (
-                     <div key={i} style={{ width: TICK_GAP }} className="flex justify-center items-end h-full flex-shrink-0 pb-2">
-                        <div className={`w-[1.5px] bg-neutral-500 ${i % TICKS_PER_GROUP === 0 ? 'h-5 bg-neutral-300' : 'h-2'}`}></div>
-                     </div>
-                  ))}
-               </div>
+               {tickStrip}
             </div>
             <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-[2px] bg-orange-600 z-10 shadow-[0_0_15px_rgba(234,88,12,0.8)]"></div>
             <div className="absolute inset-y-0 left-0 w-12 bg-gradient-to-r from-black to-transparent z-10"></div>
@@ -546,6 +568,11 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
    const primaryPendingSeekExactRef = useRef(false);
    const primarySeekInFlightRef = useRef(false);
    const primaryLastDragSeekTargetRef = useRef<number | null>(null);
+   const primarySeekGenerationRef = useRef(0);
+   const primarySeekWatchdogRef = useRef<number | null>(null);
+   const primaryDragDirtyRef = useRef(false);
+   const secondarySeekIssuedAtRef = useRef(0);
+   const syncStateRef = useRef({ active: false, offset: 0 });
    const scrubResumePlaybackRef = useRef(false);
    const primaryDisplayedFrameTimeRef = useRef(0);
    const primaryFrameIntervalRef = useRef(1 / 30);
@@ -591,6 +618,13 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
   const canvasRef2 = useRef<HTMLCanvasElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const videoRecoveryAttemptedRef = useRef(false);
+  // A cached blob can turn out to be stale/corrupt; when it errors we drop it and stream instead.
+  const [primaryBlobFailed, setPrimaryBlobFailed] = useState(false);
+  const blobFallbackAttemptedRef = useRef(false);
+  // Source continuity: when the same video swaps URL mid-session (remote stream replaced
+  // by a freshly cached local blob), keep the playback position and play state.
+  const prevPrimarySourceRef = useRef<{ id: string; url: string } | null>(null);
+  const pendingSourceRestoreRef = useRef<{ time: number; wasPlaying: boolean } | null>(null);
 
    // Drawing State
    const [isDrawingMode, setIsDrawingMode] = useState(false);
@@ -614,7 +648,8 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
       compareVideo ? videoRef2 : null
    );
 
-  const activeUrl = video.url || resolvedRemoteUrl || video.downloadURL || video.remoteUrl || "";
+  const primaryOwnUrl = primaryBlobFailed && video.url?.startsWith('blob:') ? '' : video.url;
+  const activeUrl = primaryOwnUrl || resolvedRemoteUrl || video.downloadURL || video.remoteUrl || "";
    const messagesUsed = usage?.chatCount || 0;
   const chatLimit = limits?.maxChatMessagesPerMonth === 'unlimited' ? Infinity : (limits?.maxChatMessagesPerMonth as number || 0);
   const isLimitReached = messagesUsed >= chatLimit;
@@ -743,6 +778,8 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
      setResolvedRemoteUrl(video.downloadURL || video.remoteUrl || (/^https?:/i.test(video.url || '') ? (video.url || '') : ''));
      setIsRecoveringVideoSource(false);
      videoRecoveryAttemptedRef.current = false;
+     blobFallbackAttemptedRef.current = false;
+     setPrimaryBlobFailed(false);
   }, [video.id, video.downloadURL, video.remoteUrl, video.url]);
 
   const recoverVideoSource = useCallback(async () => {
@@ -770,14 +807,33 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
      }
   }, [getVideoErrorMessage, targetUserId, video]);
 
+  // Capture playback state when the SAME video changes source (remote → cached blob),
+  // so the reload triggered by the src swap can resume where the user was.
   useEffect(() => {
-     setVideoLoadState('loading');
-     setVideoError(null);
+     const prev = prevPrimarySourceRef.current;
+     if (prev && prev.id === video.id && prev.url && activeUrl && prev.url !== activeUrl) {
+        pendingSourceRestoreRef.current = {
+           time: primaryDisplayedFrameTimeRef.current || currentTime,
+           wasPlaying: isPlaying,
+        };
+     }
+     prevPrimarySourceRef.current = { id: video.id, url: activeUrl };
+  }, [activeUrl, video.id]);
+
+  // Reset the analysis session (time, chat, video context) only when switching to a
+  // DIFFERENT video; a source swap for the same video must not wipe the session.
+  useEffect(() => {
      setCurrentTime(0);
       setVideoContext(null);
       setVideoContextError(null);
       setChatSessionId(null);
       contextBootstrapRef.current = false;
+      pendingSourceRestoreRef.current = null;
+  }, [video.id]);
+
+  useEffect(() => {
+     setVideoLoadState('loading');
+     setVideoError(null);
       if (!activeUrl) {
          setVideoError(getVideoErrorMessage(video.errorCode, video.errorMessage || 'Error: URL de video no encontrada.'));
          setVideoLoadState('error');
@@ -845,11 +901,25 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
    const handleLoadedData = () => {
       setVideoLoadState('ready');
       if (videoRef.current) {
-         primaryDisplayedFrameTimeRef.current = videoRef.current.currentTime;
-         setDuration(videoRef.current.duration);
-         const ratio = videoRef.current.videoWidth / videoRef.current.videoHeight;
+         const el = videoRef.current;
+         primaryDisplayedFrameTimeRef.current = el.currentTime;
+         setDuration(el.duration);
+         const ratio = el.videoWidth / el.videoHeight;
          setAspectRatio1(ratio);
-         setIsVertical(videoRef.current.videoHeight > videoRef.current.videoWidth);
+         setIsVertical(el.videoHeight > el.videoWidth);
+
+         const restore = pendingSourceRestoreRef.current;
+         if (restore) {
+            pendingSourceRestoreRef.current = null;
+            const target = clampMediaTime(restore.time, el.duration);
+            el.currentTime = target;
+            primaryDisplayedFrameTimeRef.current = target;
+            setCurrentTime(target);
+            el.playbackRate = playbackRate;
+            if (restore.wasPlaying) {
+               el.play().catch(() => setIsPlaying(false));
+            }
+         }
       }
    };
 
@@ -867,6 +937,24 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
      if (video.playbackStatus === 'unplayable' || video.errorCode === 'video/unplayable') {
         setVideoError(getVideoErrorMessage('video/unplayable', video.errorMessage || null));
         setVideoLoadState('error');
+        return;
+     }
+
+     // A locally cached blob can be stale or truncated: drop it from the cache and
+     // fall back to streaming the remote source instead of surfacing an error.
+     if (
+        activeUrl.startsWith('blob:') &&
+        !blobFallbackAttemptedRef.current &&
+        (video.downloadURL || video.remoteUrl || video.storagePath)
+     ) {
+        blobFallbackAttemptedRef.current = true;
+        void VideoStorage.deleteVideo(video.id).catch(() => {});
+        setPrimaryBlobFailed(true);
+        setVideoLoadState('loading');
+        if (!(video.downloadURL || video.remoteUrl) && video.storagePath) {
+           videoRecoveryAttemptedRef.current = true;
+           void recoverVideoSource();
+        }
         return;
      }
 
@@ -942,6 +1030,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
          }
 
          secondarySeekInFlightRef.current = true;
+         secondarySeekIssuedAtRef.current = performance.now();
          videoRef2.current.currentTime = nextTime;
       };
 
@@ -960,6 +1049,12 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
          secondaryVideo.removeEventListener('seeked', handleSeeked);
       };
    }, [compareVideo, isScrubbing]);
+
+   // Estado de sincronización legible desde callbacks estables (drainPrimarySeekQueue)
+   // sin meterlos en sus dependencias.
+   useEffect(() => {
+      syncStateRef.current = { active: Boolean(compareVideo && isSynced), offset: syncOffset };
+   }, [compareVideo, isSynced, syncOffset]);
 
    useEffect(() => {
       if (secondaryTimelineRafRef.current) {
@@ -1183,9 +1278,10 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
 
       if (containerWidth <= 0 || containerHeight <= 0) return;
 
-      // Set canvas internal resolution to match container
-      poseCanvas.width = containerWidth;
-      poseCanvas.height = containerHeight;
+      // Set canvas internal resolution to match container. Asignar width/height
+      // limpia y realoca el bitmap incluso con el mismo valor: evita los no-ops.
+      if (poseCanvas.width !== containerWidth) poseCanvas.width = containerWidth;
+      if (poseCanvas.height !== containerHeight) poseCanvas.height = containerHeight;
 
       const ctx = poseCanvas.getContext('2d');
       if (!ctx) return;
@@ -1253,9 +1349,9 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
 
       if (containerWidth <= 0 || containerHeight <= 0) return;
 
-      // Set canvas internal resolution
-      poseCanvas.width = containerWidth;
-      poseCanvas.height = containerHeight;
+      // Set canvas internal resolution (evita realocar el bitmap sin cambios)
+      if (poseCanvas.width !== containerWidth) poseCanvas.width = containerWidth;
+      if (poseCanvas.height !== containerHeight) poseCanvas.height = containerHeight;
 
       const ctx = poseCanvas.getContext('2d');
       if (!ctx) return;
@@ -1437,6 +1533,35 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
       element.currentTime = clamped;
    }, []);
 
+   const queueSecondarySeek = useCallback((time: number) => {
+      secondaryPendingSeekTimeRef.current = time;
+
+      if (secondarySeekQueueRafRef.current !== null) return;
+
+      secondarySeekQueueRafRef.current = requestAnimationFrame(() => {
+         secondarySeekQueueRafRef.current = null;
+
+         if (!videoRef2.current) {
+            secondaryPendingSeekTimeRef.current = null;
+            secondarySeekInFlightRef.current = false;
+            return;
+         }
+
+         // Un seek en vuelo caduca a los 250ms por si el navegador nunca emite 'seeked'.
+         if (secondarySeekInFlightRef.current && performance.now() - secondarySeekIssuedAtRef.current < 250) return;
+
+         const nextTime = secondaryPendingSeekTimeRef.current;
+         secondaryPendingSeekTimeRef.current = null;
+
+         if (nextTime === null) return;
+         if (Math.abs(videoRef2.current.currentTime - nextTime) <= 1 / 240) return;
+
+         secondarySeekInFlightRef.current = true;
+         secondarySeekIssuedAtRef.current = performance.now();
+         videoRef2.current.currentTime = nextTime;
+      });
+   }, []);
+
    const drainPrimarySeekQueue = useCallback(() => {
       const el = videoRef.current;
       if (!el || primarySeekInFlightRef.current) return;
@@ -1447,32 +1572,44 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
       primaryPendingSeekRef.current = null;
       const exactSeek = primaryPendingSeekExactRef.current;
       primaryPendingSeekExactRef.current = false;
+
+      // No quemes un ciclo de decodificación en un seek a la posición actual.
+      if (Math.abs(clampMediaTime(next, el.duration) - el.currentTime) <= 1 / 240) return;
+
+      const generation = ++primarySeekGenerationRef.current;
       primarySeekInFlightRef.current = true;
       applySeekInstant(el, next, { exact: exactSeek });
 
-      let released = false;
+      // En modo comparación sincronizado, el secundario sigue al primario por su propia
+      // cola con gate de finalización, al ritmo de seeks emitidos (no del puntero).
+      const sync = syncStateRef.current;
+      if (sync.active && videoRef2.current) {
+         queueSecondarySeek(next + sync.offset);
+      }
+
       const release = () => {
-         if (released) return;
-         released = true;
-         primarySeekInFlightRef.current = false;
+         // Un release obsoleto (invalidado por scrub-end/frameStep) no debe liberar
+         // el gate de un seek más nuevo.
+         if (primarySeekGenerationRef.current !== generation) return;
+         if (primarySeekWatchdogRef.current !== null) {
+            window.clearTimeout(primarySeekWatchdogRef.current);
+            primarySeekWatchdogRef.current = null;
+         }
          el.removeEventListener('seeked', release);
          el.removeEventListener('error', release);
-
+         primarySeekInFlightRef.current = false;
          if (primaryPendingSeekRef.current !== null) {
-            requestAnimationFrame(() => {
-               drainPrimarySeekQueue();
-            });
+            drainPrimarySeekQueue();
          }
       };
 
-      if (exactSeek) {
-         requestAnimationFrame(release);
-      } else {
-         el.addEventListener('seeked', release, { once: true });
-         el.addEventListener('error', release, { once: true });
-         window.setTimeout(release, 40);
-      }
-   }, [applySeekInstant]);
+      // Liberar SOLO cuando el decodificador termina: reescribir currentTime con un
+      // seek en curso lo aborta, y durante un arrastre eso congela la imagen. El
+      // timeout es un watchdog anti-cuelgue, no un mecanismo de ritmo.
+      el.addEventListener('seeked', release, { once: true });
+      el.addEventListener('error', release, { once: true });
+      primarySeekWatchdogRef.current = window.setTimeout(release, 250);
+   }, [applySeekInstant, queueSecondarySeek]);
 
    const seekSynced = useCallback((time: number, isDragging: boolean = false) => {
       if (!videoRef.current || !videoRef2.current) return;
@@ -1516,33 +1653,6 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
       });
    }, [compareDuration, syncOffset]);
 
-   const queueSecondarySeek = useCallback((time: number) => {
-      secondaryPendingSeekTimeRef.current = time;
-
-      if (secondarySeekQueueRafRef.current !== null) return;
-
-      secondarySeekQueueRafRef.current = requestAnimationFrame(() => {
-         secondarySeekQueueRafRef.current = null;
-
-         if (!videoRef2.current) {
-            secondaryPendingSeekTimeRef.current = null;
-            secondarySeekInFlightRef.current = false;
-            return;
-         }
-
-         if (secondarySeekInFlightRef.current) return;
-
-         const nextTime = secondaryPendingSeekTimeRef.current;
-         secondaryPendingSeekTimeRef.current = null;
-
-         if (nextTime === null) return;
-         if (Math.abs(videoRef2.current.currentTime - nextTime) <= 1 / 240) return;
-
-         secondarySeekInFlightRef.current = true;
-         videoRef2.current.currentTime = nextTime;
-      });
-   }, []);
-
    // Final seek when scrubbing ends to ensure we land exactly on the target time and sync global state
    const flushPendingSeek = useCallback(() => {
       if (compareVideo && isSynced && videoRef.current && videoRef2.current) {
@@ -1568,6 +1678,15 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
          }
 
          syncedPendingSeekTimeRef.current = null;
+
+         // La rama sincronizada también debe soltar la cola del secundario: un flag
+         // en vuelo huérfano bloquearía los seeks del siguiente arrastre.
+         if (secondarySeekQueueRafRef.current !== null) {
+            cancelAnimationFrame(secondarySeekQueueRafRef.current);
+            secondarySeekQueueRafRef.current = null;
+         }
+         secondaryPendingSeekTimeRef.current = null;
+         secondarySeekInFlightRef.current = false;
          return;
       }
 
@@ -1606,10 +1725,36 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
 
    const handleScrubEnd = useCallback(() => {
       setIsScrubbing(false);
+
+      // Aterriza exactamente donde el usuario soltó: un target en cola pero aún no
+      // emitido se perdería con el reset de abajo. Solo si este arrastre alimentó
+      // la cola del primario (los arrastres de CAM B no deben mover CAM A).
+      const finalTarget = primaryDragDirtyRef.current
+         ? (primaryPendingSeekRef.current ?? primaryLastDragSeekTargetRef.current)
+         : null;
+
+      primarySeekGenerationRef.current += 1;
+      if (primarySeekWatchdogRef.current !== null) {
+         window.clearTimeout(primarySeekWatchdogRef.current);
+         primarySeekWatchdogRef.current = null;
+      }
       primaryPendingSeekRef.current = null;
       primaryPendingSeekExactRef.current = false;
       primarySeekInFlightRef.current = false;
       primaryLastDragSeekTargetRef.current = null;
+      primaryDragDirtyRef.current = false;
+
+      if (finalTarget !== null && videoRef.current) {
+         const landing = clampMediaTime(finalTarget, videoRef.current.duration);
+         applySeekInstant(videoRef.current, landing, { exact: true });
+         setCurrentTime(landing);
+         if (compareVideo && isSynced && videoRef2.current) {
+            const landing2 = clampMediaTime(landing + syncOffset, videoRef2.current.duration);
+            videoRef2.current.currentTime = landing2;
+            setCompareTime(landing2);
+         }
+      }
+
       flushPendingSeek();
 
       if (scrubResumePlaybackRef.current) {
@@ -1618,7 +1763,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
          setIsPlaying(true);
       }
       scrubResumePlaybackRef.current = false;
-   }, [compareVideo, flushPendingSeek]);
+   }, [applySeekInstant, compareVideo, flushPendingSeek, isSynced, syncOffset]);
 
    const seek = (time: number, isDragging: boolean = false) => {
       // Solo actualizamos el estado completo (con rerenders pesados) fuera del scrubbing rápido
@@ -1628,13 +1773,13 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
 
       if (!videoRef.current) return;
 
-      let exactSeek = false;
       if (isDragging) {
          // Cola durante arrastre: evita bombardear el decoder con seeks superpuestos.
+         // El secundario sincronizado se emite desde el drenaje, no por evento de puntero.
          const previousTarget = primaryLastDragSeekTargetRef.current ?? videoRef.current.currentTime;
          const isBackwardScrub = time < previousTarget - 1 / 240;
-         exactSeek = isBackwardScrub;
          primaryLastDragSeekTargetRef.current = time;
+         primaryDragDirtyRef.current = true;
          primaryPendingSeekRef.current = time;
          primaryPendingSeekExactRef.current = isBackwardScrub;
          drainPrimarySeekQueue();
@@ -1642,9 +1787,9 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
          primaryLastDragSeekTargetRef.current = null;
          primaryPendingSeekExactRef.current = false;
          applySeekInstant(videoRef.current, time);
-      }
-      if (compareVideo && isSynced && videoRef2.current) {
-         applySeekInstant(videoRef2.current, time + syncOffset, { exact: exactSeek });
+         if (compareVideo && isSynced && videoRef2.current) {
+            applySeekInstant(videoRef2.current, time + syncOffset);
+         }
       }
    };
 
@@ -1678,9 +1823,15 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
          setIsPlaying(false);
       }
 
+      primarySeekGenerationRef.current += 1;
+      if (primarySeekWatchdogRef.current !== null) {
+         window.clearTimeout(primarySeekWatchdogRef.current);
+         primarySeekWatchdogRef.current = null;
+      }
       primaryPendingSeekRef.current = null;
       primaryPendingSeekExactRef.current = false;
       primarySeekInFlightRef.current = false;
+      primaryDragDirtyRef.current = false;
 
       if (direction === 'next') {
          const nextTime = clampMediaTime(primaryVideo.currentTime + 1 / 30, primaryVideo.duration);

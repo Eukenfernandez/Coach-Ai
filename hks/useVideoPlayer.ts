@@ -52,8 +52,14 @@ export function useVideoPlayer(options: UseVideoPlayerOptions = {}): UseVideoPla
     }, [isScrubbing]);
 
     const play = useCallback(() => {
-        videoRef.current?.play();
-        setIsPlaying(true);
+        // play() returns a promise that rejects on autoplay-policy blocks or
+        // when interrupted by a load/seek; reflect the real outcome in state.
+        const playPromise = videoRef.current?.play();
+        if (playPromise) {
+            playPromise.then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
+        } else {
+            setIsPlaying(true);
+        }
     }, []);
 
     const pause = useCallback(() => {

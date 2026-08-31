@@ -81,16 +81,11 @@ export const createPortalSession = async (_uid: string): Promise<void> => {
   }
 };
 
-// Lista de emails con suscripción Premium predeterminada
-const PREMIUM_EMAILS = ['alejandrosanchez@gmail.com', 'peioetxabe@hotmail.com', 'fernandezeuken@gmail.com', 'julianweber@gmail.com'];
+const isKnownTier = (value: unknown): value is SubscriptionTier =>
+  value === 'FREE' || value === 'PRO_ATHLETE' || value === 'PRO_COACH' || value === 'PREMIUM';
 
-export const getSubscriptionTier = async (uid: string, userEmail?: string): Promise<SubscriptionTier> => {
-  // Premium Email Bypass
-  if (userEmail && PREMIUM_EMAILS.includes(userEmail.toLowerCase())) {
-    return 'PREMIUM';
-  }
-
-  // Test Account Bypass
+export const getSubscriptionTier = async (uid: string, _userEmail?: string): Promise<SubscriptionTier> => {
+  // Test Account Bypass (local demo accounts only)
   if (uid.startsWith('test-')) {
     if (uid === 'test-pro') return 'PRO_ATHLETE';
     if (uid === 'test-coach-pro') return 'PRO_COACH';
@@ -99,6 +94,18 @@ export const getSubscriptionTier = async (uid: string, userEmail?: string): Prom
   }
 
   if (!db || uid === 'MASTER_GOD_EUKEN') return 'PREMIUM';
+
+  // The server is the authority on tier (it also owns any premium
+  // allow-listing). The subscription query below is only a fallback.
+  try {
+    const callable = firebase.app().functions('europe-west1').httpsCallable('getCoachQuotaUsage');
+    const result = await callable();
+    const serverTier = (result.data as any)?.tier;
+    if (isKnownTier(serverTier)) return serverTier;
+  } catch {
+    // Offline or callable unavailable: fall through to the direct read.
+  }
+
   try {
     const querySnapshot = await db.collection('customers').doc(uid).collection('subscriptions')
       .where('status', 'in', ['active', 'trialing'])
@@ -128,12 +135,7 @@ export const getSubscriptionTier = async (uid: string, userEmail?: string): Prom
   }
 };
 
-export const waitForSubscriptionActive = async (uid: string, userEmail?: string): Promise<SubscriptionTier> => {
-  // Premium Email Bypass
-  if (userEmail && PREMIUM_EMAILS.includes(userEmail.toLowerCase())) {
-    return 'PREMIUM';
-  }
-
+export const waitForSubscriptionActive = async (uid: string, _userEmail?: string): Promise<SubscriptionTier> => {
   // Test Account Bypass
   if (uid.startsWith('test-')) {
     if (uid === 'test-pro') return 'PRO_ATHLETE';

@@ -24,6 +24,11 @@ import {
   VIDEO_ANSWER_SCHEMA,
   VIDEO_CONTEXT_SCHEMA,
 } from './video-intelligence/prompts.js';
+import {
+  consumeMonthlyQuota,
+  resolveAllowedModelForTier,
+  resolveUserTier,
+} from './quota.js';
 
 if (!getApps().length) {
   initializeApp();
@@ -153,156 +158,15 @@ interface StorageObjectVerification {
   updated: string | null;
 }
 
-const PREMIUM_EMAILS = [
-  'alejandrosanchez@gmail.com',
-  'peioetxabe@hotmail.com',
-  'fernandezeuken@gmail.com',
-  'julianweber@gmail.com',
-];
-
-const STRIPE_PRICE_TO_TIER: Record<string, string> = {
-  price_1Shp2GRpDniZdTBe8jaP3rKT: 'PRO_ATHLETE',
-  price_1Shp77RpDniZdTBeN9KYx4oM: 'PRO_COACH',
-  price_1Sj8emRpDniZdTBeCxkGvGnO: 'PREMIUM',
-};
-
-const PLAN_CHAT_LIMITS: Record<string, number | 'unlimited'> = {
-  FREE: 10,
-  PRO_ATHLETE: 100,
-  PRO_COACH: 200,
-  PREMIUM: 500,
-};
-
 const PROCESSING_VERSION = 'video-context-v1';
 const MAX_SAMPLE_FRAMES = 12;
 const MAX_QUERY_FRAMES = 7;
+const MAX_FRAME_BASE64_CHARS = 3_500_000; // ~2.5MB decoded per frame
+const MAX_QUESTION_CHARS = 4000;
 const UPLOAD_IN_PROGRESS_STAGE = 'waiting_for_video';
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-
-const resolveUserTierFromData = (uid: string, userEmail: string | undefined, userData: any): string => {
-  if (userEmail && PREMIUM_EMAILS.includes(String(userEmail).toLowerCase())) return 'PREMIUM';
-  if (uid.startsWith('test-')) {
-    if (uid.includes('premium')) return 'PREMIUM';
-    if (uid.includes('coach')) return 'PRO_COACH';
-    if (uid.includes('pro')) return 'PRO_ATHLETE';
-    return 'FREE';
-  }
-  if (uid === 'MASTER_GOD_EUKEN') return 'PREMIUM';
-  return userData?.currentPlanId || userData?.profile?.subscriptionTier || 'FREE';
-};
-
-const extractSubscriptionPriceId = (subscriptionData: any): string | undefined => {
-  if (subscriptionData?.items?.data?.[0]?.price?.id) return subscriptionData.items.data[0].price.id;
-  if (subscriptionData?.items?.[0]?.price?.id) return subscriptionData.items[0].price.id;
-  if (subscriptionData?.price?.id) return subscriptionData.price.id;
-  return undefined;
-};
-
-const resolveUserTier = async (uid: string, userEmail?: string): Promise<string> => {
-  const userSnap = await db.collection('users').doc(uid).get();
-  const userData = userSnap.exists ? userSnap.data() : {};
-  const resolvedEmail = userEmail || userData?.email || userData?.username;
-  if (resolvedEmail && PREMIUM_EMAILS.includes(String(resolvedEmail).toLowerCase())) return 'PREMIUM';
-  if (uid.startsWith('test-') || uid === 'MASTER_GOD_EUKEN') {
-    return resolveUserTierFromData(uid, resolvedEmail, userData);
-  }
-
-  const subscriptionSnap = await db.collection('customers').doc(uid).collection('subscriptions')
-    .where('status', 'in', ['active', 'trialing'])
-    .get();
-
-  for (const doc of subscriptionSnap.docs) {
-    const priceId = extractSubscriptionPriceId(doc.data());
-    const tier = priceId ? STRIPE_PRICE_TO_TIER[priceId] : undefined;
-    if (tier) return tier;
-  }
-
-  return 'FREE';
-};
-
-const getServerMonthKey = (date = new Date()) =>
-  `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
-
-const getMonthKeyFromValue = (value: any): string | null => {
-  if (!value) return null;
-  const millis =
-    typeof value?.toMillis === 'function' ? value.toMillis() :
-    typeof value?.toDate === 'function' ? value.toDate().getTime() :
-    value instanceof Date ? value.getTime() :
-    typeof value === 'number' ? value :
-    typeof value === 'string' ? Date.parse(value) :
-    0;
-  if (!millis || Number.isNaN(millis)) return null;
-  return getServerMonthKey(new Date(millis));
-};
-
-const isLegacyUsageInPeriod = (legacyUsage: any, period: string) => {
-  const explicitPeriod = legacyUsage?.period || legacyUsage?.monthKey || legacyUsage?.monthlyPeriod;
-  if (explicitPeriod) return String(explicitPeriod) === period;
-  const resetPeriod = getMonthKeyFromValue(legacyUsage?.lastAnalysisReset || legacyUsage?.lastChatReset);
-  return resetPeriod === period;
-};
-
-const normalizeMonthlyChatCount = (rawCounters: any, period: string, legacyUsage?: any) => {
-  const legacyOrCurrent = !rawCounters?.period || rawCounters.period === period;
-  if (!legacyOrCurrent) return 0;
-  const legacyChats = (isLegacyUsageInPeriod(legacyUsage, period) || !rawCounters?.period)
-    ? Number(legacyUsage?.chatCount ?? 0) || 0
-    : 0;
-  return Math.max(Number(rawCounters?.chatsMonthly ?? rawCounters?.chatCount ?? 0) || 0, legacyChats);
-};
-
-const consumeMonthlyChatQuota = async (uid: string, userEmail?: string) => {
-  const period = getServerMonthKey();
-
-  return db.runTransaction(async (transaction) => {
-    const tier = await resolveUserTier(uid, userEmail);
-    const limit = PLAN_CHAT_LIMITS[tier] ?? PLAN_CHAT_LIMITS.FREE;
-    const counterRef = db.collection('quota_counters').doc(uid);
-    const userDataRef = db.collection('userdata').doc(uid);
-    const [counterSnap, userDataSnap] = await Promise.all([
-      transaction.get(counterRef),
-      transaction.get(userDataRef),
-    ]);
-    const current = normalizeMonthlyChatCount(
-      counterSnap.exists ? counterSnap.data() : {},
-      period,
-      userDataSnap.exists ? userDataSnap.data()?.usage : undefined,
-    );
-
-    if (limit !== 'unlimited' && current >= limit) {
-      throw new HttpsError(
-        'resource-exhausted',
-        'Has alcanzado el límite mensual de mensajes de IA de tu suscripción.',
-      );
-    }
-
-    transaction.set(counterRef, {
-      period,
-      chatsMonthly: current + 1,
-      chatCount: current + 1,
-      lastUpdated: FieldValue.serverTimestamp(),
-    }, { merge: true });
-
-    return { tier, count: current + 1, limit, period };
-  });
-};
-
-const resolveAllowedModelForTier = (tier: string): string => {
-  switch (tier) {
-    case 'PREMIUM':
-    case 'ATLETA_PREMIUM':
-    case 'PRO_COACH':
-      return 'gemini-2.5-pro';
-    case 'PRO_ATHLETE':
-    case 'ATLETA_PRO':
-    case 'FREE':
-    default:
-      return 'gemini-2.5-flash';
-  }
-};
 
 const normalizeLanguage = (value: string | undefined): AppLanguage =>
   value === 'ing' || value === 'eus' ? value : 'es';
@@ -452,6 +316,12 @@ const normalizeSampleFramesPayload = (value: unknown): FrameArtifactPayload[] =>
       throw new HttpsError(
         'invalid-argument',
         `sampleFrames[${index}].base64Jpeg es obligatorio.`,
+      );
+    }
+    if (base64Jpeg.length > MAX_FRAME_BASE64_CHARS) {
+      throw new HttpsError(
+        'invalid-argument',
+        `sampleFrames[${index}] es demasiado grande.`,
       );
     }
 
@@ -701,11 +571,22 @@ const resolveVideoStorageReference = ({
     );
   }
 
+  // Pin the bucket to this project's default bucket. The parsed name comes
+  // from client-supplied URLs; honoring an arbitrary bucket would let a
+  // caller probe metadata of any bucket the service account can reach.
+  const defaultBucketName = storage.bucket().name;
+  const normalizeBucketName = (name: string) =>
+    name.replace(/\.(appspot\.com|firebasestorage\.app)$/, '');
+  const claimedBucket = parsedPayloadUrl?.bucketName || parsedFirestoreUrl?.bucketName;
+  if (claimedBucket && normalizeBucketName(claimedBucket) !== normalizeBucketName(defaultBucketName)) {
+    throw new HttpsError(
+      'failed-precondition',
+      'La URL del vídeo no pertenece al almacenamiento de esta aplicación.',
+    );
+  }
+
   return {
-    bucketName:
-      parsedPayloadUrl?.bucketName ||
-      parsedFirestoreUrl?.bucketName ||
-      storage.bucket().name,
+    bucketName: defaultBucketName,
     storagePath,
     videoUrl: input.videoUrl || firestoreVideoUrl || null,
   };
@@ -873,9 +754,6 @@ const parseJsonResponse = (rawText: string) => {
     .trim();
   return JSON.parse(cleaned);
 };
-
-const getUserTier = async (uid: string, email: string | undefined) =>
-  resolveUserTier(uid, email);
 
 const validateTargetAccess = async (callerId: string, targetUserId: string) => {
   if (callerId === targetUserId) return;
@@ -1176,6 +1054,11 @@ const executeUpsertVideoContextFlow = async ({
       videoRecord: videoLookup.record,
     });
 
+    // Paid Gemini processing starts past this point: consume one analysis
+    // quota unit first. Reused/in-progress contexts returned above are free;
+    // a forced reprocess costs a unit like any fresh run.
+    const quota = await consumeMonthlyQuota(callerId, callerEmail, 'analyses');
+
     await contextRef.set(
       {
         videoId: input.videoId,
@@ -1208,7 +1091,7 @@ const executeUpsertVideoContextFlow = async ({
       targetUserId: input.targetUserId,
     });
 
-    const tier = await getUserTier(callerId, callerEmail);
+    const tier = quota.tier;
     const modelName = resolveAllowedModelForTier(tier);
     const genAI = new GoogleGenerativeAI(getConfiguredGeminiApiKey());
     const processingModel = genAI.getGenerativeModel({
@@ -1578,15 +1461,25 @@ export const askVideoQuestion = onCall(
     const history = Array.isArray(request.data?.history)
       ? (request.data.history as HistoryEntry[]).slice(-6)
       : [];
-    const currentFrame = request.data?.currentFrame
-      ? (request.data.currentFrame as FrameArtifactPayload)
-      : null;
+    const isValidFrame = (frame: unknown): frame is FrameArtifactPayload =>
+      isRecord(frame) &&
+      typeof frame.base64Jpeg === 'string' &&
+      frame.base64Jpeg.length > 0 &&
+      frame.base64Jpeg.length <= MAX_FRAME_BASE64_CHARS;
+    const rawCurrentFrame = request.data?.currentFrame;
+    if (rawCurrentFrame && !isValidFrame(rawCurrentFrame)) {
+      throw new HttpsError('invalid-argument', 'currentFrame no es válido o es demasiado grande.');
+    }
+    const currentFrame = rawCurrentFrame ? (rawCurrentFrame as FrameArtifactPayload) : null;
     const windowFrames = Array.isArray(request.data?.windowFrames)
-      ? (request.data.windowFrames as FrameArtifactPayload[]).slice(0, MAX_QUERY_FRAMES)
+      ? (request.data.windowFrames as unknown[]).filter(isValidFrame).slice(0, MAX_QUERY_FRAMES)
       : [];
 
     if (!videoId || !message) {
       throw new HttpsError('invalid-argument', 'Faltan datos de la consulta.');
+    }
+    if (message.length > MAX_QUESTION_CHARS) {
+      throw new HttpsError('invalid-argument', 'La pregunta es demasiado larga.');
     }
 
     await validateTargetAccess(callerId, targetUserId);
@@ -1600,7 +1493,7 @@ export const askVideoQuestion = onCall(
       ? (contextData?.keyMoments as PersistedKeyMoment[])
       : [];
 
-    const quota = await consumeMonthlyChatQuota(callerId, request.auth.token.email);
+    const quota = await consumeMonthlyQuota(callerId, request.auth.token.email, 'chats');
     const tier = quota.tier;
     const modelName = resolveAllowedModelForTier(tier);
     const genAI = new GoogleGenerativeAI(geminiApiKey.value());
@@ -1669,10 +1562,21 @@ export const askVideoQuestion = onCall(
       ),
     ];
 
-    const generation = await answerModel.generateContent(
-      buildGenerationParts(prompt, framesForPrompt),
-    );
-    const parsed = parseJsonResponse(generation.response.text());
+    let parsed: any;
+    try {
+      const generation = await answerModel.generateContent(
+        buildGenerationParts(prompt, framesForPrompt),
+      );
+      parsed = parseJsonResponse(generation.response.text());
+    } catch (error) {
+      logger.error('[askVideoQuestion] model_generation_failed', {
+        videoId,
+        targetUserId,
+        modelName,
+        errorMessage: sanitizeErrorMessage(error, 'Unknown model generation error.'),
+      });
+      throw toHttpsError(error, 'internal', 'No se pudo generar la respuesta del entrenador.');
+    }
 
     const structured: StructuredVideoAnswer = {
       momentOfGesture: sanitizeText(
@@ -1759,7 +1663,16 @@ export const askVideoQuestion = onCall(
       { merge: true },
     );
 
-    await batch.commit();
+    try {
+      await batch.commit();
+    } catch (error) {
+      logger.error('[askVideoQuestion] firestore_write_failed', {
+        videoId,
+        targetUserId,
+        errorMessage: sanitizeErrorMessage(error, 'Unknown Firestore write error.'),
+      });
+      throw toHttpsError(error, 'internal', 'No se pudo guardar la conversación.');
+    }
 
     return {
       sessionId: sessionRef.id,

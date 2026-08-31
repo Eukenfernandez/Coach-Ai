@@ -1,7 +1,13 @@
 [
     {
         "origin": [
-            "*"
+            "https://coachai.es",
+            "https://www.coachai.es",
+            "https://*.vercel.app",
+            "capacitor://localhost",
+            "http://localhost",
+            "http://localhost:5173",
+            "http://localhost:4173"
         ],
         "method": [
             "GET",
