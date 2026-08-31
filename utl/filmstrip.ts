@@ -26,14 +26,14 @@ const COLS = 16;
 const MAX_FRAMES = 256;
 const MIN_INTERVAL_SECONDS = 0.25;
 const EXTRACTION_PLAYBACK_RATE = 8;
+/** Give up if playing produces no presented frame for this long. */
+const STALL_TIMEOUT_MS = 15000;
 
 interface GenerateOptions {
   /** Called between frames; while true, extraction pauses and frees the decoder. */
   shouldPause?: () => boolean;
   signal?: AbortSignal;
 }
-
-const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 type FrameCallbackVideo = HTMLVideoElement & {
   requestVideoFrameCallback?: (
@@ -61,8 +61,8 @@ export async function generateFilmstrip(
     position: 'fixed',
     left: '0px',
     bottom: '0px',
-    width: '2px',
-    height: '2px',
+    width: '160px',
+    height: '90px',
     opacity: '0.01',
     pointerEvents: 'none',
     zIndex: '-1',
@@ -109,9 +109,13 @@ export async function generateFilmstrip(
 
     await new Promise<void>((resolve) => {
       let finished = false;
+      let watchdog: number | null = null;
+      let lastProgressAt = performance.now();
+
       const finish = () => {
         if (finished) return;
         finished = true;
+        if (watchdog !== null) window.clearInterval(watchdog);
         resolve();
       };
 
@@ -140,32 +144,40 @@ export async function generateFilmstrip(
           lastCaptured = mediaTime;
         }
 
+        lastProgressAt = performance.now();
         if (times.length >= MAX_FRAMES || video.ended) return finish();
 
-        if (shouldPause?.()) {
-          void (async () => {
+        // Always re-arm: the callback stays pending across a pause and fires
+        // again on the first frame presented after playback resumes.
+        video.requestVideoFrameCallback?.(step);
+      };
+
+      // A hidden tab presents no frames at all, so requestVideoFrameCallback
+      // simply stops firing — parking playback here is what keeps a backgrounded
+      // tab from leaving a video element running with no progress forever.
+      watchdog = window.setInterval(() => {
+        if (finished) return;
+
+        if (shouldPause?.() || document.hidden) {
+          if (!video.paused) {
             try {
               video.pause();
             } catch {
-              // ignore: the element is torn down in the finally block
+              // ignore: torn down in the finally block
             }
-            while (shouldPause?.() && !signal?.aborted && !finished) {
-              await delay(250);
-            }
-            if (finished || signal?.aborted) return finish();
-            try {
-              video.playbackRate = EXTRACTION_PLAYBACK_RATE;
-              await video.play();
-            } catch {
-              return finish();
-            }
-            video.requestVideoFrameCallback?.(step);
-          })();
+          }
+          lastProgressAt = performance.now();
           return;
         }
 
-        video.requestVideoFrameCallback?.(step);
-      };
+        if (video.paused && !video.ended) {
+          video.playbackRate = EXTRACTION_PLAYBACK_RATE;
+          void video.play().catch(() => finish());
+          return;
+        }
+
+        if (performance.now() - lastProgressAt > STALL_TIMEOUT_MS) finish();
+      }, 1000);
 
       video.requestVideoFrameCallback?.(step);
     });
