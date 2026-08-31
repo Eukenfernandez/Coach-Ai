@@ -246,7 +246,7 @@ Disallow: /*?lang=
 Disallow: /*?payment=
 
 Sitemap: ${SITE_URL}/sitemap.xml
-Host: coachai.es
+Host: www.coachai.es
 `;
   await fs.writeFile(path.join(distDir, "robots.txt"), robots, "utf8");
 }

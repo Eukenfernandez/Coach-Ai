@@ -1,6 +1,8 @@
 import type { Language } from "../types";
 
-export const SITE_URL = "https://coachai.es";
+// El host canónico es www: el apex coachai.es responde 307 hacia www.coachai.es,
+// así que canonicals/hreflang/sitemap deben apuntar a www para no redirigir.
+export const SITE_URL = "https://www.coachai.es";
 export const SITE_NAME = "CoachAI";
 export const SITE_TITLE_SUFFIX = "CoachAI";
 export const PUBLIC_MEDIA_VIDEO_SRC = "/video/coach.mp4";
