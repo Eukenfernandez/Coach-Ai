@@ -2,6 +2,7 @@
 // services/subscriptionService.ts
 
 import firebase from 'firebase/compat/app';
+import 'firebase/compat/auth';
 import 'firebase/compat/functions';
 
 import type { SubscriptionTier, UserLimits } from '../types';
@@ -84,7 +85,31 @@ export const createPortalSession = async (_uid: string): Promise<void> => {
 const isKnownTier = (value: unknown): value is SubscriptionTier =>
   value === 'FREE' || value === 'PRO_ATHLETE' || value === 'PRO_COACH' || value === 'PREMIUM';
 
-export const getSubscriptionTier = async (uid: string, _userEmail?: string): Promise<SubscriptionTier> => {
+// Owner account. The full premium allow-list stays server-side in
+// fns/src/quota.ts (PREMIUM_EMAILS) on purpose — shipping the other members'
+// addresses in a public bundle would expose their personal data. This one is
+// the site owner's own address and is already present in the bundle for the
+// admin menu, so mirroring it here leaks nothing new and keeps the plan UI
+// correct even when the quota callable is stale or unreachable.
+const PREMIUM_ALLOW_LIST_EMAILS = ['fernandezeuken@gmail.com'];
+
+// Prefers the Firebase Auth email; falls back to the account email the caller
+// already resolved, because a session restored from the local cache can leave
+// auth().currentUser momentarily null. Display only: the server re-derives the
+// tier from the Auth record alone and owns every quota decision, so a client
+// that lies here changes nothing but its own UI.
+const hasAllowListedPremiumEmail = (fallbackEmail?: string): boolean => {
+  let email: string | undefined | null;
+  try {
+    email = firebase.auth().currentUser?.email;
+  } catch {
+    email = undefined;
+  }
+  const candidate = (email || fallbackEmail || '').toLowerCase();
+  return Boolean(candidate && PREMIUM_ALLOW_LIST_EMAILS.includes(candidate));
+};
+
+export const getSubscriptionTier = async (uid: string, userEmail?: string): Promise<SubscriptionTier> => {
   // Test Account Bypass (local demo accounts only)
   if (uid.startsWith('test-')) {
     if (uid === 'test-pro') return 'PRO_ATHLETE';
@@ -93,7 +118,7 @@ export const getSubscriptionTier = async (uid: string, _userEmail?: string): Pro
     return 'FREE';
   }
 
-  if (!db || uid === 'MASTER_GOD_EUKEN') return 'PREMIUM';
+  if (!db || uid === 'MASTER_GOD_EUKEN' || hasAllowListedPremiumEmail(userEmail)) return 'PREMIUM';
 
   // The server is the authority on tier (it also owns any premium
   // allow-listing). The subscription query below is only a fallback.
@@ -135,7 +160,7 @@ export const getSubscriptionTier = async (uid: string, _userEmail?: string): Pro
   }
 };
 
-export const waitForSubscriptionActive = async (uid: string, _userEmail?: string): Promise<SubscriptionTier> => {
+export const waitForSubscriptionActive = async (uid: string, userEmail?: string): Promise<SubscriptionTier> => {
   // Test Account Bypass
   if (uid.startsWith('test-')) {
     if (uid === 'test-pro') return 'PRO_ATHLETE';
@@ -144,6 +169,7 @@ export const waitForSubscriptionActive = async (uid: string, _userEmail?: string
     return 'FREE';
   }
 
+  if (hasAllowListedPremiumEmail(userEmail)) return 'PREMIUM';
   if (!db) return 'FREE';
   return new Promise<SubscriptionTier>((resolve) => {
     let resolved = false;

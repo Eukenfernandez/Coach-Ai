@@ -692,7 +692,9 @@ export default function App() {
 
       // --- PLAN DETERMINATION LOGIC ---
       // Premium allow-listing lives server-side (getCoachQuotaUsage resolves
-      // the authoritative tier); no emails are hardcoded in the bundle.
+      // the authoritative tier). Only the owner's own address is mirrored in
+      // the bundle (see subscriptionService); the rest of the list stays on
+      // the server so members' addresses are never shipped to clients.
       // Test accounts always use the hardcoded logic regardless of cloud mode
       if (user.id.startsWith('test-')) {
         tier = await getSubscriptionTier(user.id, user.email || user.username);

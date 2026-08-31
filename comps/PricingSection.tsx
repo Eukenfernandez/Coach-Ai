@@ -116,6 +116,8 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ currentUser, lan
   const currentTier = currentUser.profile?.subscriptionTier || 'FREE';
   const isPaidUser = currentTier !== 'FREE';
   const isCoach = currentUser.profile?.role === 'coach';
+  // The athlete line tops out at the PRO_COACH-priced card; PREMIUM sits above it.
+  const hasTopAthletePlan = currentTier === 'PRO_COACH' || currentTier === 'PREMIUM';
 
   const processStripeAction = async (planId: string, actionType: 'checkout' | 'portal') => {
     setLoadingPriceId(planId);
@@ -191,9 +193,11 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ currentUser, lan
       period: t.monthly,
       icon: <Crown className="text-yellow-500" size={24} />,
       features: ['100 Vídeos/mes', '200 Mensajes chat/mes', 'Comparador 4K', 'Gemini 3 Pro', 'Máxima Prioridad'],
-      buttonText: currentTier === 'PRO_COACH' ? t.current : t.upgrade,
-      actionType: currentTier === 'PRO_COACH' ? 'none' : 'checkout',
-      disabled: currentTier === 'PRO_COACH',
+      // PREMIUM outranks this card, so an athlete on PREMIUM is already at or
+      // above it: offering "upgrade" here would check out a lower plan.
+      buttonText: hasTopAthletePlan ? t.current : t.upgrade,
+      actionType: hasTopAthletePlan ? 'none' : 'checkout',
+      disabled: hasTopAthletePlan,
       highlight: false,
       isBlack: true,
       badge: t.bestValue,
