@@ -1,4 +1,17 @@
-# Logs
+# ---- Dependencias
+node_modules
+
+# ---- Builds y salidas generadas
+dist
+dist-electron
+dist-ssr
+el-dist/
+fns/lib/
+fns/output/
+coverage/
+.vite/
+
+# ---- Logs
 logs
 *.log
 npm-debug.log*
@@ -6,21 +19,30 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
+build_log*.txt
+build_output.txt
+packager_log.txt
+lighthouse*.json
 
-node_modules
-dist
-dist-electron
-dist-ssr
+# ---- Entorno y secretos
+*.local
+.env
+.env.*
+!.env.example
+
+# ---- Plataformas / despliegue
 android
 .firebase/
-el-dist/
 .vercel/
-fns/output/
-*.local
+.vercel
 
-# Editor directories and files
+# ---- Herramientas del agente (worktrees de sesiones, no son parte del proyecto)
+.claude/worktrees/
+
+# ---- Editores y SO
 .vscode/*
 !.vscode/extensions.json
+!.vscode/settings.json
 .idea
 .DS_Store
 *.suo
@@ -28,5 +50,3 @@ fns/output/
 *.njsproj
 *.sln
 *.sw?
-
-.vercel

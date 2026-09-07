@@ -1,0 +1,25 @@
+# Normaliza finales de línea (el proyecto se toca desde macOS y Windows)
+* text=auto eol=lf
+
+# Scripts de Windows conservan CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binarios: nunca normalizar ni hacer diff
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.avif binary
+*.mp4 binary
+*.mov binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.pdf binary
+
+# Ficheros generados: colapsar en diffs de GitHub
+package-lock.json linguist-generated=true
+fns/package-lock.json linguist-generated=true
