@@ -20,7 +20,7 @@ Esta guía explica cómo configurar la seguridad de la aplicación para que el c
 ## Paso 1: Instalar dependencias de Cloud Functions
 
 ```bash
-cd functions
+cd fns
 npm install
 ```
 
@@ -59,6 +59,7 @@ npm run build
 ```
 
 El resultado en `dist/` tendrá:
+
 - ✅ Archivos con nombres hasheados (`[hash].js`)
 - ✅ Variables ofuscadas (`a`, `b`, `x` en lugar de `analizarVideo`)
 - ✅ Sin sourcemaps (no se puede reconstruir el código original)
@@ -92,6 +93,7 @@ Para asegurar que solo tu app real puede llamar a las funciones:
 ## ¿Qué ve alguien que pulse F12?
 
 ### Antes (INSEGURO):
+
 ```javascript
 // Network Tab - Request:
 {
@@ -101,6 +103,7 @@ Para asegurar que solo tu app real puede llamar a las funciones:
 ```
 
 ### Después (SEGURO):
+
 ```javascript
 // Network Tab - Request:
 {
@@ -113,9 +116,12 @@ Para asegurar que solo tu app real puede llamar a las funciones:
 ```
 
 ### Sources Tab:
+
 ```javascript
 // Código minificado (ilegible)
-function a(b,c){return d.e(f,g)}
+function a(b, c) {
+  return d.e(f, g);
+}
 ```
 
 ---
@@ -124,12 +130,12 @@ function a(b,c){return d.e(f,g)}
 
 ```
 coach-ai/
-├── functions/                  # Backend (invisible)
+├── fns/                        # Backend (invisible)
 │   ├── src/
 │   │   └── index.ts           # Cloud Functions con lógica secreta
 │   ├── package.json
 │   └── tsconfig.json
-├── services/
+├── svcs/
 │   └── geminiService.ts       # Frontend - solo llama a funciones
 ├── vite.config.ts             # Configuración de minificación
 └── firebase.json              # Configuración de despliegue
@@ -161,13 +167,17 @@ firebase functions:log
 ## Solución de problemas
 
 ### Error: "unauthenticated"
+
 Las funciones requieren que el usuario esté logueado. Asegúrate de que el usuario haya iniciado sesión antes de usar el análisis IA.
 
 ### Error: "GEMINI_API_KEY is not defined"
+
 Configura el secreto:
+
 ```bash
 firebase functions:secrets:set GEMINI_API_KEY
 ```
 
 ### El código sigue siendo legible en F12
+
 Asegúrate de estar viendo el build de producción (`npm run build`), no el servidor de desarrollo (`npm run dev`).
