@@ -2243,7 +2243,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
                            <div className={`p-3 rounded-2xl text-xs leading-relaxed max-w-[85%] ${msg.role === 'user' ? 'bg-purple-600 text-white rounded-tr-none' : 'bg-neutral-800 border border-neutral-700 text-neutral-200 rounded-tl-none'}`}>
                               {false && msg.activeTimestampSeconds !== null && msg.activeTimestampSeconds !== undefined && (
                                  <div className={`mb-2 text-[10px] font-mono ${msg.role === 'user' ? 'text-purple-100/80' : 'text-neutral-500'}`}>
-                                    {contextTexts.timestampLabel}: {msg.activeTimestampSeconds.toFixed(2)}s
+                                    {contextTexts.timestampLabel}: {msg.activeTimestampSeconds?.toFixed(2)}s
                                  </div>
                               )}
                               <div className="whitespace-pre-wrap break-words">{msg.text}</div>

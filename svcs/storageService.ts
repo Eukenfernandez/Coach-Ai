@@ -626,7 +626,7 @@ const upsertAssetInUserDataSection = async <T extends { id: string; uploadedAt?:
   section: 'videos' | 'plans',
   asset: T
 ) => {
-  const currentSection = (getLocalUserDataSnapshot(userId)[section] || []) as T[];
+  const currentSection = (getLocalUserDataSnapshot(userId)[section] || []) as unknown as T[];
   const nextSection = mergeAssetsById([cleanDataForStorage(asset)], currentSection);
 
   if (canUseCloudPersistence(userId)) {

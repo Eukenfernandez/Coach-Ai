@@ -2,47 +2,51 @@
   "compilerOptions": {
     "target": "ES2020",
     "useDefineForClassFields": true,
-    "lib": [
-      "ES2020",
-      "DOM",
-      "DOM.Iterable"
-    ],
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "skipLibCheck": true,
-    /* Bundler mode */
+
+    /* Bundler mode (Vite) */
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx",
+
     /* Strict Type-Checking Options */
     "strict": true,
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "noFallthroughCasesInSwitch": true,
-    /* Rutas y Raíz */
+
+    /* Rutas */
     "baseUrl": "./",
     "paths": {
-      "@/*": [
-        "./*"
-      ],
-      "*": [
-        "./*"
-      ]
+      "@/*": ["./*"]
     },
-    "types": [
-      "vite/client"
-    ]
+    "types": ["vite/client"]
   },
   "include": [
-    "./**/*.ts",
-    "./**/*.tsx",
-    "./vite-env.d.ts"
+    "*.ts",
+    "*.tsx",
+    "comps/**/*",
+    "svcs/**/*",
+    "hks/**/*",
+    "utl/**/*",
+    "seo/**/*",
+    "scripts/**/*",
+    "test/**/*"
   ],
   "exclude": [
     "node_modules",
-    "functions",
-    "dist"
+    "dist",
+    "el-dist",
+    "fns",
+    "android",
+    "ios",
+    "electron",
+    ".claude",
+    "coverage"
   ]
 }

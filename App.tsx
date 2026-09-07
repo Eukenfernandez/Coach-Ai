@@ -32,13 +32,13 @@ import { GracePeriodBanner } from "./comps/GracePeriodBanner";
 import { Menu, PanelLeft, Loader2, CheckCircle, XCircle, AlertTriangle, Clock } from "lucide-react";
 import { getVideoDurationLabel } from "./utl/videoUtils";
 
-function lazyNamed<T extends React.ComponentType<any>>(
-  loader: () => Promise<Record<string, unknown>>,
-  exportName: string
-) {
+function lazyNamed<M, K extends keyof M>(
+  loader: () => Promise<M>,
+  exportName: K
+): React.LazyExoticComponent<M[K] extends React.ComponentType<any> ? M[K] : never> {
   return lazy(async () => ({
-    default: (await loader())[exportName] as T,
-  }));
+    default: (await loader())[exportName] as React.ComponentType<any>,
+  })) as React.LazyExoticComponent<M[K] extends React.ComponentType<any> ? M[K] : never>;
 }
 
 const Onboarding = lazyNamed(() => import("./comps/Onboarding"), "Onboarding");
@@ -147,8 +147,8 @@ function scheduleIdleTask(task: () => void, timeout = 400): () => void {
     };
   }
 
-  const handle = window.setTimeout(task, timeout);
-  return () => window.clearTimeout(handle);
+  const handle = globalThis.setTimeout(task, timeout);
+  return () => globalThis.clearTimeout(handle);
 }
 
 function ScreenLoader({ fullScreen = false }: { fullScreen?: boolean }) {
@@ -948,7 +948,7 @@ export default function App() {
               contentType: video.contentType || blob.type || undefined,
               size: video.size || blob.size,
               ownerId: video.ownerId || targetId,
-              status: video.status || "ready",
+              status: video.status || ("ready" as const),
             };
           }
 
@@ -979,7 +979,7 @@ export default function App() {
                 size: found.size ?? video.size,
                 createdAt: found.createdAt || video.createdAt,
                 ownerId: video.ownerId || targetId,
-                status: "ready",
+                status: "ready" as const,
                 errorCode: playbackStatus === "unplayable" ? "video/unplayable" : undefined,
                 errorMessage: playbackErrorMessage,
                 playbackStatus,
@@ -1010,7 +1010,7 @@ export default function App() {
                 url: "",
                 isLocal: false,
                 ownerId: video.ownerId || targetId,
-                status: "error",
+                status: "error" as const,
                 errorCode: found.errorCode || "storage/object-not-found",
                 errorMessage: found.errorMessage || "No se ha podido localizar el video en Firebase Storage.",
               };
@@ -1024,7 +1024,7 @@ export default function App() {
             url: "",
             isLocal: false,
             ownerId: video.ownerId || targetId,
-            status: video.status || "error",
+            status: video.status || ("error" as const),
             errorCode: video.errorCode || "storage/object-not-found",
             errorMessage: video.errorMessage || "No se ha podido localizar el video en Firebase Storage.",
           };
@@ -1060,7 +1060,7 @@ export default function App() {
             contentType: plan.contentType || blob.type || undefined,
             size: plan.size || blob.size,
             ownerId: plan.ownerId || targetId,
-            status: plan.status || "ready",
+            status: plan.status || ("ready" as const),
           };
         }
 
@@ -1078,7 +1078,7 @@ export default function App() {
               size: found.size ?? plan.size,
               createdAt: found.createdAt || plan.createdAt,
               ownerId: plan.ownerId || targetId,
-              status: "ready",
+              status: "ready" as const,
               errorCode: undefined,
               errorMessage: undefined,
             };
@@ -1092,7 +1092,7 @@ export default function App() {
               downloadURL: undefined,
               isLocal: false,
               ownerId: plan.ownerId || targetId,
-              status: "error",
+              status: "error" as const,
               errorCode: found.errorCode || "storage/object-not-found",
               errorMessage: found.errorMessage || "No se ha podido localizar el documento en Firebase Storage.",
             };
@@ -1104,7 +1104,7 @@ export default function App() {
           url: "",
           isLocal: false,
           ownerId: plan.ownerId || targetId,
-          status: plan.status || "error",
+          status: plan.status || ("error" as const),
           errorCode: plan.errorCode || "storage/object-not-found",
           errorMessage: plan.errorMessage || "No se ha podido localizar el documento en Firebase Storage.",
         };
