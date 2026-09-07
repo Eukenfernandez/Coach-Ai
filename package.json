@@ -4,11 +4,25 @@
   "version": "1.0.0",
   "type": "module",
   "main": "electron/main.cjs",
+  "engines": {
+    "node": ">=22.22.0"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsx scripts/generate-public-media.ts && vite build && tsx scripts/generate-seo-pages.tsx",
     "preview": "vite preview",
-    "test": "npm --prefix fns test",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck:fns": "tsc --noEmit -p fns/tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:fns": "npm --prefix fns test",
+    "check": "npm run lint && npm run typecheck && npm run typecheck:fns && npm run test && npm run test:fns",
+    "prepare": "husky",
     "electron:dev": "vite build && electron .",
     "electron:build": "vite build && npx electron-builder --win --x64",
     "cap:add:ios": "npx cap add ios",
@@ -18,6 +32,15 @@
     "cap:open:ios": "npx cap open ios",
     "cap:doctor": "npx cap doctor",
     "cap:build:android": "vite build && npx cap sync android && cd android && gradlew.bat assembleDebug"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,cjs,mjs}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,yml,yaml,css,html}": [
+      "prettier --write"
+    ]
   },
   "build": {
     "appId": "com.coachai.app",
@@ -72,18 +95,34 @@
   },
   "devDependencies": {
     "@electron/packager": "^19.0.5",
+    "@eslint/js": "^10.0.1",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
     "@types/react": "^18.2.56",
     "@types/react-dom": "^18.2.19",
     "@vitejs/plugin-react": "^4.2.1",
+    "@vitest/coverage-v8": "^3.2.7",
     "autoprefixer": "^10.4.18",
     "electron": "^40.6.0",
     "electron-builder": "^26.8.1",
+    "eslint": "^10.10.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.6",
+    "globals": "^17.12.0",
+    "husky": "^9.1.7",
+    "jsdom": "^30.0.1",
+    "lint-staged": "^17.5.0",
     "postcss": "^8.4.35",
+    "prettier": "^3.9.6",
     "sharp": "^0.34.5",
     "tailwindcss": "^3.4.1",
     "terser": "^5.44.1",
     "tsx": "^4.21.0",
     "typescript": "^5.2.2",
-    "vite": "^5.1.4"
+    "typescript-eslint": "^8.69.0",
+    "vite": "^5.1.4",
+    "vitest": "^3.2.7"
   }
 }

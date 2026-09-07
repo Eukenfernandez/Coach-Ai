@@ -1,0 +1,26 @@
+# Generado / dependencias
+node_modules
+dist
+el-dist
+coverage
+fns/lib
+fns/node_modules
+fns/output
+pub/optimized
+package-lock.json
+fns/package-lock.json
+
+# Plataformas nativas y herramientas del agente
+android
+ios
+.claude
+.firebase
+
+# Binarios y datos
+*.mp4
+*.png
+*.jpg
+*.ico
+*.svg
+*.pdf
+lighthouse*.json
