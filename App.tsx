@@ -103,6 +103,8 @@ function hasRealVideoDuration(duration?: string) {
 }
 
 const PAYMENT_CANCELLED_MESSAGE = "El pago ha sido cancelado.";
+const PAYMENT_PENDING_MESSAGE =
+  "Pago recibido. Stripe todavía no ha confirmado la suscripción: se activará sola en unos minutos. Si no aparece, cierra sesión y vuelve a entrar.";
 const DEV_BOOTSTRAP_LOGS = typeof import.meta !== "undefined" && Boolean(import.meta.env?.DEV);
 
 type DataSyncPhase = "idle" | "loading-local" | "syncing" | "hydrating" | "offline" | "error";
@@ -267,7 +269,7 @@ export default function App() {
   }, []);
 
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
-  const [paymentMessage, setPaymentMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+  const [paymentMessage, setPaymentMessage] = useState<{ type: 'success' | 'error' | 'info', text: string } | null>(null);
   const [gracePeriodInfo, setGracePeriodInfo] = useState<{ deadline: Date, isExpired: boolean, remainingText: string } | null>(null);
 
   const [videos, setVideos] = useState<VideoFile[]>([]);
@@ -712,6 +714,11 @@ export default function App() {
           tier = await waitForSubscriptionActive(user.id, user.email || user.username);
           if (tier !== 'FREE') {
             setPaymentMessage({ type: 'success', text: `¡Pago confirmado!` });
+          } else {
+            // The webhook has not written the subscription yet. Tell the user
+            // instead of leaving them on FREE with no explanation; the next
+            // login re-reads the subscription and applies the paid tier.
+            setPaymentMessage({ type: 'info', text: PAYMENT_PENDING_MESSAGE });
           }
         } else {
           tier = await getSubscriptionTier(user.id, user.email || user.username);
@@ -1922,6 +1929,7 @@ export default function App() {
       <div className="native-app-shell min-h-screen h-[100dvh] w-full flex flex-col items-center justify-center bg-neutral-950 text-white gap-4">
         <Loader2 size={48} className="animate-spin text-orange-500" />
         <h2 className="text-xl font-bold">Verificando tu pago...</h2>
+        <p className="text-sm text-neutral-400">Esperando la confirmación de Stripe. Puede tardar hasta un minuto.</p>
       </div>
     );
   }
@@ -2053,8 +2061,8 @@ export default function App() {
   return (
     <div className="native-app-shell flex min-h-screen h-[100dvh] w-full bg-black text-white overflow-hidden transition-colors duration-300">
       {paymentMessage && (
-        <div className={`fixed safe-top-6 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-3 px-6 py-4 rounded-xl shadow-2xl animate-in slide-in-from-top-4 duration-500 ${paymentMessage.type === 'success' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'}`}>
-          {paymentMessage.type === 'success' ? <CheckCircle size={24} /> : <XCircle size={24} />}
+        <div className={`fixed safe-top-6 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-3 px-6 py-4 rounded-xl shadow-2xl animate-in slide-in-from-top-4 duration-500 ${paymentMessage.type === 'success' ? 'bg-green-600 text-white' : paymentMessage.type === 'info' ? 'bg-amber-500 text-black' : 'bg-red-600 text-white'}`}>
+          {paymentMessage.type === 'success' ? <CheckCircle size={24} /> : paymentMessage.type === 'info' ? <Clock size={24} /> : <XCircle size={24} />}
           <p className="font-bold text-sm md:text-base">{paymentMessage.text}</p>
           <button onClick={() => setPaymentMessage(null)} className="ml-2 hover:bg-white/20 p-1 rounded"><XCircle size={16} /></button>
         </div>

@@ -8,7 +8,7 @@ export type ExternalReturnPayload =
 
 export const EXTERNAL_RETURN_EVENT = 'coachai:external-return';
 
-const DEFAULT_PUBLIC_APP_URL = 'https://entrenamientos-bfac2.web.app';
+const DEFAULT_PUBLIC_APP_URL = 'https://www.coachai.es';
 const NATIVE_APP_SCHEME = 'coachai';
 const RETURN_PAGE_PATH = '/checkout_redirect/index.html';
 

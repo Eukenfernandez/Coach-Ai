@@ -160,7 +160,13 @@ export const getSubscriptionTier = async (uid: string, userEmail?: string): Prom
   }
 };
 
-export const waitForSubscriptionActive = async (uid: string, userEmail?: string): Promise<SubscriptionTier> => {
+export const PAYMENT_CONFIRMATION_TIMEOUT_MS = 90000;
+
+export const waitForSubscriptionActive = async (
+  uid: string,
+  userEmail?: string,
+  timeoutMs: number = PAYMENT_CONFIRMATION_TIMEOUT_MS,
+): Promise<SubscriptionTier> => {
   // Test Account Bypass
   if (uid.startsWith('test-')) {
     if (uid === 'test-pro') return 'PRO_ATHLETE';
@@ -183,9 +189,11 @@ export const waitForSubscriptionActive = async (uid: string, userEmail?: string)
       resolve(tier);
     };
 
+    // Stripe's webhook normally lands within seconds, but it can lag. Give it
+    // a generous window instead of silently downgrading to FREE after 20 s.
     const timeoutId = window.setTimeout(() => {
       finalize('FREE');
-    }, 20000);
+    }, timeoutMs);
 
     unsubscribe = db.collection('customers').doc(uid).collection('subscriptions')
       .where('status', 'in', ['active', 'trialing'])
