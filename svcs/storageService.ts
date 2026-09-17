@@ -989,16 +989,13 @@ export const StorageService = {
         createdAt: new Date().toISOString(),
       };
 
-      await db
-        .collection("users")
-        .doc(fbUser.uid)
-        .set({
-          uid: fbUser.uid,
-          email: cleanUsername,
-          username: cleanUsername,
-          profile: null,
-          createdAt: newUser.createdAt,
-        });
+      await db.collection("users").doc(fbUser.uid).set({
+        uid: fbUser.uid,
+        email: cleanUsername,
+        username: cleanUsername,
+        profile: null,
+        createdAt: newUser.createdAt,
+      });
       await db.collection("userdata").doc(fbUser.uid).set(sanitizeForFirestore(initialData));
 
       localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(newUser));
@@ -1528,6 +1525,7 @@ export const StorageService = {
     file: File,
     customPath?: string,
   ): Promise<UploadedAssetResult | null> => {
+    // TODO: Transcodificar a H.264/AAC 720p en MP4 con faststart antes de subir.
     return StorageService.uploadUserAsset(userId, file, "videos", customPath);
   },
 
