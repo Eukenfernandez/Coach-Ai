@@ -1,12 +1,23 @@
+import {
+  User,
+  UserData,
+  VideoFile,
+  StrengthRecord,
+  ThrowRecord,
+  PlanFile,
+  UserProfile,
+  ExerciseDef,
+  CoachRequest,
+  UserUsage,
+  SupplementItem,
+} from "../types";
+import firebase from "firebase/compat/app";
+import "firebase/compat/auth";
+import "firebase/compat/firestore";
+import "firebase/compat/storage";
+import "firebase/compat/functions"; // Required to call Cloud Functions
 
-import { User, UserData, VideoFile, StrengthRecord, ThrowRecord, PlanFile, UserProfile, ExerciseDef, CoachRequest, UserUsage, SupplementItem } from '../types';
-import firebase from 'firebase/compat/app';
-import 'firebase/compat/auth';
-import 'firebase/compat/firestore';
-import 'firebase/compat/storage';
-import 'firebase/compat/functions'; // Required to call Cloud Functions
-
-export type FirestoreDataSource = 'memory' | 'local' | 'server' | 'cache';
+export type FirestoreDataSource = "memory" | "local" | "server" | "cache";
 
 export type UserDataLoadInfo = {
   source: FirestoreDataSource;
@@ -29,7 +40,7 @@ const firebaseConfig = {
   projectId: "entrenamientos-bfac2",
   storageBucket: "entrenamientos-bfac2.firebasestorage.app",
   messagingSenderId: "708498062460",
-  appId: "1:708498062460:web:83cb6635febcd927d75df9"
+  appId: "1:708498062460:web:83cb6635febcd927d75df9",
 };
 
 export let auth: firebase.auth.Auth;
@@ -39,11 +50,11 @@ let isFirebaseConfigured = false;
 let firebaseNetworkListenersBound = false;
 let firestoreNetworkEnabled = true;
 
-const DEV_FIRESTORE_LOGS = typeof import.meta !== 'undefined' && Boolean(import.meta.env?.DEV);
+const DEV_FIRESTORE_LOGS = typeof import.meta !== "undefined" && Boolean(import.meta.env?.DEV);
 const USERDATA_CACHE_TTL_MS = 30000;
 const PENDING_REQUESTS_CACHE_TTL_MS = 15000;
 
-const isBrowserOnline = () => typeof navigator === 'undefined' ? true : navigator.onLine;
+const isBrowserOnline = () => (typeof navigator === "undefined" ? true : navigator.onLine);
 
 const firestoreOperationCounts = new Map<string, number>();
 const userDataInFlight = new Map<string, Promise<UserData>>();
@@ -61,11 +72,11 @@ const logFirestoreDebug = (event: string, payload?: Record<string, unknown>) => 
 const startFirestoreTrace = (label: string, payload?: Record<string, unknown>) => {
   const count = (firestoreOperationCounts.get(label) || 0) + 1;
   firestoreOperationCounts.set(label, count);
-  const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+  const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
   logFirestoreDebug(`${label}:start`, { count, ...payload });
 
   return (extra?: Record<string, unknown>) => {
-    const finishedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const finishedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
     const durationMs = Math.round((finishedAt - startedAt) * 100) / 100;
     logFirestoreDebug(`${label}:done`, { count, durationMs, ...payload, ...extra });
     return durationMs;
@@ -73,12 +84,12 @@ const startFirestoreTrace = (label: string, payload?: Record<string, unknown>) =
 };
 
 const getErrorCode = (error: unknown) =>
-  typeof (error as any)?.code === 'string' ? String((error as any).code) : 'unknown';
+  typeof (error as any)?.code === "string" ? String((error as any).code) : "unknown";
 
 const getErrorMessage = (error: unknown) => {
   if (error instanceof Error) return error.message;
   try {
-    return typeof error === 'string' ? error : JSON.stringify(error);
+    return typeof error === "string" ? error : JSON.stringify(error);
   } catch {
     return String(error);
   }
@@ -88,70 +99,73 @@ const isTransientFirestoreNetworkError = (error: unknown) => {
   const code = getErrorCode(error).toLowerCase();
   const message = getErrorMessage(error).toLowerCase();
 
-  return [
-    'unavailable',
-    'deadline-exceeded',
-    'aborted',
-    'cancelled',
-    'failed-precondition',
-  ].some((fragment) => code.includes(fragment)) || [
-    'offline',
-    'network',
-    'connection reset',
-    'err_connection_reset',
-    'err_name_not_resolved',
-    'dns',
-    'transport errored',
-    'client is offline',
-    'backend didn',
-  ].some((fragment) => message.includes(fragment));
+  return (
+    ["unavailable", "deadline-exceeded", "aborted", "cancelled", "failed-precondition"].some((fragment) =>
+      code.includes(fragment),
+    ) ||
+    [
+      "offline",
+      "network",
+      "connection reset",
+      "err_connection_reset",
+      "err_name_not_resolved",
+      "dns",
+      "transport errored",
+      "client is offline",
+      "backend didn",
+    ].some((fragment) => message.includes(fragment))
+  );
 };
 
 const readDocumentWithCacheFallback = async (
   ref: firebase.firestore.DocumentReference,
   label: string,
   payload?: Record<string, unknown>,
-): Promise<{ snapshot: firebase.firestore.DocumentSnapshot | null; source: FirestoreDataSource; stale: boolean }> => {
+): Promise<{
+  snapshot: firebase.firestore.DocumentSnapshot | null;
+  source: FirestoreDataSource;
+  stale: boolean;
+}> => {
   const finish = startFirestoreTrace(label, payload);
 
   if (!isBrowserOnline()) {
     try {
-      const snapshot = await ref.get({ source: 'cache' as any });
-      finish({ source: 'cache', stale: true, exists: snapshot.exists });
-      return { snapshot, source: 'cache', stale: true };
+      const snapshot = await ref.get({ source: "cache" as any });
+      finish({ source: "cache", stale: true, exists: snapshot.exists });
+      return { snapshot, source: "cache", stale: true };
     } catch (cacheError) {
-      finish({ source: 'local', stale: true, error: getErrorMessage(cacheError) });
-      return { snapshot: null, source: 'local', stale: true };
+      finish({ source: "local", stale: true, error: getErrorMessage(cacheError) });
+      return { snapshot: null, source: "local", stale: true };
     }
   }
 
   try {
-    const snapshot = await ref.get({ source: 'server' as any });
-    finish({ source: 'server', stale: false, exists: snapshot.exists });
-    return { snapshot, source: 'server', stale: false };
+    const snapshot = await ref.get({ source: "server" as any });
+    finish({ source: "server", stale: false, exists: snapshot.exists });
+    return { snapshot, source: "server", stale: false };
   } catch (serverError) {
     if (!isTransientFirestoreNetworkError(serverError)) {
-      finish({ source: 'server', stale: false, error: getErrorMessage(serverError) });
+      finish({ source: "server", stale: false, error: getErrorMessage(serverError) });
       throw serverError;
     }
 
     try {
-      const snapshot = await ref.get({ source: 'cache' as any });
+      const snapshot = await ref.get({ source: "cache" as any });
       finish({
-        source: 'cache',
+        source: "cache",
         stale: true,
         exists: snapshot.exists,
         fallbackError: getErrorMessage(serverError),
       });
-      return { snapshot, source: 'cache', stale: true };
+      return { snapshot, source: "cache", stale: true };
     } catch (cacheError) {
       finish({
-        source: 'local',
+        source: "local",
         stale: true,
         error: getErrorMessage(serverError),
         cacheError: getErrorMessage(cacheError),
       });
-      return { snapshot: null, source: 'local', stale: true };
+      return { snapshot: null, source: "local", stale: true };
     }
   }
 };
@@ -160,47 +174,51 @@ const readQueryWithCacheFallback = async (
   query: firebase.firestore.Query,
   label: string,
   payload?: Record<string, unknown>,
-): Promise<{ snapshot: firebase.firestore.QuerySnapshot | null; source: FirestoreDataSource; stale: boolean }> => {
+): Promise<{
+  snapshot: firebase.firestore.QuerySnapshot | null;
+  source: FirestoreDataSource;
+  stale: boolean;
+}> => {
   const finish = startFirestoreTrace(label, payload);
 
   if (!isBrowserOnline()) {
     try {
-      const snapshot = await query.get({ source: 'cache' as any });
-      finish({ source: 'cache', stale: true, size: snapshot.size });
-      return { snapshot, source: 'cache', stale: true };
+      const snapshot = await query.get({ source: "cache" as any });
+      finish({ source: "cache", stale: true, size: snapshot.size });
+      return { snapshot, source: "cache", stale: true };
     } catch (cacheError) {
-      finish({ source: 'local', stale: true, error: getErrorMessage(cacheError) });
-      return { snapshot: null, source: 'local', stale: true };
+      finish({ source: "local", stale: true, error: getErrorMessage(cacheError) });
+      return { snapshot: null, source: "local", stale: true };
     }
   }
 
   try {
-    const snapshot = await query.get({ source: 'server' as any });
-    finish({ source: 'server', stale: false, size: snapshot.size });
-    return { snapshot, source: 'server', stale: false };
+    const snapshot = await query.get({ source: "server" as any });
+    finish({ source: "server", stale: false, size: snapshot.size });
+    return { snapshot, source: "server", stale: false };
   } catch (serverError) {
     if (!isTransientFirestoreNetworkError(serverError)) {
-      finish({ source: 'server', stale: false, error: getErrorMessage(serverError) });
+      finish({ source: "server", stale: false, error: getErrorMessage(serverError) });
       throw serverError;
     }
 
     try {
-      const snapshot = await query.get({ source: 'cache' as any });
+      const snapshot = await query.get({ source: "cache" as any });
       finish({
-        source: 'cache',
+        source: "cache",
         stale: true,
         size: snapshot.size,
         fallbackError: getErrorMessage(serverError),
       });
-      return { snapshot, source: 'cache', stale: true };
+      return { snapshot, source: "cache", stale: true };
     } catch (cacheError) {
       finish({
-        source: 'local',
+        source: "local",
         stale: true,
         error: getErrorMessage(serverError),
         cacheError: getErrorMessage(cacheError),
       });
-      return { snapshot: null, source: 'local', stale: true };
+      return { snapshot: null, source: "local", stale: true };
     }
   }
 };
@@ -219,17 +237,23 @@ const queueCloudSectionWrite = async (userId: string, section: keyof UserData, v
       if (!next) break;
       queuedCloudSectionWrites.delete(key);
 
-      const finish = startFirestoreTrace('updateDataSection.cloudWrite', {
+      const finish = startFirestoreTrace("updateDataSection.cloudWrite", {
         userId: next.userId,
         section: next.section,
       });
 
       try {
-        await db.collection("userdata").doc(next.userId).set({
-          [next.section]: sanitizeForFirestore(next.value)
-        }, { merge: true });
+        await db
+          .collection("userdata")
+          .doc(next.userId)
+          .set(
+            {
+              [next.section]: sanitizeForFirestore(next.value),
+            },
+            { merge: true },
+          );
         finish({
-          source: 'server',
+          source: "server",
           stale: false,
           pendingWrites: queuedCloudSectionWrites.size,
         });
@@ -237,7 +261,7 @@ const queueCloudSectionWrite = async (userId: string, section: keyof UserData, v
         if (isTransientFirestoreNetworkError(error)) {
           queuedCloudSectionWrites.set(key, next);
           finish({
-            source: 'local',
+            source: "local",
             stale: true,
             error: getErrorMessage(error),
             pendingWrites: queuedCloudSectionWrites.size,
@@ -246,7 +270,7 @@ const queueCloudSectionWrite = async (userId: string, section: keyof UserData, v
         }
 
         finish({
-          source: 'server',
+          source: "server",
           stale: false,
           error: getErrorMessage(error),
           pendingWrites: queuedCloudSectionWrites.size,
@@ -268,8 +292,8 @@ const flushQueuedCloudSectionWrites = async () => {
   if (!isFirebaseConfigured || !isBrowserOnline()) return;
   await Promise.all(
     Array.from(queuedCloudSectionWrites.values()).map((entry) =>
-      queueCloudSectionWrite(entry.userId, entry.section, entry.value)
-    )
+      queueCloudSectionWrite(entry.userId, entry.section, entry.value),
+    ),
   );
 };
 
@@ -285,9 +309,9 @@ try {
   db.settings({
     ignoreUndefinedProperties: true,
     experimentalAutoDetectLongPolling:
-      typeof window !== 'undefined' &&
-      window.location.protocol !== 'capacitor:' &&
-      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'),
+      typeof window !== "undefined" &&
+      window.location.protocol !== "capacitor:" &&
+      (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"),
   } as any);
 
   // Enable persistence — synchronizeTabs:false because WKWebView doesn't support SharedWorker
@@ -298,7 +322,7 @@ try {
   storage = app.storage();
   isFirebaseConfigured = true;
 
-  if (typeof window !== 'undefined' && !firebaseNetworkListenersBound) {
+  if (typeof window !== "undefined" && !firebaseNetworkListenersBound) {
     firebaseNetworkListenersBound = true;
 
     const syncFirestoreNetwork = async () => {
@@ -316,26 +340,30 @@ try {
           });
         }
       } catch (error) {
-        logFirestoreDebug('network-sync-error', { error: getErrorMessage(error) });
+        logFirestoreDebug("network-sync-error", { error: getErrorMessage(error) });
       }
     };
 
-    window.addEventListener('online', () => { void syncFirestoreNetwork(); });
-    window.addEventListener('offline', () => { void syncFirestoreNetwork(); });
+    window.addEventListener("online", () => {
+      void syncFirestoreNetwork();
+    });
+    window.addEventListener("offline", () => {
+      void syncFirestoreNetwork();
+    });
     void syncFirestoreNetwork();
   }
 } catch (e) {
   console.error("Firebase failed to initialize:", e);
 }
 
-const USERS_KEY = 'coachai_users';
-const CURRENT_USER_KEY = 'coachai_current_user';
-const DATA_PREFIX = 'coachai_data_';
-const REQUESTS_KEY = 'coachai_local_requests';
+const USERS_KEY = "coachai_users";
+const CURRENT_USER_KEY = "coachai_current_user";
+const DATA_PREFIX = "coachai_data_";
+const REQUESTS_KEY = "coachai_local_requests";
 
 // ====== IN-MEMORY CACHE FOR PERFORMANCE ======
 // Cache user data to avoid redundant Firestore queries
-const userDataCache = new Map<string, { data: UserData, timestamp: number }>();
+const userDataCache = new Map<string, { data: UserData; timestamp: number }>();
 
 // Helper to get cached data
 const getCachedUserData = (userId: string): UserData | null => {
@@ -359,12 +387,12 @@ const invalidateCache = (userId: string) => {
 // Helper to remove blob URLs before saving to DB
 const cleanDataForStorage = (data: any): any => {
   if (Array.isArray(data)) return data.map(cleanDataForStorage);
-  if (data !== null && typeof data === 'object') {
+  if (data !== null && typeof data === "object") {
     const newObj = { ...data };
-    if ('url' in newObj && typeof newObj.url === 'string' && newObj.url.startsWith('blob:')) {
+    if ("url" in newObj && typeof newObj.url === "string" && newObj.url.startsWith("blob:")) {
       newObj.url = "";
     }
-    Object.keys(newObj).forEach(key => {
+    Object.keys(newObj).forEach((key) => {
       newObj[key] = cleanDataForStorage(newObj[key]);
     });
     return newObj;
@@ -376,9 +404,9 @@ const sanitizeForFirestore = (obj: any): any => {
   if (obj === undefined || obj === null) return null;
   if (obj instanceof Date) return obj;
   if (Array.isArray(obj)) return obj.map(sanitizeForFirestore);
-  if (typeof obj === 'object') {
+  if (typeof obj === "object") {
     const newObj: any = {};
-    Object.keys(obj).forEach(key => {
+    Object.keys(obj).forEach((key) => {
       const val = obj[key];
       if (val !== undefined) newObj[key] = sanitizeForFirestore(val);
     });
@@ -390,11 +418,11 @@ const sanitizeForFirestore = (obj: any): any => {
 const unwrapFromFirestore = (obj: any): any => {
   if (obj === null || obj === undefined) return obj;
   if (obj instanceof Date) return obj;
-  if (obj && typeof obj.toDate === 'function') return obj.toDate();
+  if (obj && typeof obj.toDate === "function") return obj.toDate();
   if (Array.isArray(obj)) return obj.map(unwrapFromFirestore);
-  if (typeof obj === 'object') {
+  if (typeof obj === "object") {
     const newObj: any = {};
-    Object.keys(obj).forEach(key => {
+    Object.keys(obj).forEach((key) => {
       newObj[key] = unwrapFromFirestore(obj[key]);
     });
     return newObj;
@@ -403,15 +431,28 @@ const unwrapFromFirestore = (obj: any): any => {
 };
 
 const SPORT_DEFAULTS: Record<string, ExerciseDef[]> = {
-  gym: [{ name: 'Sentadilla', unit: 'kg' }, { name: 'Press Banca', unit: 'kg' }, { name: 'Peso Muerto', unit: 'kg' }],
-  athletics: [{ name: 'Cargada', unit: 'kg' }, { name: 'Salto Vertical', unit: 'cm' }, { name: 'Lanz. Balón Med.', unit: 'm' }],
-  other: [{ name: 'Sentadilla', unit: 'kg' }, { name: 'Flexiones', unit: 'rep' }]
+  gym: [
+    { name: "Sentadilla", unit: "kg" },
+    { name: "Press Banca", unit: "kg" },
+    { name: "Peso Muerto", unit: "kg" },
+  ],
+  athletics: [
+    { name: "Cargada", unit: "kg" },
+    { name: "Salto Vertical", unit: "cm" },
+    { name: "Lanz. Balón Med.", unit: "m" },
+  ],
+  other: [
+    { name: "Sentadilla", unit: "kg" },
+    { name: "Flexiones", unit: "rep" },
+  ],
 };
 
 const getInitialUsage = (): UserUsage => ({
-  analysisCount: 0, chatCount: 0, plansCount: 0,
+  analysisCount: 0,
+  chatCount: 0,
+  plansCount: 0,
   lastAnalysisReset: new Date().toISOString(),
-  lastChatReset: new Date().toISOString()
+  lastChatReset: new Date().toISOString(),
 });
 
 const buildDefaultUserData = (): UserData => ({
@@ -423,7 +464,7 @@ const buildDefaultUserData = (): UserData => ({
   matchRecords: [],
   customExercises: [],
   supplements: [],
-  usage: getInitialUsage()
+  usage: getInitialUsage(),
 });
 
 const getLocalUserDataSnapshot = (userId: string): UserData => {
@@ -451,7 +492,7 @@ const writeUserDataSectionLocally = (userId: string, section: keyof UserData, va
 const getAssetSortTimestamp = (asset: { id?: string; uploadedAt?: any; date?: string }) => {
   const uploadedAt = unwrapFromFirestore(asset.uploadedAt);
   if (uploadedAt instanceof Date) return uploadedAt.getTime();
-  if (typeof uploadedAt === 'string') {
+  if (typeof uploadedAt === "string") {
     const parsedUploadedAt = Date.parse(uploadedAt);
     if (!Number.isNaN(parsedUploadedAt)) return parsedUploadedAt;
   }
@@ -468,11 +509,13 @@ const getAssetSortTimestamp = (asset: { id?: string; uploadedAt?: any; date?: st
   return 0;
 };
 
-const sortAssetsNewestFirst = <T extends { id: string; uploadedAt?: any; date?: string }>(assets: T[]): T[] => (
-  [...assets].sort((a, b) => getAssetSortTimestamp(b) - getAssetSortTimestamp(a))
-);
+const sortAssetsNewestFirst = <T extends { id: string; uploadedAt?: any; date?: string }>(assets: T[]): T[] =>
+  [...assets].sort((a, b) => getAssetSortTimestamp(b) - getAssetSortTimestamp(a));
 
-const mergeAssetsById = <T extends { id: string; uploadedAt?: any; date?: string }>(primary: T[] = [], secondary: T[] = []): T[] => {
+const mergeAssetsById = <T extends { id: string; uploadedAt?: any; date?: string }>(
+  primary: T[] = [],
+  secondary: T[] = [],
+): T[] => {
   const merged = new Map<string, T>();
 
   [...secondary, ...primary].forEach((item) => {
@@ -486,15 +529,15 @@ const mergeAssetsById = <T extends { id: string; uploadedAt?: any; date?: string
 const fetchAssetSubcollection = async <T>(path: string): Promise<T[]> => {
   try {
     const ordered = await readQueryWithCacheFallback(
-      db.collection(path).orderBy('uploadedAt', 'desc'),
-      'fetchAssetSubcollection.ordered',
-      { path }
+      db.collection(path).orderBy("uploadedAt", "desc"),
+      "fetchAssetSubcollection.ordered",
+      { path },
     );
     if (ordered.snapshot) {
       return ordered.snapshot.docs.map((doc) => unwrapFromFirestore(doc.data()) as T);
     }
   } catch (orderedError) {
-    logFirestoreDebug('fetchAssetSubcollection-ordered-fallback', {
+    logFirestoreDebug("fetchAssetSubcollection-ordered-fallback", {
       path,
       error: getErrorMessage(orderedError),
     });
@@ -502,8 +545,8 @@ const fetchAssetSubcollection = async <T>(path: string): Promise<T[]> => {
 
   const fallback = await readQueryWithCacheFallback(
     db.collection(path),
-    'fetchAssetSubcollection.unordered',
-    { path }
+    "fetchAssetSubcollection.unordered",
+    { path },
   );
   if (!fallback.snapshot) {
     return [];
@@ -511,8 +554,8 @@ const fetchAssetSubcollection = async <T>(path: string): Promise<T[]> => {
   return fallback.snapshot.docs.map((doc) => unwrapFromFirestore(doc.data()) as T);
 };
 
-const DB_NAME = 'CoachAI_StorageV2';
-const STORES = { VIDEOS: 'videos', PLANS: 'plans' };
+const DB_NAME = "CoachAI_StorageV2";
+const STORES = { VIDEOS: "videos", PLANS: "plans" };
 
 const openDB = (): Promise<IDBDatabase> => {
   return new Promise((resolve, reject) => {
@@ -530,7 +573,7 @@ const openDB = (): Promise<IDBDatabase> => {
 export const VideoStorage = {
   saveVideo: async (id: string, blob: Blob) => {
     const db = await openDB();
-    const tx = db.transaction(STORES.VIDEOS, 'readwrite');
+    const tx = db.transaction(STORES.VIDEOS, "readwrite");
     tx.objectStore(STORES.VIDEOS).put(blob, id);
     return new Promise<void>((res, rej) => {
       tx.oncomplete = () => res();
@@ -540,26 +583,26 @@ export const VideoStorage = {
   },
   getVideo: async (id: string) => {
     const db = await openDB();
-    const tx = db.transaction(STORES.VIDEOS, 'readonly');
+    const tx = db.transaction(STORES.VIDEOS, "readonly");
     const req = tx.objectStore(STORES.VIDEOS).get(id);
-    return new Promise<Blob | null>((res) => req.onsuccess = () => res(req.result || null));
+    return new Promise<Blob | null>((res) => (req.onsuccess = () => res(req.result || null)));
   },
   deleteVideo: async (id: string) => {
     const db = await openDB();
-    const tx = db.transaction(STORES.VIDEOS, 'readwrite');
+    const tx = db.transaction(STORES.VIDEOS, "readwrite");
     tx.objectStore(STORES.VIDEOS).delete(id);
     return new Promise<void>((res, rej) => {
       tx.oncomplete = () => res();
       tx.onerror = () => rej(tx.error);
       tx.onabort = () => rej(tx.error);
     });
-  }
+  },
 };
 
 export const PlanStorage = {
   savePlan: async (id: string, blob: Blob) => {
     const db = await openDB();
-    const tx = db.transaction(STORES.PLANS, 'readwrite');
+    const tx = db.transaction(STORES.PLANS, "readwrite");
     tx.objectStore(STORES.PLANS).put(blob, id);
     return new Promise<void>((res, rej) => {
       tx.oncomplete = () => res();
@@ -569,23 +612,27 @@ export const PlanStorage = {
   },
   getPlan: async (id: string) => {
     const db = await openDB();
-    const req = db.transaction(STORES.PLANS, 'readonly').objectStore(STORES.PLANS).get(id);
-    return new Promise<Blob | null>((res) => req.onsuccess = () => res(req.result || null));
+    const req = db.transaction(STORES.PLANS, "readonly").objectStore(STORES.PLANS).get(id);
+    return new Promise<Blob | null>((res) => (req.onsuccess = () => res(req.result || null)));
   },
   deletePlan: async (id: string) => {
     const db = await openDB();
-    const tx = db.transaction(STORES.PLANS, 'readwrite');
+    const tx = db.transaction(STORES.PLANS, "readwrite");
     tx.objectStore(STORES.PLANS).delete(id);
     return new Promise<void>((res, rej) => {
       tx.oncomplete = () => res();
       tx.onerror = () => rej(tx.error);
       tx.onabort = () => rej(tx.error);
     });
-  }
+  },
 };
 
 const _getLocalRequests = (): CoachRequest[] => {
-  try { return JSON.parse(localStorage.getItem(REQUESTS_KEY) || '[]'); } catch { return []; }
+  try {
+    return JSON.parse(localStorage.getItem(REQUESTS_KEY) || "[]");
+  } catch {
+    return [];
+  }
 };
 const _saveLocalRequests = (requests: CoachRequest[]) => {
   localStorage.setItem(REQUESTS_KEY, JSON.stringify(requests));
@@ -597,7 +644,7 @@ const getCachedPendingRequestsForEmail = (email: string) =>
 const saveCachedPendingRequestsForEmail = (email: string, requests: CoachRequest[]) => {
   const normalizedEmail = email.toLowerCase();
   const remaining = _getLocalRequests().filter(
-    (request) => request.athleteEmail?.toLowerCase() !== normalizedEmail
+    (request) => request.athleteEmail?.toLowerCase() !== normalizedEmail,
   );
   _saveLocalRequests([...remaining, ...requests]);
 };
@@ -605,8 +652,12 @@ const saveCachedPendingRequestsForEmail = (email: string, requests: CoachRequest
 const normalizeUserDataSnapshot = (userId: string, data: UserData): UserData => {
   const normalized = { ...buildDefaultUserData(), ...data };
   if (!normalized.usage) normalized.usage = getInitialUsage();
-  normalized.videos = sortAssetsNewestFirst((normalized.videos || []).map((video) => normalizeVideoRecord(userId, video)));
-  normalized.plans = sortAssetsNewestFirst((normalized.plans || []).map((plan) => normalizePlanRecord(userId, plan)));
+  normalized.videos = sortAssetsNewestFirst(
+    (normalized.videos || []).map((video) => normalizeVideoRecord(userId, video)),
+  );
+  normalized.plans = sortAssetsNewestFirst(
+    (normalized.plans || []).map((plan) => normalizePlanRecord(userId, plan)),
+  );
   return normalized;
 };
 
@@ -619,20 +670,26 @@ const serializeComparableValue = (value: unknown) => {
 };
 
 const canUseCloudPersistence = (userId: string) =>
-  isFirebaseConfigured && !userId.startsWith('test-') && userId !== 'MASTER_GOD_EUKEN';
+  isFirebaseConfigured && !userId.startsWith("test-") && userId !== "MASTER_GOD_EUKEN";
 
 const upsertAssetInUserDataSection = async <T extends { id: string; uploadedAt?: any; date?: string }>(
   userId: string,
-  section: 'videos' | 'plans',
-  asset: T
+  section: "videos" | "plans",
+  asset: T,
 ) => {
   const currentSection = (getLocalUserDataSnapshot(userId)[section] || []) as unknown as T[];
   const nextSection = mergeAssetsById([cleanDataForStorage(asset)], currentSection);
 
   if (canUseCloudPersistence(userId)) {
-    await db.collection("userdata").doc(userId).set({
-      [section]: sanitizeForFirestore(nextSection)
-    }, { merge: true });
+    await db
+      .collection("userdata")
+      .doc(userId)
+      .set(
+        {
+          [section]: sanitizeForFirestore(nextSection),
+        },
+        { merge: true },
+      );
   }
 
   writeUserDataSectionLocally(userId, section, nextSection);
@@ -641,16 +698,22 @@ const upsertAssetInUserDataSection = async <T extends { id: string; uploadedAt?:
 
 const removeAssetFromUserDataSection = async (
   userId: string,
-  section: 'videos' | 'plans',
-  assetId: string
+  section: "videos" | "plans",
+  assetId: string,
 ) => {
   const currentSection = getLocalUserDataSnapshot(userId)[section] || [];
   const nextSection = currentSection.filter((asset: any) => asset?.id !== assetId);
 
   if (canUseCloudPersistence(userId)) {
-    await db.collection("userdata").doc(userId).set({
-      [section]: sanitizeForFirestore(nextSection)
-    }, { merge: true });
+    await db
+      .collection("userdata")
+      .doc(userId)
+      .set(
+        {
+          [section]: sanitizeForFirestore(nextSection),
+        },
+        { merge: true },
+      );
   }
 
   writeUserDataSectionLocally(userId, section, nextSection);
@@ -676,7 +739,7 @@ type UploadedAssetResult = {
   ownerId: string;
 };
 
-const DEV_STORAGE_LOGS = typeof import.meta !== 'undefined' && Boolean(import.meta.env?.DEV);
+const DEV_STORAGE_LOGS = typeof import.meta !== "undefined" && Boolean(import.meta.env?.DEV);
 const MAX_VIDEO_FILE_SIZE_BYTES = 512 * 1024 * 1024;
 
 const logStorageDebug = (event: string, payload?: Record<string, unknown>) => {
@@ -684,10 +747,9 @@ const logStorageDebug = (event: string, payload?: Record<string, unknown>) => {
   console.debug(`[StorageService] ${event}`, payload || {});
 };
 
-const sanitizeStorageFileName = (fileName: string) =>
-  fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+const sanitizeStorageFileName = (fileName: string) => fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
 
-const buildUserAssetPath = (folder: 'videos' | 'plans', userId: string, assetId: string, fileName: string) =>
+const buildUserAssetPath = (folder: "videos" | "plans", userId: string, assetId: string, fileName: string) =>
   `${folder}/${userId}/${assetId}_${sanitizeStorageFileName(fileName)}`;
 
 const extractPersistedAssetUrl = (asset: { downloadURL?: string; remoteUrl?: string; url?: string }) => {
@@ -699,9 +761,9 @@ const extractPersistedAssetUrl = (asset: { downloadURL?: string; remoteUrl?: str
 
 const toIsoStringMaybe = (value: unknown): string | undefined => {
   if (!value) return undefined;
-  if (typeof value === 'string') return value;
+  if (typeof value === "string") return value;
   if (value instanceof Date) return value.toISOString();
-  if (typeof (value as any)?.toDate === 'function') {
+  if (typeof (value as any)?.toDate === "function") {
     try {
       return (value as any).toDate().toISOString();
     } catch {
@@ -712,8 +774,8 @@ const toIsoStringMaybe = (value: unknown): string | undefined => {
 };
 
 const toNumberMaybe = (value: unknown): number | undefined => {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value === 'string' && value.trim()) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : undefined;
   }
@@ -724,18 +786,20 @@ const normalizeVideoRecord = (userId: string, video: VideoFile): VideoFile => {
   const persistedUrl = extractPersistedAssetUrl(video);
   return {
     ...video,
-    url: typeof video.url === 'string' ? video.url : '',
+    url: typeof video.url === "string" ? video.url : "",
     remoteUrl: persistedUrl,
     downloadURL: persistedUrl,
-    storagePath: video.storagePath || (video.id && video.name ? buildUserAssetPath('videos', userId, video.id, video.name) : undefined),
+    storagePath:
+      video.storagePath ||
+      (video.id && video.name ? buildUserAssetPath("videos", userId, video.id, video.name) : undefined),
     contentType: video.contentType || undefined,
     size: toNumberMaybe(video.size),
     createdAt: video.createdAt || toIsoStringMaybe((video as any).uploadedAt),
     ownerId: video.ownerId || userId,
-    status: video.status || (persistedUrl || video.storagePath ? 'ready' : undefined),
+    status: video.status || (persistedUrl || video.storagePath ? "ready" : undefined),
     errorCode: video.errorCode || undefined,
     errorMessage: video.errorMessage || undefined,
-    playbackStatus: video.playbackStatus || 'unknown',
+    playbackStatus: video.playbackStatus || "unknown",
   };
 };
 
@@ -743,25 +807,27 @@ const normalizePlanRecord = (userId: string, plan: PlanFile): PlanFile => {
   const persistedUrl = extractPersistedAssetUrl(plan);
   return {
     ...plan,
-    url: typeof plan.url === 'string' ? plan.url : '',
+    url: typeof plan.url === "string" ? plan.url : "",
     remoteUrl: persistedUrl,
     downloadURL: persistedUrl,
-    storagePath: plan.storagePath || (plan.id && plan.name ? buildUserAssetPath('plans', userId, plan.id, plan.name) : undefined),
+    storagePath:
+      plan.storagePath ||
+      (plan.id && plan.name ? buildUserAssetPath("plans", userId, plan.id, plan.name) : undefined),
     contentType: plan.contentType || undefined,
     size: toNumberMaybe(plan.size),
     createdAt: plan.createdAt || toIsoStringMaybe((plan as any).uploadedAt),
     ownerId: plan.ownerId || userId,
-    status: plan.status || (persistedUrl || plan.storagePath ? 'ready' : undefined),
+    status: plan.status || (persistedUrl || plan.storagePath ? "ready" : undefined),
     errorCode: plan.errorCode || undefined,
     errorMessage: plan.errorMessage || undefined,
   };
 };
 
 const getStorageErrorCode = (error: unknown) =>
-  typeof (error as any)?.code === 'string' ? String((error as any).code) : 'storage/unknown';
+  typeof (error as any)?.code === "string" ? String((error as any).code) : "storage/unknown";
 
 const getStorageErrorMessage = (error: unknown, fallback: string) =>
-  typeof (error as any)?.message === 'string' ? String((error as any).message) : fallback;
+  typeof (error as any)?.message === "string" ? String((error as any).message) : fallback;
 
 const buildAssetErrorResolution = (error: unknown, fallback: string): AssetDownloadResolution => ({
   errorCode: getStorageErrorCode(error),
@@ -784,7 +850,7 @@ const resolveFromStoragePath = async (path: string): Promise<AssetDownloadResolu
   try {
     return await getReferenceDetails(storage.ref(path));
   } catch (error) {
-    return buildAssetErrorResolution(error, 'No se pudo resolver el objeto en Firebase Storage.');
+    return buildAssetErrorResolution(error, "No se pudo resolver el objeto en Firebase Storage.");
   }
 };
 
@@ -792,7 +858,10 @@ const resolveFromDownloadUrl = async (url: string): Promise<AssetDownloadResolut
   try {
     return await getReferenceDetails(storage.refFromURL(url));
   } catch (error) {
-    return buildAssetErrorResolution(error, 'La URL persistida del archivo no es valida o ha quedado obsoleta.');
+    return buildAssetErrorResolution(
+      error,
+      "La URL persistida del archivo no es valida o ha quedado obsoleta.",
+    );
   }
 };
 
@@ -804,7 +873,7 @@ const resolveCloudAssetDownload = async ({
   storagePath,
   persistedUrl,
 }: {
-  folder: 'videos' | 'plans';
+  folder: "videos" | "plans";
   userId: string;
   assetId: string;
   fileName: string;
@@ -822,7 +891,7 @@ const resolveCloudAssetDownload = async ({
   for (const candidatePath of candidatePaths) {
     const resolved = await resolveFromStoragePath(candidatePath);
     if (resolved?.url) {
-      logStorageDebug('resolved-by-path', { folder, userId, assetId, path: resolved.path });
+      logStorageDebug("resolved-by-path", { folder, userId, assetId, path: resolved.path });
       return resolved;
     }
     lastResolution = resolved;
@@ -831,7 +900,7 @@ const resolveCloudAssetDownload = async ({
   if (persistedUrl) {
     const resolved = await resolveFromDownloadUrl(persistedUrl);
     if (resolved?.url) {
-      logStorageDebug('resolved-by-url', { folder, userId, assetId, path: resolved.path });
+      logStorageDebug("resolved-by-url", { folder, userId, assetId, path: resolved.path });
       return resolved;
     }
     lastResolution = resolved;
@@ -841,41 +910,53 @@ const resolveCloudAssetDownload = async ({
     const folderRef = storage.ref(`${folder}/${userId}`);
     const list = await folderRef.listAll();
     const match = list.items.find((item) => {
-      const itemName = item.name || '';
-      return (assetId && itemName.startsWith(`${assetId}_`)) || (!!fileName && itemName.endsWith(sanitizeStorageFileName(fileName)));
+      const itemName = item.name || "";
+      return (
+        (assetId && itemName.startsWith(`${assetId}_`)) ||
+        (!!fileName && itemName.endsWith(sanitizeStorageFileName(fileName)))
+      );
     });
 
     if (match) {
       const resolved = await getReferenceDetails(match);
-      logStorageDebug('resolved-by-list', { folder, userId, assetId, path: resolved.path });
+      logStorageDebug("resolved-by-list", { folder, userId, assetId, path: resolved.path });
       return resolved;
     }
   } catch (error) {
-    lastResolution = buildAssetErrorResolution(error, 'No se pudo listar la carpeta del archivo en Firebase Storage.');
+    lastResolution = buildAssetErrorResolution(
+      error,
+      "No se pudo listar la carpeta del archivo en Firebase Storage.",
+    );
   }
 
-  return lastResolution || {
-    errorCode: 'storage/object-not-found',
-    errorMessage: 'El archivo no existe en Firebase Storage o su ruta ya no coincide con el registro.',
-  };
+  return (
+    lastResolution || {
+      errorCode: "storage/object-not-found",
+      errorMessage: "El archivo no existe en Firebase Storage o su ruta ya no coincide con el registro.",
+    }
+  );
 };
 
 export const StorageService = {
   isCloudMode: (): boolean => isFirebaseConfigured,
   isOnline: (): boolean => isBrowserOnline(),
   buildVideoStoragePath: (userId: string, assetId: string, fileName: string) =>
-    buildUserAssetPath('videos', userId, assetId, fileName),
+    buildUserAssetPath("videos", userId, assetId, fileName),
   buildPlanStoragePath: (userId: string, assetId: string, fileName: string) =>
-    buildUserAssetPath('plans', userId, assetId, fileName),
+    buildUserAssetPath("plans", userId, assetId, fileName),
   canPlayVideoContentType: (contentType?: string): boolean | undefined => {
-    if (typeof document === 'undefined' || !contentType) return undefined;
-    const videoElement = document.createElement('video');
+    if (typeof document === "undefined" || !contentType) return undefined;
+    const videoElement = document.createElement("video");
     const support = videoElement.canPlayType(contentType);
-    return support === 'probably' || support === 'maybe';
+    return support === "probably" || support === "maybe";
   },
 
   _getLocalUsers: (): User[] => {
-    try { return JSON.parse(localStorage.getItem(USERS_KEY) || '[]'); } catch { return []; }
+    try {
+      return JSON.parse(localStorage.getItem(USERS_KEY) || "[]");
+    } catch {
+      return [];
+    }
   },
 
   _saveLocalUserData: (userId: string, data: UserData) => {
@@ -883,14 +964,14 @@ export const StorageService = {
   },
 
   initializeExercisesForSport: async (userId: string, sport: string) => {
-    const defaults = SPORT_DEFAULTS[sport] || SPORT_DEFAULTS['other'];
-    await StorageService.updateDataSection(userId, 'customExercises', defaults);
+    const defaults = SPORT_DEFAULTS[sport] || SPORT_DEFAULTS["other"];
+    await StorageService.updateDataSection(userId, "customExercises", defaults);
   },
 
   resetSportData: async (userId: string, sport: string) => {
-    const defaults = SPORT_DEFAULTS[sport] || SPORT_DEFAULTS['other'];
-    await StorageService.updateDataSection(userId, 'customExercises', defaults);
-    await StorageService.updateDataSection(userId, 'strengthRecords', []);
+    const defaults = SPORT_DEFAULTS[sport] || SPORT_DEFAULTS["other"];
+    await StorageService.updateDataSection(userId, "customExercises", defaults);
+    await StorageService.updateDataSection(userId, "strengthRecords", []);
   },
 
   register: async (username: string, password: string): Promise<User> => {
@@ -901,17 +982,36 @@ export const StorageService = {
     if (isFirebaseConfigured && auth) {
       const userCredential = await auth.createUserWithEmailAndPassword(cleanUsername, cleanPassword);
       const fbUser = userCredential.user!;
-      const newUser: User = { id: fbUser.uid, username: cleanUsername, email: cleanUsername, createdAt: new Date().toISOString() };
+      const newUser: User = {
+        id: fbUser.uid,
+        username: cleanUsername,
+        email: cleanUsername,
+        createdAt: new Date().toISOString(),
+      };
 
-      await db.collection("users").doc(fbUser.uid).set({ uid: fbUser.uid, email: cleanUsername, username: cleanUsername, profile: null, createdAt: newUser.createdAt });
+      await db
+        .collection("users")
+        .doc(fbUser.uid)
+        .set({
+          uid: fbUser.uid,
+          email: cleanUsername,
+          username: cleanUsername,
+          profile: null,
+          createdAt: newUser.createdAt,
+        });
       await db.collection("userdata").doc(fbUser.uid).set(sanitizeForFirestore(initialData));
 
       localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(newUser));
       return newUser;
     } else {
       const users = StorageService._getLocalUsers();
-      if (users.find(u => u.username === cleanUsername)) throw new Error('Usuario ya existe.');
-      const newUser: User = { id: Date.now().toString(), username: cleanUsername, password: cleanPassword, createdAt: new Date().toISOString() };
+      if (users.find((u) => u.username === cleanUsername)) throw new Error("Usuario ya existe.");
+      const newUser: User = {
+        id: Date.now().toString(),
+        username: cleanUsername,
+        password: cleanPassword,
+        createdAt: new Date().toISOString(),
+      };
       users.push(newUser);
       localStorage.setItem(USERS_KEY, JSON.stringify(users));
       StorageService._saveLocalUserData(newUser.id, initialData);
@@ -931,13 +1031,19 @@ export const StorageService = {
       const userDoc = await db.collection("users").doc(fbUser.uid).get();
       const userData = userDoc.exists ? userDoc.data() : {};
 
-      const user: User = { id: fbUser.uid, username: fbUser.email?.toLowerCase() || 'user', email: fbUser.email?.toLowerCase(), profile: (userData as any).profile, createdAt: new Date().toISOString() };
+      const user: User = {
+        id: fbUser.uid,
+        username: fbUser.email?.toLowerCase() || "user",
+        email: fbUser.email?.toLowerCase(),
+        profile: (userData as any).profile,
+        createdAt: new Date().toISOString(),
+      };
       localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(user));
       return user;
     } else {
       const users = StorageService._getLocalUsers();
-      const user = users.find(u => u.username === cleanUsername);
-      if (!user || user.password !== cleanPassword) throw new Error('Credenciales incorrectas.');
+      const user = users.find((u) => u.username === cleanUsername);
+      if (!user || user.password !== cleanPassword) throw new Error("Credenciales incorrectas.");
       localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(user));
       return user;
     }
@@ -949,13 +1055,33 @@ export const StorageService = {
   },
 
   getCurrentUser: (): User | null => {
-    try { return JSON.parse(localStorage.getItem(CURRENT_USER_KEY) || 'null'); } catch { return null; }
+    try {
+      return JSON.parse(localStorage.getItem(CURRENT_USER_KEY) || "null");
+    } catch {
+      return null;
+    }
   },
 
   updateUserProfile: async (userId: string, profile: UserProfile): Promise<User> => {
     const cleanedProfile = cleanDataForStorage(profile);
     if (canUseCloudPersistence(userId)) {
-      await db.collection("users").doc(userId).set({ profile: sanitizeForFirestore(cleanedProfile) }, { merge: true });
+      const cloudProfile = { ...cleanedProfile };
+      for (const key of [
+        "currentPlanId",
+        "subscriptionTier",
+        "subscriptionStatus",
+        "subscriptionId",
+        "stripeCustomerId",
+        "stripeSubscriptionId",
+        "gracePeriodDeadline",
+        "maxStoredVideosLimit",
+      ]) {
+        delete cloudProfile[key];
+      }
+      await db
+        .collection("users")
+        .doc(userId)
+        .set({ profile: sanitizeForFirestore(cloudProfile) }, { merge: true });
     }
     const current = StorageService.getCurrentUser();
     if (current && current.id === userId) {
@@ -963,7 +1089,7 @@ export const StorageService = {
       localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(updated));
       return updated;
     }
-    return { id: userId, username: '', createdAt: '', profile: cleanedProfile };
+    return { id: userId, username: "", createdAt: "", profile: cleanedProfile };
   },
 
   getLocalUserData: (userId: string): UserData => {
@@ -974,14 +1100,14 @@ export const StorageService = {
     lastUserDataLoadInfoByUser.get(userId) || null,
 
   getUserData: async (userId: string): Promise<UserData> => {
-    const finish = startFirestoreTrace('getUserData', { userId });
+    const finish = startFirestoreTrace("getUserData", { userId });
 
     const cached = getCachedUserData(userId);
     if (cached) {
       const info: UserDataLoadInfo = {
-        source: 'memory',
+        source: "memory",
         stale: false,
-        durationMs: finish({ source: 'memory', stale: false }),
+        durationMs: finish({ source: "memory", stale: false }),
         fetchedAt: Date.now(),
       };
       lastUserDataLoadInfoByUser.set(userId, info);
@@ -990,21 +1116,21 @@ export const StorageService = {
 
     const inFlight = userDataInFlight.get(userId);
     if (inFlight) {
-      finish({ source: 'memory', deduped: true });
+      finish({ source: "memory", deduped: true });
       return inFlight;
     }
 
     const task = (async () => {
       let data: UserData | null = null;
-      let source: FirestoreDataSource = 'local';
+      let source: FirestoreDataSource = "local";
       let stale = true;
       const defaults = buildDefaultUserData();
 
       if (canUseCloudPersistence(userId)) {
         const userDocRead = await readDocumentWithCacheFallback(
           db.collection("userdata").doc(userId),
-          'getUserData.rootDoc',
-          { userId }
+          "getUserData.rootDoc",
+          { userId },
         );
 
         source = userDocRead.source;
@@ -1018,7 +1144,7 @@ export const StorageService = {
         try {
           const [subVideos, subPlans] = await Promise.all([
             fetchAssetSubcollection<VideoFile>(`userdata/${userId}/videos`),
-            fetchAssetSubcollection<PlanFile>(`userdata/${userId}/plans`)
+            fetchAssetSubcollection<PlanFile>(`userdata/${userId}/plans`),
           ]);
 
           if (!data) data = { ...defaults };
@@ -1036,7 +1162,7 @@ export const StorageService = {
 
       if (!data) {
         data = getLocalUserDataSnapshot(userId);
-        source = 'local';
+        source = "local";
         stale = true;
       }
 
@@ -1063,9 +1189,9 @@ export const StorageService = {
       const data = await task;
       const existing = lastUserDataLoadInfoByUser.get(userId);
       lastUserDataLoadInfoByUser.set(userId, {
-        ...(existing || { source: 'local', stale: true, fetchedAt: Date.now() }),
+        ...(existing || { source: "local", stale: true, fetchedAt: Date.now() }),
         durationMs: finish({
-          source: existing?.source || 'local',
+          source: existing?.source || "local",
           stale: existing?.stale ?? true,
         }),
       });
@@ -1073,7 +1199,7 @@ export const StorageService = {
     } catch (error) {
       const durationMs = finish({ error: getErrorMessage(error) });
       lastUserDataLoadInfoByUser.set(userId, {
-        source: 'local',
+        source: "local",
         stale: true,
         durationMs,
         fetchedAt: Date.now(),
@@ -1087,18 +1213,18 @@ export const StorageService = {
     userId: string,
     section: keyof UserData,
     value: any,
-    options?: { reason?: string }
+    options?: { reason?: string },
   ) => {
-    const finish = startFirestoreTrace('updateDataSection', {
+    const finish = startFirestoreTrace("updateDataSection", {
       userId,
       section,
-      reason: options?.reason || 'default',
+      reason: options?.reason || "default",
     });
     const cleanedValue = cleanDataForStorage(value);
     const currentValue = (getLocalUserDataSnapshot(userId) as any)[section];
 
     if (serializeComparableValue(currentValue) === serializeComparableValue(cleanedValue)) {
-      finish({ skipped: true, source: 'memory', stale: false });
+      finish({ skipped: true, source: "memory", stale: false });
       return;
     }
 
@@ -1114,51 +1240,51 @@ export const StorageService = {
     }
 
     finish({
-      source: syncedToServer ? 'server' : 'local',
+      source: syncedToServer ? "server" : "local",
       stale: !syncedToServer,
       pendingWrites: queuedCloudSectionWrites.size,
     });
   },
 
-  incrementUsage: async (userId: string, type: 'analysis' | 'chat' | 'plan') => {
+  incrementUsage: async (userId: string, type: "analysis" | "chat" | "plan") => {
     const data = getLocalUserDataSnapshot(userId);
     if (!data.usage) data.usage = getInitialUsage();
 
-    if (type === 'analysis') data.usage.analysisCount++;
-    if (type === 'chat') data.usage.chatCount++;
-    if (type === 'plan') data.usage.plansCount++;
+    if (type === "analysis") data.usage.analysisCount++;
+    if (type === "chat") data.usage.chatCount++;
+    if (type === "plan") data.usage.plansCount++;
 
-    await StorageService.updateDataSection(userId, 'usage', data.usage);
+    await StorageService.updateDataSection(userId, "usage", data.usage);
   },
 
   updateVideos: (userId: string, videos: VideoFile[], options?: { reason?: string }) =>
     StorageService.updateDataSection(
       userId,
-      'videos',
+      "videos",
       videos.map((video) => normalizeVideoRecord(userId, video)),
       options,
     ),
-  
+
   // V3 Authoritative Video Storage Add
   addVideoSafe: async (targetUserId: string, video: VideoFile): Promise<boolean> => {
     const normalizedVideo = normalizeVideoRecord(targetUserId, {
       ...video,
-      status: video.status || 'ready',
+      status: video.status || "ready",
     });
     const cleanedVideo = cleanDataForStorage(normalizedVideo);
 
     if (!canUseCloudPersistence(targetUserId)) {
-      await upsertAssetInUserDataSection(targetUserId, 'videos', cleanedVideo);
+      await upsertAssetInUserDataSection(targetUserId, "videos", cleanedVideo);
       return true;
     }
 
     let registered = false;
 
     try {
-      const callableFunc = firebase.app().functions('europe-west1').httpsCallable('registerVideoInGallery');
+      const callableFunc = firebase.app().functions("europe-west1").httpsCallable("registerVideoInGallery");
       const result = await callableFunc({
         videoData: cleanedVideo,
-        targetUserId
+        targetUserId,
       });
 
       if ((result.data as any)?.success === false) {
@@ -1172,19 +1298,33 @@ export const StorageService = {
 
     if (!registered) {
       try {
-        await db.collection(`userdata/${targetUserId}/videos`).doc(cleanedVideo.id).set(sanitizeForFirestore({
-          ...cleanedVideo,
-          uploadedAt: firebase.firestore.FieldValue.serverTimestamp(),
-          uploadedByCoachId: auth.currentUser && auth.currentUser.uid !== targetUserId ? auth.currentUser.uid : null,
-          quotaCounted: false
-        }), { merge: true });
+        await db
+          .collection(`userdata/${targetUserId}/videos`)
+          .doc(cleanedVideo.id)
+          .set(
+            sanitizeForFirestore({
+              ...Object.fromEntries(
+                Object.entries(cleanedVideo).filter(
+                  ([key]) =>
+                    ![
+                      "quotaCounted",
+                      "uploadedByCoachId",
+                      "quotaPayerId",
+                      "fallbackCountedAt",
+                      "uploadedAt",
+                    ].includes(key),
+                ),
+              ),
+            }),
+            { merge: true },
+          );
       } catch (directWriteError) {
         console.error("Direct video metadata persistence failed", directWriteError);
         return false;
       }
     }
 
-    await upsertAssetInUserDataSection(targetUserId, 'videos', cleanedVideo);
+    await upsertAssetInUserDataSection(targetUserId, "videos", cleanedVideo);
     return true;
   },
 
@@ -1192,22 +1332,22 @@ export const StorageService = {
   addPdfSafe: async (targetUserId: string, plan: PlanFile): Promise<boolean> => {
     const normalizedPlan = normalizePlanRecord(targetUserId, {
       ...plan,
-      status: plan.status || 'ready',
+      status: plan.status || "ready",
     });
     const cleanedPlan = cleanDataForStorage(normalizedPlan);
 
     if (!canUseCloudPersistence(targetUserId)) {
-      await upsertAssetInUserDataSection(targetUserId, 'plans', cleanedPlan);
+      await upsertAssetInUserDataSection(targetUserId, "plans", cleanedPlan);
       return true;
     }
 
     let registered = false;
 
     try {
-      const callableFunc = firebase.app().functions('europe-west1').httpsCallable('registerPdfInGallery');
+      const callableFunc = firebase.app().functions("europe-west1").httpsCallable("registerPdfInGallery");
       const result = await callableFunc({
         pdfData: cleanedPlan,
-        targetUserId
+        targetUserId,
       });
 
       if ((result.data as any)?.success === false) {
@@ -1221,26 +1361,40 @@ export const StorageService = {
 
     if (!registered) {
       try {
-        await db.collection(`userdata/${targetUserId}/plans`).doc(cleanedPlan.id).set(sanitizeForFirestore({
-          ...cleanedPlan,
-          uploadedAt: firebase.firestore.FieldValue.serverTimestamp(),
-          uploadedByCoachId: auth.currentUser && auth.currentUser.uid !== targetUserId ? auth.currentUser.uid : null,
-          quotaCounted: false
-        }), { merge: true });
+        await db
+          .collection(`userdata/${targetUserId}/plans`)
+          .doc(cleanedPlan.id)
+          .set(
+            sanitizeForFirestore({
+              ...Object.fromEntries(
+                Object.entries(cleanedPlan).filter(
+                  ([key]) =>
+                    ![
+                      "quotaCounted",
+                      "uploadedByCoachId",
+                      "quotaPayerId",
+                      "fallbackCountedAt",
+                      "uploadedAt",
+                    ].includes(key),
+                ),
+              ),
+            }),
+            { merge: true },
+          );
       } catch (directWriteError) {
         console.error("Direct PDF metadata persistence failed", directWriteError);
         return false;
       }
     }
 
-    await upsertAssetInUserDataSection(targetUserId, 'plans', cleanedPlan);
+    await upsertAssetInUserDataSection(targetUserId, "plans", cleanedPlan);
     return true;
   },
 
   // NEW V3: Fetch Global Quota Usage
   getCoachQuotaUsage: async () => {
     if (!isFirebaseConfigured || !isBrowserOnline()) return null;
-    const callableFunc = firebase.app().functions('europe-west1').httpsCallable('getCoachQuotaUsage');
+    const callableFunc = firebase.app().functions("europe-west1").httpsCallable("getCoachQuotaUsage");
     const result = await callableFunc();
     return result.data as {
       videosUsed: number;
@@ -1261,7 +1415,7 @@ export const StorageService = {
       }
     }
 
-    await removeAssetFromUserDataSection(userId, 'videos', videoId);
+    await removeAssetFromUserDataSection(userId, "videos", videoId);
   },
 
   deletePlanSafe: async (userId: string, planId: string): Promise<void> => {
@@ -1273,31 +1427,38 @@ export const StorageService = {
       }
     }
 
-    await removeAssetFromUserDataSection(userId, 'plans', planId);
+    await removeAssetFromUserDataSection(userId, "plans", planId);
   },
 
   updatePlans: (userId: string, plans: PlanFile[], options?: { reason?: string }) =>
     StorageService.updateDataSection(
       userId,
-      'plans',
+      "plans",
       plans.map((plan) => normalizePlanRecord(userId, plan)),
       options,
     ),
-  updateStrengthRecords: (userId: string, records: StrengthRecord[]) => StorageService.updateDataSection(userId, 'strengthRecords', records),
-  updateCompetitionRecords: (userId: string, records: ThrowRecord[]) => StorageService.updateDataSection(userId, 'competitionRecords', records),
-  updateTrainingRecords: (userId: string, records: ThrowRecord[]) => StorageService.updateDataSection(userId, 'trainingRecords', records),
-  updateCustomExercises: (userId: string, ex: ExerciseDef[]) => StorageService.updateDataSection(userId, 'customExercises', ex),
-  updateSupplements: (userId: string, items: SupplementItem[]) => StorageService.updateDataSection(userId, 'supplements', items),
-  updateMatchRecords: (userId: string, records: any[]) => StorageService.updateDataSection(userId, 'matchRecords', records),
+  updateStrengthRecords: (userId: string, records: StrengthRecord[]) =>
+    StorageService.updateDataSection(userId, "strengthRecords", records),
+  updateCompetitionRecords: (userId: string, records: ThrowRecord[]) =>
+    StorageService.updateDataSection(userId, "competitionRecords", records),
+  updateTrainingRecords: (userId: string, records: ThrowRecord[]) =>
+    StorageService.updateDataSection(userId, "trainingRecords", records),
+  updateCustomExercises: (userId: string, ex: ExerciseDef[]) =>
+    StorageService.updateDataSection(userId, "customExercises", ex),
+  updateSupplements: (userId: string, items: SupplementItem[]) =>
+    StorageService.updateDataSection(userId, "supplements", items),
+  updateMatchRecords: (userId: string, records: any[]) =>
+    StorageService.updateDataSection(userId, "matchRecords", records),
 
   validateVideoFile: (file: File): string | null => {
-    if (!file) return 'No se ha seleccionado ningun archivo.';
-    const looksLikeVideo = file.type?.startsWith('video/') || /\.(mp4|mov|webm|m4v|avi|mkv)$/i.test(file.name);
+    if (!file) return "No se ha seleccionado ningun archivo.";
+    const looksLikeVideo =
+      file.type?.startsWith("video/") || /\.(mp4|mov|webm|m4v|avi|mkv)$/i.test(file.name);
     if (!looksLikeVideo) {
-      return 'El archivo seleccionado no es un video valido.';
+      return "El archivo seleccionado no es un video valido.";
     }
     if (file.size > MAX_VIDEO_FILE_SIZE_BYTES) {
-      return 'El video supera el limite permitido de 512 MB.';
+      return "El video supera el limite permitido de 512 MB.";
     }
     return null;
   },
@@ -1305,16 +1466,21 @@ export const StorageService = {
   uploadUserAsset: async (
     userId: string,
     file: File,
-    folder: 'videos' | 'plans' = 'videos',
+    folder: "videos" | "plans" = "videos",
     customPath?: string,
   ): Promise<UploadedAssetResult | null> => {
-    if (!isFirebaseConfigured || !isBrowserOnline() || userId.startsWith('test-') || userId === 'MASTER_GOD_EUKEN') {
+    if (
+      !isFirebaseConfigured ||
+      !isBrowserOnline() ||
+      userId.startsWith("test-") ||
+      userId === "MASTER_GOD_EUKEN"
+    ) {
       return null;
     }
 
     const authenticatedUser = auth?.currentUser;
     if (!authenticatedUser) {
-      throw new Error('No hay una sesion autenticada valida para subir archivos a Firebase Storage.');
+      throw new Error("No hay una sesion autenticada valida para subir archivos a Firebase Storage.");
     }
 
     try {
@@ -1342,7 +1508,7 @@ export const StorageService = {
         ownerId: userId,
       };
 
-      logStorageDebug('upload-complete', {
+      logStorageDebug("upload-complete", {
         folder,
         userId,
         storagePath: result.storagePath,
@@ -1352,17 +1518,31 @@ export const StorageService = {
 
       return result;
     } catch (error) {
-      console.error('Upload failed:', error);
+      console.error("Upload failed:", error);
       return null;
     }
   },
 
-  uploadVideoFile: async (userId: string, file: File, customPath?: string): Promise<UploadedAssetResult | null> => {
-    return StorageService.uploadUserAsset(userId, file, 'videos', customPath);
+  uploadVideoFile: async (
+    userId: string,
+    file: File,
+    customPath?: string,
+  ): Promise<UploadedAssetResult | null> => {
+    return StorageService.uploadUserAsset(userId, file, "videos", customPath);
   },
 
-  uploadFile: async (userId: string, file: File, folder = 'videos', customPath?: string): Promise<string | null> => {
-    const uploaded = await StorageService.uploadUserAsset(userId, file, folder as 'videos' | 'plans', customPath);
+  uploadFile: async (
+    userId: string,
+    file: File,
+    folder = "videos",
+    customPath?: string,
+  ): Promise<string | null> => {
+    const uploaded = await StorageService.uploadUserAsset(
+      userId,
+      file,
+      folder as "videos" | "plans",
+      customPath,
+    );
     return uploaded?.downloadURL || null;
   },
 
@@ -1384,7 +1564,7 @@ export const StorageService = {
   getLandingVideoUrl: async (): Promise<string | null> => {
     if (!isFirebaseConfigured) return null;
     try {
-      const ref = storage.ref('public/landing-video.mp4');
+      const ref = storage.ref("public/landing-video.mp4");
       return await ref.getDownloadURL();
     } catch {
       return null;
@@ -1403,7 +1583,7 @@ export const StorageService = {
 
   findVideoDownloadUrl: async (userId: string, video: VideoFile): Promise<AssetDownloadResolution | null> => {
     return resolveCloudAssetDownload({
-      folder: 'videos',
+      folder: "videos",
       userId,
       assetId: video.id,
       fileName: video.name,
@@ -1414,7 +1594,7 @@ export const StorageService = {
 
   findPlanDownloadUrl: async (userId: string, plan: PlanFile): Promise<AssetDownloadResolution | null> => {
     return resolveCloudAssetDownload({
-      folder: 'plans',
+      folder: "plans",
       userId,
       assetId: plan.id,
       fileName: plan.name,
@@ -1424,40 +1604,42 @@ export const StorageService = {
   },
 
   deleteFileFromCloud: async (url: string) => {
-    if (isFirebaseConfigured && url?.startsWith('http')) {
-      try { await storage.refFromURL(url).delete(); } catch { }
+    if (isFirebaseConfigured && url?.startsWith("http")) {
+      try {
+        await storage.refFromURL(url).delete();
+      } catch {}
     }
   },
 
   deleteFileByPath: async (path: string) => {
     if (isFirebaseConfigured && path) {
-      try { await storage.ref(path).delete(); } catch { }
+      try {
+        await storage.ref(path).delete();
+      } catch {}
     }
   },
 
   getManagedAthletes: async (athleteIds: string[]): Promise<User[]> => {
     if (!isFirebaseConfigured || !isBrowserOnline() || athleteIds.length === 0) return [];
-    const snapshots = await Promise.all(
-      athleteIds.map((id) => db.collection("users").doc(id).get())
-    );
+    const snapshots = await Promise.all(athleteIds.map((id) => db.collection("users").doc(id).get()));
     return snapshots
       .filter((snapshot) => snapshot.exists)
-      .map((snapshot) => ({ id: snapshot.id, ...(snapshot.data() as any) } as User));
+      .map((snapshot) => ({ id: snapshot.id, ...(snapshot.data() as any) }) as User);
   },
 
   getPendingRequests: async (userEmail: string): Promise<PendingRequestsResult> => {
     const normalizedEmail = userEmail.toLowerCase().trim();
-    const finish = startFirestoreTrace('getPendingRequests', { athleteEmail: normalizedEmail });
+    const finish = startFirestoreTrace("getPendingRequests", { athleteEmail: normalizedEmail });
     const cached = pendingRequestsMemoryCache.get(normalizedEmail);
 
     if (cached && Date.now() - cached.fetchedAt < PENDING_REQUESTS_CACHE_TTL_MS) {
-      finish({ source: 'memory', stale: cached.stale, count: cached.requests.length });
+      finish({ source: "memory", stale: cached.stale, count: cached.requests.length });
       return cached;
     }
 
     const inFlight = pendingRequestsInFlight.get(normalizedEmail);
     if (inFlight) {
-      finish({ source: 'memory', stale: false, deduped: true });
+      finish({ source: "memory", stale: false, deduped: true });
       return inFlight;
     }
 
@@ -1466,7 +1648,7 @@ export const StorageService = {
       if (!isFirebaseConfigured) {
         const localResult: PendingRequestsResult & { fetchedAt: number } = {
           requests: localRequests,
-          source: 'local',
+          source: "local",
           stale: true,
           fetchedAt: Date.now(),
         };
@@ -1474,19 +1656,20 @@ export const StorageService = {
         return localResult;
       }
 
-      const query = db.collection("requests")
+      const query = db
+        .collection("requests")
         .where("athleteEmail", "==", normalizedEmail)
         .where("status", "==", "pending");
 
       try {
-        const readResult = await readQueryWithCacheFallback(query, 'getPendingRequests.query', {
+        const readResult = await readQueryWithCacheFallback(query, "getPendingRequests.query", {
           athleteEmail: normalizedEmail,
         });
 
         if (!readResult.snapshot) {
           const fallbackResult: PendingRequestsResult & { fetchedAt: number } = {
             requests: localRequests,
-            source: 'local',
+            source: "local",
             stale: true,
             fetchedAt: Date.now(),
           };
@@ -1495,7 +1678,7 @@ export const StorageService = {
         }
 
         const requests = readResult.snapshot.docs.map(
-          (doc) => ({ id: doc.id, ...(doc.data() as any) } as CoachRequest)
+          (doc) => ({ id: doc.id, ...(doc.data() as any) }) as CoachRequest,
         );
 
         saveCachedPendingRequestsForEmail(normalizedEmail, requests);
@@ -1510,7 +1693,7 @@ export const StorageService = {
       } catch (error) {
         const fallbackResult: PendingRequestsResult & { fetchedAt: number } = {
           requests: localRequests,
-          source: 'local',
+          source: "local",
           stale: true,
           error: getErrorMessage(error),
           fetchedAt: Date.now(),
@@ -1524,32 +1707,45 @@ export const StorageService = {
 
     pendingRequestsInFlight.set(normalizedEmail, task);
     const result = await task;
-    finish({ source: result.source, stale: result.stale, count: result.requests.length, error: result.error });
+    finish({
+      source: result.source,
+      stale: result.stale,
+      count: result.requests.length,
+      error: result.error,
+    });
     return result;
   },
 
   getCoachRequests: async (coachId: string): Promise<CoachRequest[]> => {
     if (!isFirebaseConfigured || !isBrowserOnline()) return [];
-    const snap = await db.collection("requests")
-      .where("coachId", "==", coachId)
-      .get();
+    const snap = await db.collection("requests").where("coachId", "==", coachId).get();
 
-    return snap.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) } as CoachRequest));
+    return snap.docs.map((doc) => ({ id: doc.id, ...(doc.data() as any) }) as CoachRequest);
   },
 
   respondToCoachRequest: async (request: CoachRequest, accept: boolean, athleteUser: User) => {
     if (!isFirebaseConfigured || !isBrowserOnline()) return;
-    await db.collection("requests").doc(request.id).update({ status: accept ? 'accepted' : 'rejected' });
+    await db
+      .collection("requests")
+      .doc(request.id)
+      .update({ status: accept ? "accepted" : "rejected" });
     const athleteEmail = request.athleteEmail.toLowerCase();
-    const remainingRequests = getCachedPendingRequestsForEmail(athleteEmail)
-      .filter((cachedRequest) => cachedRequest.id !== request.id);
+    const remainingRequests = getCachedPendingRequestsForEmail(athleteEmail).filter(
+      (cachedRequest) => cachedRequest.id !== request.id,
+    );
     saveCachedPendingRequestsForEmail(athleteEmail, remainingRequests);
     pendingRequestsMemoryCache.delete(athleteEmail);
 
     if (accept) {
-      await db.collection("users").doc(request.coachId).update({ "profile.managedAthletes": firebase.firestore.FieldValue.arrayUnion(athleteUser.id) });
+      await db
+        .collection("users")
+        .doc(request.coachId)
+        .update({ "profile.managedAthletes": firebase.firestore.FieldValue.arrayUnion(athleteUser.id) });
       const current = athleteUser.profile?.coaches || [];
-      await StorageService.updateUserProfile(athleteUser.id, { ...athleteUser.profile!, coaches: [...current, request.coachId] });
+      await StorageService.updateUserProfile(athleteUser.id, {
+        ...athleteUser.profile!,
+        coaches: [...current, request.coachId],
+      });
     }
   },
 
@@ -1565,27 +1761,38 @@ export const StorageService = {
     // Use canonical composite ID for authorization lookups
     const reqId = `${coach.id}_${athleteId}`;
 
-    await db.collection("requests").doc(reqId).set({
-      coachId: coach.id,
-      coachName: `${coach.profile?.firstName} ${coach.profile?.lastName}`,
-      athleteId: athleteId,
-      athleteEmail: athleteEmail.toLowerCase(),
-      athleteName: `${athleteData.profile?.firstName} ${athleteData.profile?.lastName}`,
-      athleteDiscipline: athleteData.profile?.discipline || 'Atleta',
-      status: 'pending',
-      createdAt: new Date().toISOString()
-    }, { merge: true });
+    await db
+      .collection("requests")
+      .doc(reqId)
+      .set(
+        {
+          coachId: coach.id,
+          coachName: `${coach.profile?.firstName} ${coach.profile?.lastName}`,
+          athleteId: athleteId,
+          athleteEmail: athleteEmail.toLowerCase(),
+          athleteName: `${athleteData.profile?.firstName} ${athleteData.profile?.lastName}`,
+          athleteDiscipline: athleteData.profile?.discipline || "Atleta",
+          status: "pending",
+          createdAt: new Date().toISOString(),
+        },
+        { merge: true },
+      );
   },
 
   removeAthleteFromCoach: async (coachId: string, athleteId: string) => {
     if (isFirebaseConfigured) {
       try {
-        await db.collection("users").doc(coachId).update({ "profile.managedAthletes": firebase.firestore.FieldValue.arrayRemove(athleteId) });
-        await db.collection("users").doc(athleteId).update({ "profile.coaches": firebase.firestore.FieldValue.arrayRemove(coachId) });
-        
         const reqId = `${coachId}_${athleteId}`;
-        await db.collection("requests").doc(reqId).update({ status: 'rejected' }).catch(() => {});
-        
+        await db.collection("requests").doc(reqId).delete();
+        await db
+          .collection("users")
+          .doc(coachId)
+          .update({ "profile.managedAthletes": firebase.firestore.FieldValue.arrayRemove(athleteId) });
+        await db
+          .collection("users")
+          .doc(athleteId)
+          .update({ "profile.coaches": firebase.firestore.FieldValue.arrayRemove(coachId) });
+
         console.log("Successfully removed athlete from coach:", { coachId, athleteId });
       } catch (e) {
         console.error("Error removing athlete from coach:", e);
@@ -1617,8 +1824,17 @@ export const StorageService = {
     for (const d of snap.docs) {
       const u = { id: d.id, ...(d.data() as any) } as User;
       const data = await StorageService.getUserData(u.id);
-      report.push({ user: u, stats: { videos: data.videos.length, plans: data.plans.length, strengthRecords: data.strengthRecords.length, competitionRecords: data.competitionRecords.length, trainingRecords: data.trainingRecords.length } });
+      report.push({
+        user: u,
+        stats: {
+          videos: data.videos.length,
+          plans: data.plans.length,
+          strengthRecords: data.strengthRecords.length,
+          competitionRecords: data.competitionRecords.length,
+          trainingRecords: data.trainingRecords.length,
+        },
+      });
     }
     return report;
-  }
+  },
 };
