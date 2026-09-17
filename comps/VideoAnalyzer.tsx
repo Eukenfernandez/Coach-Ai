@@ -557,6 +557,8 @@ const getVideoFrameStyle = (
 export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserId, onBack, usage, limits, onIncrementUsage, language, onNavigate, userProfile }) => {
    const t = ANALYZER_TEXTS[language] || ANALYZER_TEXTS.es;
 
+   const primaryClockUpdateRef = useRef(-Infinity);
+   const secondaryClockUpdateRef = useRef(-Infinity);
    const [currentTime, setCurrentTime] = useState(0);
    const [duration, setDuration] = useState(0);
    const [playbackRate, setPlaybackRate] = useState(1);
@@ -991,13 +993,22 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
       }
   }, [activeUrl, getVideoErrorMessage, video.errorCode, video.errorMessage, video.id]);
 
+   const samplingAbortRef = useRef<AbortController | null>(null);
+   useEffect(() => {
+      const controller = new AbortController();
+      samplingAbortRef.current = controller;
+      contextBootstrapRef.current = false;
+      return () => controller.abort();
+   }, [activeUrl, video.id]);
+
    const triggerVideoContextPreparation = useCallback((force: boolean = false) => {
-      if (!targetUserId || !video.id) return;
+      if (!targetUserId || !video.id || !videoRef.current) return;
       if (video.isUploading) return;
       if (video.status === 'error') return;
       if (!activeUrl && !video.storagePath) return;
       if (contextBootstrapRef.current && !force) return;
 
+      const signal = samplingAbortRef.current?.signal;
       contextBootstrapRef.current = true;
       setVideoContextError(null);
 
@@ -1011,7 +1022,10 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
          userProfile,
          force,
          isUploading: video.isUploading,
+         playbackVideo: videoRef.current,
+         signal,
       }).catch((error) => {
+         if (signal?.aborted) return;
          contextBootstrapRef.current = false;
          setVideoContextError(error instanceof Error ? error.message : 'Video context processing failed.');
       });
@@ -1210,14 +1224,17 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
          return;
       }
 
-      const updateSecondaryTimeline = () => {
+      const updateSecondaryTimeline = (now: number) => {
          const secondaryVideo = videoRef2.current;
          if (!secondaryVideo) {
             secondaryTimelineRafRef.current = null;
             return;
          }
 
-         setCompareTime(secondaryVideo.currentTime);
+         if (now - secondaryClockUpdateRef.current >= 125 || secondaryVideo.paused || secondaryVideo.ended) {
+            secondaryClockUpdateRef.current = now;
+            setCompareTime(secondaryVideo.currentTime);
+         }
 
          if (!secondaryVideo.paused && !secondaryVideo.ended) {
             secondaryTimelineRafRef.current = requestAnimationFrame(updateSecondaryTimeline);
@@ -1242,7 +1259,9 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
       primaryDisplayedFrameTimeRef.current = t1;
 
       // Do not update React state while dragging to prevent stutter/jank loops
-      if (!isScrubbing) {
+      const now = performance.now();
+      if (!isScrubbing && (now - primaryClockUpdateRef.current >= 125 || videoRef.current.paused || videoRef.current.ended)) {
+         primaryClockUpdateRef.current = now;
          setCurrentTime(t1);
       }
 
@@ -1281,8 +1300,12 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
    };
 
    const handleTimeUpdateSecondary = () => {
-      if (videoRef2.current && !isScrubbing && (!isPlaying || isPoseEnabled)) {
-         setCompareTime(videoRef2.current.currentTime);
+      const secondaryVideo = videoRef2.current;
+      const now = performance.now();
+      if (secondaryVideo && !isScrubbing && (secondaryVideo.paused || secondaryVideo.ended ||
+         ((!isPlaying || isPoseEnabled) && now - secondaryClockUpdateRef.current >= 125))) {
+         secondaryClockUpdateRef.current = now;
+         setCompareTime(secondaryVideo.currentTime);
       }
    };
 

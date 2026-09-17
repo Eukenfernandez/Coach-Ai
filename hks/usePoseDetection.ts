@@ -5,6 +5,8 @@ import {
     NormalizedLandmark,
 } from '@mediapipe/tasks-vision';
 
+const POSE_INTERVAL_MS = 1000 / 12;
+
 const POSE_DEBUG = typeof import.meta !== 'undefined' && Boolean(import.meta.env?.DEV);
 const poseLog = (...args: any[]) => {
     if (POSE_DEBUG) console.log(...args);
@@ -201,6 +203,7 @@ export function usePoseDetection(
     // Track timestamps to avoid processing same frame twice
     const lastTime1 = useRef<number>(-1);
     const lastTime2 = useRef<number>(-1);
+    const lastInferenceAt = useRef(-Infinity);
 
     const [landmarks, setLandmarks] = useState<NormalizedLandmark[] | null>(null);
     const [landmarks2, setLandmarks2] = useState<NormalizedLandmark[] | null>(null);
@@ -254,6 +257,13 @@ export function usePoseDetection(
             animationFrameRef.current = null;
             return;
         }
+
+        const now = performance.now();
+        if (now - lastInferenceAt.current < POSE_INTERVAL_MS) {
+            animationFrameRef.current = requestAnimationFrame(detectPose);
+            return;
+        }
+        lastInferenceAt.current = now;
 
         // Process PRIMARY video with model1. While video.seeking the displayed frame
         // is still the old one: detecting it wastes 10-60ms per rAF during scrubbing.
@@ -329,6 +339,7 @@ export function usePoseDetection(
             // Reset time trackers
             lastTime1.current = -1;
             lastTime2.current = -1;
+            lastInferenceAt.current = -Infinity;
 
             // Check if primary model is already loaded
             if (cachedPoseLandmarker) {

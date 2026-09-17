@@ -48,6 +48,29 @@ const waitForEvent = (target: EventTarget, eventName: string) =>
     target.addEventListener('error', onError, { once: true });
   });
 
+// Preserve the sampling loop and completed frames while the visible player runs.
+export const waitForVideoIdle = (video?: HTMLVideoElement | null, signal?: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    const cleanup = () => {
+      video?.removeEventListener('pause', check);
+      video?.removeEventListener('ended', check);
+      signal?.removeEventListener('abort', check);
+    };
+    const check = () => {
+      if (signal?.aborted) {
+        cleanup();
+        reject(new DOMException('Video sampling cancelled.', 'AbortError'));
+      } else if (!video || video.paused || video.ended) {
+        cleanup();
+        resolve();
+      }
+    };
+    video?.addEventListener('pause', check);
+    video?.addEventListener('ended', check);
+    signal?.addEventListener('abort', check);
+    check();
+  });
+
 const createVideoElement = (source: VideoSource) => {
   const video = document.createElement('video');
   video.crossOrigin = 'anonymous';
@@ -100,12 +123,12 @@ const seekVideo = async (video: HTMLVideoElement, timeSeconds: number) => {
   await seekPromise;
 };
 
-const captureFrameFromVideo = (
+const captureFrameFromVideo = async (
   video: HTMLVideoElement,
   timestampSeconds: number,
   label: string,
   captureOptions: Required<CaptureOptions>,
-): VideoFrameArtifact => {
+): Promise<VideoFrameArtifact> => {
   const width = video.videoWidth || 1280;
   const height = video.videoHeight || 720;
   const scale = width > captureOptions.maxWidth ? captureOptions.maxWidth / width : 1;
@@ -119,7 +142,18 @@ const captureFrameFromVideo = (
   }
 
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-  const base64Jpeg = canvas.toDataURL('image/jpeg', captureOptions.quality).split(',')[1] || '';
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((result) => {
+      if (result) resolve(result);
+      else reject(new Error('No se pudo codificar el frame JPEG.'));
+    }, 'image/jpeg', captureOptions.quality);
+  });
+  const base64Jpeg = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+    reader.onerror = () => reject(reader.error || new Error('No se pudo leer el frame JPEG.'));
+    reader.readAsDataURL(blob);
+  });
 
   return {
     timestampSeconds: roundSeconds(timestampSeconds),
@@ -228,12 +262,17 @@ export const captureSamplingArtifacts = async ({
   durationSeconds,
   profile = 'standard',
   captureOptions = DEFAULT_CAPTURE_OPTIONS,
+  playbackVideo,
+  signal,
 }: {
   source: VideoSource;
   durationSeconds: number;
   profile?: SamplingProfile;
   captureOptions?: CaptureOptions;
+  playbackVideo?: HTMLVideoElement | null;
+  signal?: AbortSignal;
 }) => {
+  await waitForVideoIdle(playbackVideo, signal);
   const plan = buildVideoSamplingPlan(durationSeconds, profile);
   const { video, cleanup } = createVideoElement(source);
   const resolvedOptions = { ...DEFAULT_CAPTURE_OPTIONS, ...captureOptions };
@@ -243,9 +282,11 @@ export const captureSamplingArtifacts = async ({
 
     const samples: VideoFrameArtifact[] = [];
     for (const segment of plan) {
+      await waitForVideoIdle(playbackVideo, signal);
       await seekVideo(video, segment.representativeTimeSeconds);
+      await waitForVideoIdle(playbackVideo, signal);
       samples.push(
-        captureFrameFromVideo(
+        await captureFrameFromVideo(
           video,
           segment.representativeTimeSeconds,
           `${segment.label} @ ${segment.representativeTimeSeconds.toFixed(2)}s`,
@@ -282,7 +323,7 @@ export const captureQueryWindowArtifacts = async ({
     const frames: VideoFrameArtifact[] = [];
     for (const item of buildQueryWindowPlan(currentTimeSeconds, durationSeconds, mode)) {
       await seekVideo(video, item.timestampSeconds);
-      frames.push(captureFrameFromVideo(video, item.timestampSeconds, item.label, resolvedOptions));
+      frames.push(await captureFrameFromVideo(video, item.timestampSeconds, item.label, resolvedOptions));
     }
 
     return frames;
@@ -291,10 +332,10 @@ export const captureQueryWindowArtifacts = async ({
   }
 };
 
-export const captureCurrentFrameFromElement = (
+export const captureCurrentFrameFromElement = async (
   video: HTMLVideoElement,
   label = 'Current frame',
-): VideoFrameArtifact | null => {
+): Promise<VideoFrameArtifact | null> => {
   if (!video || video.readyState < 2 || !video.videoWidth || !video.videoHeight) {
     return null;
   }

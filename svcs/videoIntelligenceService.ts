@@ -20,6 +20,7 @@ import {
   captureQueryWindowArtifacts,
   captureSamplingArtifacts,
   extractVideoMetadata,
+  waitForVideoIdle,
 } from '../utl/videoIntelligence';
 
 type VideoSource = string | Blob;
@@ -35,6 +36,8 @@ interface PrepareVideoContextArgs {
   userProfile?: UserProfile;
   force?: boolean;
   isUploading?: boolean;
+  playbackVideo?: HTMLVideoElement | null;
+  signal?: AbortSignal;
 }
 
 interface AskVideoQuestionArgs {
@@ -53,7 +56,7 @@ interface AskVideoQuestionArgs {
   fallbackVideoElement?: HTMLVideoElement | null;
 }
 
-const processingLocks = new Map<string, Promise<void>>();
+const processingLocks = new Map<string, { promise: Promise<void>; signal?: AbortSignal }>();
 
 type VideoContextCallableErrorCode =
   | 'invalid-argument'
@@ -219,10 +222,13 @@ export const VideoIntelligenceService = {
     userProfile,
     force = false,
     isUploading = false,
+    playbackVideo,
+    signal,
   }: PrepareVideoContextArgs) => {
     const lockKey = `${userId}:${videoId}`;
-    if (!force && processingLocks.has(lockKey)) {
-      return processingLocks.get(lockKey)!;
+    const existing = processingLocks.get(lockKey);
+    if (!force && existing && !existing.signal?.aborted) {
+      return existing.promise;
     }
 
     const work = (async () => {
@@ -262,14 +268,18 @@ export const VideoIntelligenceService = {
       let samples: VideoFrameArtifact[];
 
       try {
+        await waitForVideoIdle(playbackVideo, signal);
         metadata = await extractVideoMetadata(resolvedSource, buildMetadataFallback(resolvedSource));
         profile = metadata.durationSeconds > 25 ? 'coarse' : 'standard';
         ({ plan, samples } = await captureSamplingArtifacts({
           source: resolvedSource,
           durationSeconds: metadata.durationSeconds,
           profile,
+          playbackVideo,
+          signal,
         }));
       } catch (error) {
+        if (signal?.aborted) throw error;
         throw new VideoContextServiceError(
           'failed-precondition',
           'No se pudo leer el vídeo para generar el contexto. Verifica que exista y sea reproducible.',
@@ -278,6 +288,7 @@ export const VideoIntelligenceService = {
         );
       }
 
+      signal?.throwIfAborted();
       try {
         const functions = getFunctionsInstance();
         const callable = functions.httpsCallable('upsertVideoContext');
@@ -302,10 +313,10 @@ export const VideoIntelligenceService = {
         );
       }
     })().finally(() => {
-      processingLocks.delete(lockKey);
+      if (processingLocks.get(lockKey)?.promise === work) processingLocks.delete(lockKey);
     });
 
-    processingLocks.set(lockKey, work);
+    processingLocks.set(lockKey, { promise: work, signal });
     return work;
   },
 
@@ -338,7 +349,7 @@ export const VideoIntelligenceService = {
           : null;
 
     let windowFrames: VideoFrameArtifact[] = [];
-    let currentFrame = fallbackVideoElement ? captureCurrentFrameFromElement(fallbackVideoElement) : null;
+    let currentFrame = fallbackVideoElement ? await captureCurrentFrameFromElement(fallbackVideoElement) : null;
 
     if (
       resolvedSource &&
