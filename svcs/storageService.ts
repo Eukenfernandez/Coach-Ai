@@ -1469,6 +1469,9 @@ export const StorageService = {
     if (!looksLikeVideo) {
       return 'El archivo seleccionado no es un video valido.';
     }
+    if (file.size === 0) {
+      return 'El video esta vacio (0 bytes). Vuelve a grabarlo o elige otro archivo.';
+    }
     if (file.size > MAX_VIDEO_FILE_SIZE_BYTES) {
       return 'El video supera el limite permitido de 512 MB.';
     }
