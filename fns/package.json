@@ -14,7 +14,8 @@
         "campaign:prepare": "node ./scripts/prepare-campaign-recipients.mjs",
         "campaign:sync": "node ./scripts/sync-brevo-contacts.mjs",
         "campaign:create": "node ./scripts/create-brevo-campaign.mjs",
-        "campaign:send": "node ./scripts/send-brevo-campaign.mjs"
+        "campaign:send": "node ./scripts/send-brevo-campaign.mjs",
+        "premium:verify": "npm run build && node ./scripts/verify-premium-accounts.mjs"
     },
     "engines": {
         "node": "20"

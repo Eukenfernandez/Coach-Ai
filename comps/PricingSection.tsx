@@ -148,6 +148,10 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ currentUser, lan
   const isCoach = currentUser.profile?.role === 'coach';
   // The athlete line tops out at the PRO_COACH-priced card; PREMIUM sits above it.
   const hasTopAthletePlan = currentTier === 'PRO_COACH' || currentTier === 'PREMIUM';
+  // A paying user changes plan inside their existing subscription through the
+  // Stripe portal. A fresh checkout would open a second subscription next to
+  // the first one and bill both.
+  const paidPlanAction: PlanItem['actionType'] = isPaidUser ? 'portal' : 'checkout';
 
   const processStripeAction = async (planId: string, actionType: 'checkout' | 'portal') => {
     setLoadingPriceId(planId);
@@ -240,7 +244,7 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ currentUser, lan
       icon: <Zap className="text-orange-500" size={24} />,
       features: buildFeatures('PRO_ATHLETE'),
       buttonText: currentTier === 'PRO_ATHLETE' ? t.current : (currentTier === 'FREE' ? t.upgrade : t.select),
-      actionType: currentTier === 'PRO_ATHLETE' ? 'none' : 'checkout',
+      actionType: currentTier === 'PRO_ATHLETE' ? 'none' : paidPlanAction,
       disabled: currentTier === 'PRO_ATHLETE',
       highlight: true,
       tierId: 'PRO_ATHLETE'
@@ -255,7 +259,7 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ currentUser, lan
       // PREMIUM outranks this card, so an athlete on PREMIUM is already at or
       // above it: offering "upgrade" here would check out a lower plan.
       buttonText: hasTopAthletePlan ? t.current : t.upgrade,
-      actionType: hasTopAthletePlan ? 'none' : 'checkout',
+      actionType: hasTopAthletePlan ? 'none' : paidPlanAction,
       disabled: hasTopAthletePlan,
       highlight: false,
       isBlack: true,
@@ -274,7 +278,7 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ currentUser, lan
       icon: <ShieldCheck className="text-blue-500" size={24} />,
       features: buildFeatures('PRO_COACH'),
       buttonText: currentTier === 'PRO_COACH' ? t.current : t.select,
-      actionType: currentTier === 'PRO_COACH' ? 'none' : 'checkout',
+      actionType: currentTier === 'PRO_COACH' ? 'none' : paidPlanAction,
       disabled: currentTier === 'PRO_COACH',
       highlight: true,
       tierId: 'PRO_COACH'
@@ -287,7 +291,7 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ currentUser, lan
       icon: <Crown className="text-yellow-500" size={24} />,
       features: buildFeatures('PREMIUM'),
       buttonText: currentTier === 'PREMIUM' ? t.current : t.upgrade,
-      actionType: currentTier === 'PREMIUM' ? 'none' : 'checkout',
+      actionType: currentTier === 'PREMIUM' ? 'none' : paidPlanAction,
       disabled: currentTier === 'PREMIUM',
       highlight: false,
       isBlack: true,
