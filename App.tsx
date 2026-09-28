@@ -878,10 +878,10 @@ export default function App() {
 
         try {
           if (repairedVideos.length > 0) {
-            await StorageService.updateVideos(targetId, repairedVideos, { reason: "bootstrap-repair" });
+            await StorageService.mergeRepairedVideos(targetId, repairedVideos, { reason: "bootstrap-repair" });
           }
           if (repairedPlans.length > 0) {
-            await StorageService.updatePlans(targetId, repairedPlans, { reason: "bootstrap-repair" });
+            await StorageService.mergeRepairedPlans(targetId, repairedPlans, { reason: "bootstrap-repair" });
           }
           finish({ result: "synced" });
         } catch (error) {

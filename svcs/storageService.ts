@@ -1340,7 +1340,24 @@ export const StorageService = {
       videos.map((video) => normalizeVideoRecord(userId, video)),
       options,
     ),
-  
+
+  // Repairs patch the stored list by id. Writing only the repaired subset
+  // replaced the whole section and dropped every other asset from it, losing
+  // for good the legacy assets that exist nowhere else.
+  mergeRepairedVideos: (userId: string, repaired: VideoFile[], options?: { reason?: string }) =>
+    StorageService.updateVideos(
+      userId,
+      mergeAssetsById(repaired, getLocalUserDataSnapshot(userId).videos || []),
+      options,
+    ),
+
+  mergeRepairedPlans: (userId: string, repaired: PlanFile[], options?: { reason?: string }) =>
+    StorageService.updatePlans(
+      userId,
+      mergeAssetsById(repaired, getLocalUserDataSnapshot(userId).plans || []),
+      options,
+    ),
+
   // V3 Authoritative Video Storage Add
   addVideoSafe: async (targetUserId: string, video: VideoFile): Promise<QuotaRegistrationResult> => {
     const normalizedVideo = normalizeVideoRecord(targetUserId, {
