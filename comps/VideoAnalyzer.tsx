@@ -9,6 +9,7 @@ import {
    FILMSTRIP_MIN_VIDEO_WIDTH,
    type Filmstrip,
 } from '../utl/filmstrip';
+import { stepOneFrame } from '../utl/frameStep';
 import { usePoseDetection, drawPoseOnCanvas, drawPoseOnCanvasWithOffset, POSE_CONNECTIONS, BODY_KEYPOINTS } from '../hks/usePoseDetection';
 import { getBiomechanicalContext } from '../utl/biomechanics';
 import {
@@ -584,15 +585,16 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
    const filmstripBitmapRef = useRef<ImageBitmap | null>(null);
    const previewCanvasRef = useRef<HTMLCanvasElement>(null);
    const isScrubbingRef = useRef(false);
-   const isPlayingRef = useRef(false);
    const primarySeekWatchdogRef = useRef<number | null>(null);
    const primaryDragDirtyRef = useRef(false);
    const secondarySeekIssuedAtRef = useRef(0);
    const syncStateRef = useRef({ active: false, offset: 0 });
    const scrubResumePlaybackRef = useRef(false);
    const primaryDisplayedFrameTimeRef = useRef(0);
-   const primaryFrameIntervalRef = useRef(1 / 30);
-   const primaryFrameMetadataRef = useRef<VideoFrameCallbackMetadataLike | null>(null);
+   // Shortest frame spacing seen in the current source, learned by frame steps.
+   const primaryFrameSpacingRef = useRef<number | null>(null);
+   const frameStepQueueRef = useRef(0);
+   const frameStepRunningRef = useRef(false);
    const primaryVideoFrameCallbackRef = useRef<number | null>(null);
 
    // Zoom & Pan State
@@ -676,20 +678,15 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
      if (!element || typeof element.requestVideoFrameCallback !== 'function') return;
 
      let cancelled = false;
+     primaryFrameSpacingRef.current = null;
+     frameStepQueueRef.current = 0;
      const trackFrame = (_now: number, metadata: VideoFrameCallbackMetadataLike) => {
         if (cancelled) return;
 
         const mediaTime = Number(metadata.mediaTime);
         if (Number.isFinite(mediaTime)) {
-           const previousMediaTime = Number(primaryFrameMetadataRef.current?.mediaTime);
-           const delta = Math.abs(mediaTime - previousMediaTime);
-           if (Number.isFinite(delta) && delta > 1 / 240 && delta < 1 / 10) {
-              primaryFrameIntervalRef.current = delta;
-           }
-
            primaryDisplayedFrameTimeRef.current = mediaTime;
            presentedFrameTimeRef.current = mediaTime;
-           primaryFrameMetadataRef.current = metadata;
         }
 
         primaryVideoFrameCallbackRef.current = element.requestVideoFrameCallback?.(trackFrame) ?? null;
@@ -703,17 +700,12 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
            element.cancelVideoFrameCallback(primaryVideoFrameCallbackRef.current);
         }
         primaryVideoFrameCallbackRef.current = null;
-        primaryFrameMetadataRef.current = null;
      };
   }, [activeUrl, video.id]);
 
   useEffect(() => {
      isScrubbingRef.current = isScrubbing;
   }, [isScrubbing]);
-
-  useEffect(() => {
-     isPlayingRef.current = isPlaying;
-  }, [isPlaying]);
 
   // Load the scrubbing proxy for this video, building it once if the footage is
   // high-resolution enough that the decoder cannot follow a drag on its own.
@@ -775,7 +767,12 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
 
               const built = await generateFilmstrip(activeUrl, {
                  signal: abort.signal,
-                 shouldPause: () => isScrubbingRef.current || isPlayingRef.current,
+                 // Read the element itself: a React flag that misses a pause
+                 // would keep extraction parked forever.
+                 shouldPause: () => {
+                    const player = videoRef.current;
+                    return isScrubbingRef.current || Boolean(player && !player.paused && !player.ended);
+                 },
               });
               if (cancelled || !built) return;
 
@@ -1090,6 +1087,13 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
      setVideoError(null);
      setVideoLoadState('ready');
   };
+
+  // Follow the element, not only our own calls: the clip ending (which fires
+  // 'pause'), iOS pausing it in the background or a rejected play() never went
+  // through togglePlay, leaving isPlaying stuck on true (Pause icon shown and
+  // filmstrip extraction parked for good).
+  const handlePrimaryPlay = () => setIsPlaying(true);
+  const handlePrimaryPause = () => setIsPlaying(false);
 
   const handleError = () => {
      if (video.playbackStatus === 'unplayable' || video.errorCode === 'video/unplayable') {
@@ -1667,7 +1671,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
          if (videoRef.current) {
             videoRef.current.playbackRate = playbackRate;
          }
-         videoRef.current?.play();
+         videoRef.current?.play().catch(() => setIsPlaying(false));
          if (compareVideo && videoRef2.current) {
             if (isSynced && videoRef.current) {
                const maxCompareTime = Number.isFinite(compareDuration) && compareDuration > 0
@@ -1678,7 +1682,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
                setCompareTime(syncedTime);
             }
             videoRef2.current.playbackRate = playbackRate;
-            videoRef2.current.play();
+            videoRef2.current.play().catch(() => {});
          }
       }
       setIsPlaying(!isPlaying);
@@ -1880,6 +1884,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
     }, [compareDuration, compareVideo, isSynced, syncOffset]);
 
    const handleScrubStart = useCallback(() => {
+      frameStepQueueRef.current = 0;
       scrubResumePlaybackRef.current = isPlaying;
       primaryLastDragSeekTargetRef.current = videoRef.current?.currentTime ?? null;
       setIsScrubbing(true);
@@ -1926,8 +1931,8 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
       flushPendingSeek();
 
       if (scrubResumePlaybackRef.current) {
-         videoRef.current?.play();
-         if (compareVideo) videoRef2.current?.play();
+         videoRef.current?.play().catch(() => setIsPlaying(false));
+         if (compareVideo) videoRef2.current?.play().catch(() => {});
          setIsPlaying(true);
       }
       scrubResumePlaybackRef.current = false;
@@ -1982,16 +1987,51 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
       }
    };
 
+   // Steps run one at a time; taps made while a step is decoding are queued as a
+   // net count so fast tapping never loses or doubles a frame.
+   const runFrameSteps = async () => {
+      frameStepRunningRef.current = true;
+      try {
+         while (frameStepQueueRef.current !== 0) {
+            const primaryVideo = videoRef.current as VideoWithFrameCallback | null;
+            if (!primaryVideo) {
+               frameStepQueueRef.current = 0;
+               break;
+            }
+
+            const direction = frameStepQueueRef.current > 0 ? 1 : -1;
+            frameStepQueueRef.current -= direction;
+            const landed = await stepOneFrame(primaryVideo, direction, presentedFrameTimeRef.current, primaryFrameSpacingRef);
+            // The source changed mid-step: that landing belongs to the old video.
+            if (videoRef.current !== primaryVideo) break;
+
+            primaryDisplayedFrameTimeRef.current = landed;
+            setCurrentTime(landed);
+
+            const sync = syncStateRef.current;
+            const secondaryVideo = videoRef2.current;
+            if (sync.active && secondaryVideo) {
+               const targetCompareTime = clampMediaTime(landed + sync.offset, secondaryVideo.duration);
+               secondaryVideo.currentTime = targetCompareTime;
+               setCompareTime(targetCompareTime);
+            }
+         }
+      } finally {
+         frameStepRunningRef.current = false;
+      }
+   };
+
    const frameStep = (direction: 'prev' | 'next') => {
-      const primaryVideo = videoRef.current as VideoWithFrameCallback | null;
+      const primaryVideo = videoRef.current;
       if (!primaryVideo) return;
 
-      if (isPlaying) {
+      if (isPlaying || !primaryVideo.paused) {
          primaryVideo.pause();
          videoRef2.current?.pause();
          setIsPlaying(false);
       }
 
+      // Drop any drag seek still queued so it cannot land after the step.
       primarySeekGenerationRef.current += 1;
       if (primarySeekWatchdogRef.current !== null) {
          window.clearTimeout(primarySeekWatchdogRef.current);
@@ -2002,50 +2042,8 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
       primarySeekInFlightRef.current = false;
       primaryDragDirtyRef.current = false;
 
-      if (direction === 'next') {
-         const nextTime = clampMediaTime(primaryVideo.currentTime + 1 / 30, primaryVideo.duration);
-         primaryVideo.currentTime = nextTime;
-         primaryDisplayedFrameTimeRef.current = nextTime;
-         setCurrentTime(nextTime);
-
-         if (isSynced && videoRef2.current) {
-            const secondaryVideo = videoRef2.current;
-            const targetCompareTime = clampMediaTime(nextTime + syncOffset, secondaryVideo.duration);
-            secondaryVideo.currentTime = targetCompareTime;
-            setCompareTime(targetCompareTime);
-         }
-         return;
-      }
-
-      const measuredFrameInterval = primaryFrameIntervalRef.current || 1 / 30;
-      const frameInterval = Math.max(1 / 120, Math.min(measuredFrameInterval, 1 / 15));
-      const displayedFrameTime = primaryDisplayedFrameTimeRef.current;
-      const displayedTimeIsFresh = Math.abs(displayedFrameTime - primaryVideo.currentTime) <= Math.max(frameInterval * 2, 0.08);
-      const baseTime = displayedTimeIsFresh ? displayedFrameTime : primaryVideo.currentTime;
-      const frameBoundaryNudge = Math.min(frameInterval * 0.35, 0.01);
-      const targetTime = baseTime - frameInterval - frameBoundaryNudge;
-      const clampedPrimaryTime = clampMediaTime(targetTime, primaryVideo.duration);
-
-      primaryVideo.currentTime = clampedPrimaryTime;
-      primaryDisplayedFrameTimeRef.current = clampedPrimaryTime;
-      setCurrentTime(clampedPrimaryTime);
-
-      if (typeof primaryVideo.requestVideoFrameCallback === 'function') {
-         primaryVideo.requestVideoFrameCallback((_now, metadata) => {
-            const mediaTime = Number(metadata.mediaTime);
-            if (Number.isFinite(mediaTime)) {
-               primaryDisplayedFrameTimeRef.current = mediaTime;
-               setCurrentTime(mediaTime);
-            }
-         });
-      }
-
-      if (isSynced && videoRef2.current) {
-         const secondaryVideo = videoRef2.current;
-         const targetCompareTime = clampMediaTime(clampedPrimaryTime + syncOffset, secondaryVideo.duration);
-         secondaryVideo.currentTime = targetCompareTime;
-         setCompareTime(targetCompareTime);
-      }
+      frameStepQueueRef.current += direction === 'next' ? 1 : -1;
+      if (!frameStepRunningRef.current) void runFrameSteps();
    };
 
    const submitContextualQuestion = async (questionText: string, explicitMode?: VideoQuestionMode) => {
@@ -2452,6 +2450,8 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
                                onLoadStart={handleLoadStart}
                                onCanPlay={handleCanPlay}
                                onPlaying={handlePlaying}
+                               onPlay={handlePrimaryPlay}
+                               onPause={handlePrimaryPause}
                                onError={handleError}
                                onTimeUpdate={handleTimeUpdatePrimary}
                            />

@@ -25,9 +25,12 @@ export const PLAN_LIMITS: Record<string, { videos: number; pdfs: number; analyse
     PREMIUM:      { videos: 300, pdfs: 300, analyses: 300, chats: 500, athletes: 50 },
 };
 
-// Premium bypass emails. Only matched against the Firebase Auth email
-// (ID-token email or the Auth user record) — never against profile documents,
-// which are client-writable.
+// Premium bypass emails. Only matched against the Firebase Auth record, and
+// only once that record marks the address as verified — never against profile
+// documents, which are client-writable. Email/password sign-up does not prove
+// ownership of the address, so an unverified match would let anyone register
+// an unclaimed listed address and get PREMIUM for free.
+// After adding an address, run scripts/verify-premium-accounts.mjs.
 export const PREMIUM_EMAILS = ['alejandrosanchez@gmail.com', 'peioetxabe@hotmail.com', 'fernandezeuken@gmail.com', 'julianweber@gmail.com'];
 
 export const STRIPE_PRICE_TO_TIER: Record<string, string> = {
@@ -113,39 +116,47 @@ export const getAuthBypassTier = (uid: string, authEmail?: string): string | nul
     return null;
 };
 
-// Look up the trusted Auth-record email for server-side contexts (triggers,
-// cron) that have no ID token. Never fall back to `users/{uid}` fields: those
-// are client-writable and were previously usable to spoof a premium email.
-const resolveTrustedEmail = async (uid: string, tokenEmail?: string): Promise<string | undefined> => {
-    if (tokenEmail) return tokenEmail;
+// The Auth-record email, only when that record marks it verified. It feeds
+// nothing but the PREMIUM_EMAILS bypass, so callers whose token email is not
+// on the list skip the Auth lookup. Never fall back to `users/{uid}` fields:
+// those are client-writable and were previously usable to spoof a premium email.
+const resolveVerifiedAuthEmail = async (uid: string, tokenEmail?: string): Promise<string | undefined> => {
+    if (tokenEmail && !PREMIUM_EMAILS.includes(tokenEmail.toLowerCase())) return undefined;
     try {
         const authUser = await getAuth().getUser(uid);
-        return authUser.email || undefined;
+        return authUser.emailVerified ? authUser.email || undefined : undefined;
     } catch {
         return undefined;
     }
 };
+
+const TIER_RANK: Record<string, number> = { FREE: 0, PRO_ATHLETE: 1, PRO_COACH: 2, PREMIUM: 3 };
+
+// A customer can briefly hold two active subscriptions (e.g. an upgrade checked
+// out next to the old plan); grant the highest one, not whichever doc comes first.
+export const pickHighestTier = (tiers: Array<string | undefined>): string =>
+    tiers.reduce<string>(
+        (best, tier) => (tier && (TIER_RANK[tier] ?? -1) > (TIER_RANK[best] ?? -1) ? tier : best),
+        'FREE',
+    );
 
 export const resolveUserTier = async (
     uid: string,
     tokenEmail?: string,
     transaction?: FirebaseFirestore.Transaction,
 ): Promise<string> => {
-    const trustedEmail = await resolveTrustedEmail(uid, tokenEmail);
-    const bypassTier = getAuthBypassTier(uid, trustedEmail);
+    const verifiedEmail = await resolveVerifiedAuthEmail(uid, tokenEmail);
+    const bypassTier = getAuthBypassTier(uid, verifiedEmail);
     if (bypassTier) return bypassTier;
 
     const subscriptionQuery = db.collection('customers').doc(uid).collection('subscriptions')
         .where('status', 'in', ACTIVE_SUBSCRIPTION_STATUSES);
     const subscriptionSnap = transaction ? await transaction.get(subscriptionQuery) : await subscriptionQuery.get();
 
-    for (const doc of subscriptionSnap.docs) {
+    return pickHighestTier(subscriptionSnap.docs.map((doc) => {
         const priceId = extractSubscriptionPriceId(doc.data());
-        const tier = priceId ? STRIPE_PRICE_TO_TIER[priceId] : undefined;
-        if (tier) return tier;
-    }
-
-    return 'FREE';
+        return priceId ? STRIPE_PRICE_TO_TIER[priceId] : undefined;
+    }));
 };
 
 export const normalizeMonthlyCounters = (rawCounters: any, period: string, legacyUsage?: any): MonthlyCounters => {

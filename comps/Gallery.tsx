@@ -43,7 +43,8 @@ const TEXTS = {
     upgradeAlert: 'Has alcanzado el límite mensual de vídeos de tu suscripción. Mejora tu plan para subir más.',
     upgradeBtn: 'Mejorar Plan',
     syncingQuota: 'Sincronizando...',
-    unlimited: 'Ilimitado'
+    unlimited: 'Ilimitado',
+    recordingEmpty: 'La grabación ha salido vacía. Vuelve a intentarlo.'
   },
   ing: {
     title: 'Technique Analysis',
@@ -70,7 +71,8 @@ const TEXTS = {
     upgradeAlert: 'You have reached your subscription monthly video limit. Upgrade your plan to upload more.',
     upgradeBtn: 'Upgrade Plan',
     syncingQuota: 'Syncing...',
-    unlimited: 'Unlimited'
+    unlimited: 'Unlimited',
+    recordingEmpty: 'The recording came out empty. Please try again.'
   },
   eus: {
     title: 'Teknika Analisia',
@@ -97,7 +99,8 @@ const TEXTS = {
     upgradeAlert: 'Zure harpidetzaren hileko bideo muga gainditu duzu. Hobetu plana gehiago igotzeko.',
     upgradeBtn: 'Plana Hobetu',
     syncingQuota: 'Sinkronizatzen...',
-    unlimited: 'Mugagabea'
+    unlimited: 'Mugagabea',
+    recordingEmpty: 'Grabazioa hutsik atera da. Saiatu berriro.'
   }
 };
 
@@ -151,8 +154,13 @@ export const Gallery: React.FC<GalleryProps> = ({ videos, onSelectVideo, onUploa
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isRecording, setIsRecording] = useState(false);
-  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
-  const [recordedChunks, setRecordedChunks] = useState<Blob[]>([]);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const isMountedRef = useRef(true);
+  // The recorder's onstop fires long after the render that started it; read the
+  // latest upload handler instead of the one captured at start time.
+  const onUploadRef = useRef(onUpload);
+  onUploadRef.current = onUpload;
   const [recordingTime, setRecordingTime] = useState(0);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
   const [showLimitModal, setShowLimitModal] = useState(false);
@@ -183,6 +191,24 @@ export const Gallery: React.FC<GalleryProps> = ({ videos, onSelectVideo, onUploa
     }
   }, [stream, showCamera]);
 
+  // Release the camera and drop any take in progress if the gallery unmounts
+  // mid-capture; navigating away used to leave the camera running.
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      const recorder = mediaRecorderRef.current;
+      if (recorder) {
+        recorder.ondataavailable = null;
+        recorder.onstop = null;
+        if (recorder.state !== 'inactive') recorder.stop();
+        mediaRecorderRef.current = null;
+      }
+      streamRef.current?.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    };
+  }, []);
+
   const handleUploadClick = () => {
     if (isLimitReached) {
       setShowLimitModal(true);
@@ -211,6 +237,11 @@ export const Gallery: React.FC<GalleryProps> = ({ videos, onSelectVideo, onUploa
     try {
       setShowCamera(true); // Show camera view first
       const mediaStream = await navigator.mediaDevices.getUserMedia(CAMERA_CONSTRAINTS);
+      if (!isMountedRef.current) {
+        mediaStream.getTracks().forEach(track => track.stop());
+        return;
+      }
+      streamRef.current = mediaStream;
       setStream(mediaStream); // useEffect will sync srcObject after render
     } catch (err) {
       console.error("Error accessing camera:", err);
@@ -219,38 +250,61 @@ export const Gallery: React.FC<GalleryProps> = ({ videos, onSelectVideo, onUploa
     }
   };
 
-  const stopCamera = () => {
-    if (stream) {
-      stream.getTracks().forEach(track => track.stop());
-      setStream(null);
-    }
+  const releaseCamera = () => {
+    streamRef.current?.getTracks().forEach(track => track.stop());
+    streamRef.current = null;
+    setStream(null);
     setShowCamera(false);
   };
 
-  const startRecording = () => {
-    if (stream) {
-      const recorder = new MediaRecorder(stream);
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) setRecordedChunks((prev) => [...prev, e.data]);
-      };
-      recorder.start();
-      setMediaRecorder(recorder);
-      setIsRecording(true);
+  // Closing the camera while recording discards the take instead of uploading it.
+  const stopCamera = () => {
+    const recorder = mediaRecorderRef.current;
+    if (recorder) {
+      recorder.ondataavailable = null;
+      recorder.onstop = null;
+      if (recorder.state !== 'inactive') recorder.stop();
+      mediaRecorderRef.current = null;
+      setIsRecording(false);
     }
+    releaseCamera();
+  };
+
+  const startRecording = () => {
+    const activeStream = streamRef.current;
+    if (!activeStream) return;
+
+    const recorder = new MediaRecorder(activeStream);
+    // Chunks live in this closure rather than React state: the previous onstop
+    // handler read a stale, still-empty state array and uploaded a 0-byte video.
+    const chunks: Blob[] = [];
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) chunks.push(e.data);
+    };
+    recorder.onstop = () => {
+      mediaRecorderRef.current = null;
+      releaseCamera();
+      // Safari records MP4 and Chrome/Firefox WebM: label the file with what was actually recorded.
+      const mimeType = (recorder.mimeType || chunks[0]?.type || 'video/webm').split(';')[0];
+      const blob = new Blob(chunks, { type: mimeType });
+      if (blob.size === 0) {
+        alert(t.recordingEmpty);
+        return;
+      }
+      const extension = mimeType.includes('mp4') ? 'mp4' : 'webm';
+      onUploadRef.current(new File([blob], `recording_${Date.now()}.${extension}`, { type: mimeType }));
+    };
+    // With a timeslice the browser hands over data every second instead of
+    // holding the whole take until stop().
+    recorder.start(1000);
+    mediaRecorderRef.current = recorder;
+    setIsRecording(true);
   };
 
   const stopRecording = () => {
-    if (mediaRecorder) {
-      mediaRecorder.stop();
-      setIsRecording(false);
-      mediaRecorder.onstop = async () => {
-        const blob = new Blob(recordedChunks, { type: 'video/webm' });
-        const file = new File([blob], `recording_${Date.now()}.webm`, { type: 'video/webm' });
-        onUpload(file);
-        setRecordedChunks([]);
-        stopCamera();
-      };
-    }
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state !== 'inactive') recorder.stop();
+    setIsRecording(false);
   };
 
   const formatTime = (seconds: number) => {

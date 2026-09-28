@@ -1151,7 +1151,13 @@ export const StorageService = {
   updateUserProfile: async (userId: string, profile: UserProfile): Promise<User> => {
     const cleanedProfile = cleanDataForStorage(profile);
     if (canUseCloudPersistence(userId)) {
-      await db.collection("users").doc(userId).set({ profile: sanitizeForFirestore(cleanedProfile) }, { merge: true });
+      // managedAthletes/coaches belong to the server: onCoachRequestWritten keeps
+      // them with arrayUnion/arrayRemove. Writing the caller's copy (usually the
+      // one cached at sign-in) replaced the whole array and silently unlinked
+      // every athlete who had accepted since. With merge: true, leaving the
+      // fields out keeps the stored arrays intact.
+      const { managedAthletes: _managedAthletes, coaches: _coaches, ...writableProfile } = cleanedProfile;
+      await db.collection("users").doc(userId).set({ profile: sanitizeForFirestore(writableProfile) }, { merge: true });
     }
     const current = StorageService.getCurrentUser();
     if (current && current.id === userId) {
@@ -1334,7 +1340,24 @@ export const StorageService = {
       videos.map((video) => normalizeVideoRecord(userId, video)),
       options,
     ),
-  
+
+  // Repairs patch the stored list by id. Writing only the repaired subset
+  // replaced the whole section and dropped every other asset from it, losing
+  // for good the legacy assets that exist nowhere else.
+  mergeRepairedVideos: (userId: string, repaired: VideoFile[], options?: { reason?: string }) =>
+    StorageService.updateVideos(
+      userId,
+      mergeAssetsById(repaired, getLocalUserDataSnapshot(userId).videos || []),
+      options,
+    ),
+
+  mergeRepairedPlans: (userId: string, repaired: PlanFile[], options?: { reason?: string }) =>
+    StorageService.updatePlans(
+      userId,
+      mergeAssetsById(repaired, getLocalUserDataSnapshot(userId).plans || []),
+      options,
+    ),
+
   // V3 Authoritative Video Storage Add
   addVideoSafe: async (targetUserId: string, video: VideoFile): Promise<QuotaRegistrationResult> => {
     const normalizedVideo = normalizeVideoRecord(targetUserId, {
@@ -1468,6 +1491,9 @@ export const StorageService = {
     const looksLikeVideo = file.type?.startsWith('video/') || /\.(mp4|mov|webm|m4v|avi|mkv)$/i.test(file.name);
     if (!looksLikeVideo) {
       return 'El archivo seleccionado no es un video valido.';
+    }
+    if (file.size === 0) {
+      return 'El video esta vacio (0 bytes). Vuelve a grabarlo o elige otro archivo.';
     }
     if (file.size > MAX_VIDEO_FILE_SIZE_BYTES) {
       return 'El video supera el limite permitido de 512 MB.';

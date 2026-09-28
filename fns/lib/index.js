@@ -801,3 +801,67 @@ export const onPdfDeletion = onDocumentWritten({ document: "userdata/{uid}/plans
         await evaluateVideoQuotaCompliance(quotaPayer);
     }
 });
+const indexAssetEntriesById = (value) => {
+    const entries = new Map();
+    if (!Array.isArray(value))
+        return entries;
+    value.forEach((entry) => {
+        const id = String(entry?.id ?? '');
+        if (id)
+            entries.set(id, entry);
+    });
+    return entries;
+};
+// Trigger: the root userdata doc is client-writable, and the gallery and the
+// enforcement jobs treat its videos/plans arrays as real assets. Every
+// legitimate addition is registered first (registerVideoInGallery /
+// registerPdfInGallery write the subcollection doc with quotaCounted: true and
+// charge the monthly quota), so an id added to the array without a
+// quota-counted subcollection doc skipped the quota: strip it. Existence alone
+// proves nothing: clients may create subcollection docs directly, and the
+// fallback trigger deletes them when over the limit without touching this
+// array. Entries already present before the write (legacy assets from before
+// the subcollections) are left alone.
+export const onUserDataAssetsWritten = onDocumentWritten({ document: "userdata/{uid}", region: "europe-west1" }, async (event) => {
+    const after = event.data?.after.exists ? event.data.after.data() : null;
+    if (!after)
+        return;
+    const before = event.data?.before.exists ? event.data.before.data() : undefined;
+    const uid = event.params.uid;
+    const rootRef = db.collection("userdata").doc(uid);
+    const unregisteredByKind = {};
+    for (const kind of ['videos', 'plans']) {
+        const previousIds = indexAssetEntriesById(before?.[kind]);
+        const addedIds = Array.from(indexAssetEntriesById(after[kind]).keys())
+            .filter((id) => !previousIds.has(id));
+        if (addedIds.length === 0)
+            continue;
+        const subSnaps = await db.getAll(...addedIds.map((id) => rootRef.collection(kind).doc(id)));
+        const unregistered = subSnaps
+            .filter((snap) => snap.data()?.quotaCounted !== true)
+            .map((snap) => snap.id);
+        if (unregistered.length > 0)
+            unregisteredByKind[kind] = new Set(unregistered);
+    }
+    if (!unregisteredByKind.videos && !unregisteredByKind.plans)
+        return;
+    await db.runTransaction(async (t) => {
+        const current = await t.get(rootRef);
+        if (!current.exists)
+            return;
+        const update = {};
+        for (const kind of ['videos', 'plans']) {
+            const strip = unregisteredByKind[kind];
+            const list = current.data()?.[kind];
+            if (!strip || !Array.isArray(list))
+                continue;
+            update[kind] = list.filter((entry) => !strip.has(String(entry?.id ?? '')));
+        }
+        if (Object.keys(update).length > 0)
+            t.set(rootRef, update, { merge: true });
+    });
+    console.warn(`[Asset Mirror Trigger] Stripped unregistered assets for UID: ${uid}`, {
+        videos: Array.from(unregisteredByKind.videos ?? []),
+        plans: Array.from(unregisteredByKind.plans ?? []),
+    });
+});

@@ -85,6 +85,29 @@ export const createPortalSession = async (_uid: string): Promise<void> => {
 const isKnownTier = (value: unknown): value is SubscriptionTier =>
   value === 'FREE' || value === 'PRO_ATHLETE' || value === 'PRO_COACH' || value === 'PREMIUM';
 
+const TIER_RANK: Record<SubscriptionTier, number> = { FREE: 0, PRO_ATHLETE: 1, PRO_COACH: 2, PREMIUM: 3 };
+
+const tierForPriceId = (priceId: string | undefined): SubscriptionTier => {
+  if (priceId === STRIPE_PRICES.PREMIUM) return 'PREMIUM';
+  if (priceId === STRIPE_PRICES.PRO_COACH) return 'PRO_COACH';
+  if (priceId === STRIPE_PRICES.PRO_ATHLETE) return 'PRO_ATHLETE';
+  return 'FREE';
+};
+
+const extractPriceId = (subscriptionData: any): string | undefined =>
+  subscriptionData?.items?.data?.[0]?.price?.id
+  ?? subscriptionData?.items?.[0]?.price?.id
+  ?? subscriptionData?.price?.id;
+
+// Mirrors pickHighestTier() in fns/src/quota.ts: with two active subscriptions
+// (an upgrade checked out next to the old plan) the highest one wins, not
+// whichever document Firestore returns first.
+const highestTierFromSubscriptions = (docs: Array<{ data: () => unknown }>): SubscriptionTier =>
+  docs.reduce<SubscriptionTier>((best, doc) => {
+    const tier = tierForPriceId(extractPriceId(doc.data()));
+    return TIER_RANK[tier] > TIER_RANK[best] ? tier : best;
+  }, 'FREE');
+
 // Owner account. The full premium allow-list stays server-side in
 // fns/src/quota.ts (PREMIUM_EMAILS) on purpose — shipping the other members'
 // addresses in a public bundle would expose their personal data. This one is
@@ -136,25 +159,7 @@ export const getSubscriptionTier = async (uid: string, userEmail?: string): Prom
       .where('status', 'in', ['active', 'trialing'])
       .get();
 
-    if (querySnapshot.empty) return 'FREE';
-
-    const subscriptionData = querySnapshot.docs[0].data() as any;
-
-    // Safety check and extraction
-    let priceId: string | undefined;
-    if (subscriptionData?.items?.data?.[0]?.price?.id) {
-      priceId = subscriptionData.items.data[0].price.id;
-    } else if (subscriptionData?.items?.[0]?.price?.id) {
-      priceId = subscriptionData.items[0].price.id;
-    } else if (subscriptionData?.price?.id) {
-      priceId = subscriptionData.price.id;
-    }
-
-    if (!priceId) return 'FREE';
-    if (priceId === STRIPE_PRICES.PREMIUM) return 'PREMIUM';
-    if (priceId === STRIPE_PRICES.PRO_COACH) return 'PRO_COACH';
-    if (priceId === STRIPE_PRICES.PRO_ATHLETE) return 'PRO_ATHLETE';
-    return 'FREE';
+    return highestTierFromSubscriptions(querySnapshot.docs);
   } catch (error) {
     return 'FREE';
   }
@@ -199,21 +204,7 @@ export const waitForSubscriptionActive = async (
       .where('status', 'in', ['active', 'trialing'])
       .onSnapshot((snapshot) => {
         if (snapshot.empty) return;
-        const docData = snapshot.docs[0].data() as any;
-
-        let priceId: string | undefined;
-        if (docData?.items?.data?.[0]?.price?.id) {
-          priceId = docData.items.data[0].price.id;
-        } else if (docData?.items?.[0]?.price?.id) {
-          priceId = docData.items[0].price.id;
-        } else if (docData?.price?.id) {
-          priceId = docData.price.id;
-        }
-
-        let tier: SubscriptionTier = 'FREE';
-        if (priceId === STRIPE_PRICES.PREMIUM) tier = 'PREMIUM';
-        else if (priceId === STRIPE_PRICES.PRO_COACH) tier = 'PRO_COACH';
-        else if (priceId === STRIPE_PRICES.PRO_ATHLETE) tier = 'PRO_ATHLETE';
+        const tier = highestTierFromSubscriptions(snapshot.docs);
 
         if (tier !== 'FREE') {
           finalize(tier);
