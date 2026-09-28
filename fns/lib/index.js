@@ -815,10 +815,13 @@ const indexAssetEntriesById = (value) => {
 // Trigger: the root userdata doc is client-writable, and the gallery and the
 // enforcement jobs treat its videos/plans arrays as real assets. Every
 // legitimate addition is registered first (registerVideoInGallery /
-// registerPdfInGallery write the subcollection doc and charge the monthly
-// quota), so an id that appears in the array without a subcollection doc
-// skipped the quota: strip it. Entries already present before the write
-// (legacy assets from before the subcollections) are left alone.
+// registerPdfInGallery write the subcollection doc with quotaCounted: true and
+// charge the monthly quota), so an id added to the array without a
+// quota-counted subcollection doc skipped the quota: strip it. Existence alone
+// proves nothing: clients may create subcollection docs directly, and the
+// fallback trigger deletes them when over the limit without touching this
+// array. Entries already present before the write (legacy assets from before
+// the subcollections) are left alone.
 export const onUserDataAssetsWritten = onDocumentWritten({ document: "userdata/{uid}", region: "europe-west1" }, async (event) => {
     const after = event.data?.after.exists ? event.data.after.data() : null;
     if (!after)
@@ -834,7 +837,9 @@ export const onUserDataAssetsWritten = onDocumentWritten({ document: "userdata/{
         if (addedIds.length === 0)
             continue;
         const subSnaps = await db.getAll(...addedIds.map((id) => rootRef.collection(kind).doc(id)));
-        const unregistered = subSnaps.filter((snap) => !snap.exists).map((snap) => snap.id);
+        const unregistered = subSnaps
+            .filter((snap) => snap.data()?.quotaCounted !== true)
+            .map((snap) => snap.id);
         if (unregistered.length > 0)
             unregisteredByKind[kind] = new Set(unregistered);
     }

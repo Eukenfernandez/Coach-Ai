@@ -591,8 +591,8 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
    const syncStateRef = useRef({ active: false, offset: 0 });
    const scrubResumePlaybackRef = useRef(false);
    const primaryDisplayedFrameTimeRef = useRef(0);
-   // Real frame duration of the current source, learned on the first frame step.
-   const primaryFrameDurationRef = useRef<number | null>(null);
+   // Shortest frame spacing seen in the current source, learned by frame steps.
+   const primaryFrameSpacingRef = useRef<number | null>(null);
    const frameStepQueueRef = useRef(0);
    const frameStepRunningRef = useRef(false);
    const primaryVideoFrameCallbackRef = useRef<number | null>(null);
@@ -678,7 +678,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
      if (!element || typeof element.requestVideoFrameCallback !== 'function') return;
 
      let cancelled = false;
-     primaryFrameDurationRef.current = null;
+     primaryFrameSpacingRef.current = null;
      frameStepQueueRef.current = 0;
      const trackFrame = (_now: number, metadata: VideoFrameCallbackMetadataLike) => {
         if (cancelled) return;
@@ -2001,7 +2001,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
 
             const direction = frameStepQueueRef.current > 0 ? 1 : -1;
             frameStepQueueRef.current -= direction;
-            const landed = await stepOneFrame(primaryVideo, direction, presentedFrameTimeRef.current, primaryFrameDurationRef);
+            const landed = await stepOneFrame(primaryVideo, direction, presentedFrameTimeRef.current, primaryFrameSpacingRef);
             // The source changed mid-step: that landing belongs to the old video.
             if (videoRef.current !== primaryVideo) break;
 
