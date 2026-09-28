@@ -1151,7 +1151,13 @@ export const StorageService = {
   updateUserProfile: async (userId: string, profile: UserProfile): Promise<User> => {
     const cleanedProfile = cleanDataForStorage(profile);
     if (canUseCloudPersistence(userId)) {
-      await db.collection("users").doc(userId).set({ profile: sanitizeForFirestore(cleanedProfile) }, { merge: true });
+      // managedAthletes/coaches belong to the server: onCoachRequestWritten keeps
+      // them with arrayUnion/arrayRemove. Writing the caller's copy (usually the
+      // one cached at sign-in) replaced the whole array and silently unlinked
+      // every athlete who had accepted since. With merge: true, leaving the
+      // fields out keeps the stored arrays intact.
+      const { managedAthletes: _managedAthletes, coaches: _coaches, ...writableProfile } = cleanedProfile;
+      await db.collection("users").doc(userId).set({ profile: sanitizeForFirestore(writableProfile) }, { merge: true });
     }
     const current = StorageService.getCurrentUser();
     if (current && current.id === userId) {
