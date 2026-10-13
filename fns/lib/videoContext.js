@@ -305,6 +305,15 @@ const resolveVideoStorageReference = ({ input, videoRecord, }) => {
     if (!storagePath) {
         throw new HttpsError('invalid-argument', 'No se pudo resolver un storagePath válido a partir del payload o Firestore.');
     }
+    // The path may come straight from the payload (or a client-supplied URL), and
+    // the exists()/getMetadata() calls below run with admin credentials that
+    // skip storage.rules. Confine it to the owner's prefix — same invariant as
+    // assertOwnedStoragePath in index.ts — so callers can't probe other users'
+    // files.
+    const ownerPrefix = `videos/${input.targetUserId}/`;
+    if (storagePath.includes('..') || !storagePath.startsWith(ownerPrefix)) {
+        throw new HttpsError('permission-denied', 'El vídeo debe estar en el almacenamiento del usuario propietario.');
+    }
     // Pin the bucket to this project's default bucket. The parsed name comes
     // from client-supplied URLs; honoring an arbitrary bucket would let a
     // caller probe metadata of any bucket the service account can reach.

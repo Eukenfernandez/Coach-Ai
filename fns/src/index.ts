@@ -15,6 +15,7 @@ import { GoogleGenerativeAI, Schema, SchemaType } from "@google/generative-ai";
 import { getApps, initializeApp } from 'firebase-admin/app';
 import { getStorage } from 'firebase-admin/storage';
 import { FieldValue, Timestamp, getFirestore } from 'firebase-admin/firestore';
+import { getAuth } from 'firebase-admin/auth';
 import {
     PLAN_LIMITS,
     consumeMonthlyQuota,
@@ -529,12 +530,23 @@ export const sendCoachRequest = onCall(
             throw new HttpsError("resource-exhausted", `Tu plan permite gestionar ${limits.athletes} atletas como máximo.`);
         }
 
-        const athleteSnap = await db.collection("users").where("username", "==", athleteEmail).limit(1).get();
-        if (athleteSnap.empty) throw new HttpsError("not-found", "Atleta no encontrado.");
-        const athleteDoc = athleteSnap.docs[0];
-        const athleteId = athleteDoc.id;
+        // Resolve the athlete through the Auth record, never users/{uid}.username:
+        // that field is client-writable, so anyone could set it to someone
+        // else's email and receive the coach request (and the coach's uploads)
+        // meant for that person.
+        let athleteId: string;
+        let verifiedAthleteEmail: string;
+        try {
+            const athleteAuth = await getAuth().getUserByEmail(athleteEmail);
+            athleteId = athleteAuth.uid;
+            verifiedAthleteEmail = (athleteAuth.email || athleteEmail).toLowerCase();
+        } catch {
+            throw new HttpsError("not-found", "Atleta no encontrado.");
+        }
         if (athleteId === coachId) throw new HttpsError("invalid-argument", "No puedes enviarte una solicitud a ti mismo.");
-        const athleteData = athleteDoc.data() as any;
+        const athleteSnap = await db.collection("users").doc(athleteId).get();
+        if (!athleteSnap.exists) throw new HttpsError("not-found", "Atleta no encontrado.");
+        const athleteData = athleteSnap.data() as any;
 
         const coachSnap = await db.collection("users").doc(coachId).get();
         const coachProfile = coachSnap.exists ? (coachSnap.data() as any)?.profile : null;
@@ -549,7 +561,7 @@ export const sendCoachRequest = onCall(
             coachId,
             coachName: `${coachProfile?.firstName || ''} ${coachProfile?.lastName || ''}`.trim() || 'Entrenador',
             athleteId,
-            athleteEmail,
+            athleteEmail: verifiedAthleteEmail,
             athleteName: `${athleteData?.profile?.firstName || ''} ${athleteData?.profile?.lastName || ''}`.trim(),
             athleteDiscipline: athleteData?.profile?.discipline || 'Atleta',
             status: 'pending',
@@ -850,16 +862,6 @@ export const onSubscriptionChange = onDocumentWritten(
     }
 );
 
-// Resolve who pays the quota for a direct-write upload. The client-supplied
-// uploadedByCoachId is only honored when that coach really has an accepted
-// relationship with the profile owner — otherwise a forged value would bill
-// an arbitrary victim's quota.
-const resolveQuotaPayer = async (ownerUid: string, uploadedByCoachId: unknown): Promise<string> => {
-    if (typeof uploadedByCoachId !== 'string' || !uploadedByCoachId || uploadedByCoachId === ownerUid) return ownerUid;
-    const relSnap = await db.collection('requests').doc(`${uploadedByCoachId}_${ownerUid}`).get();
-    return relSnap.exists && relSnap.data()?.status === 'accepted' ? uploadedByCoachId : ownerUid;
-};
-
 // Trigger: count direct-write fallback video uploads when callable flow was unavailable
 export const onVideoCreatedFallback = onDocumentWritten(
     { document: "userdata/{uid}/videos/{videoId}", region: "europe-west1" },
@@ -873,7 +875,13 @@ export const onVideoCreatedFallback = onDocumentWritten(
         // rules forbid clients from setting quotaCounted:true themselves.
         if (createdData?.quotaCounted === true) return;
 
-        const quotaPayer = await resolveQuotaPayer(uid, createdData?.uploadedByCoachId);
+        // A direct write under userdata/{uid} is always billed to and enforced
+        // against the gallery owner. uploadedByCoachId is a client-written field:
+        // a trigger can't tell who wrote the doc, so honoring it let an athlete
+        // charge their coach's quota and dodge their own plan limits. Coach
+        // uploads go through the register*InGallery callables, which bill the
+        // coach server-side and mark the doc quotaCounted.
+        const quotaPayer = uid;
 
         try {
             await consumeMonthlyQuota(quotaPayer, undefined, 'videos');
@@ -912,7 +920,8 @@ export const onPdfCreatedFallback = onDocumentWritten(
         const createdData = event.data.after.data();
         if (createdData?.quotaCounted === true) return;
 
-        const quotaPayer = await resolveQuotaPayer(uid, createdData?.uploadedByCoachId);
+        // Owner always pays — see onVideoCreatedFallback.
+        const quotaPayer = uid;
 
         try {
             await consumeMonthlyQuota(quotaPayer, undefined, 'pdfs');
@@ -951,11 +960,10 @@ export const onVideoDeletion = onDocumentWritten(
             if (deletedData?.quotaCounted === false) {
                 return;
             }
-            // Determine who "paid" for this video: the coach who uploaded it, or the profile owner
-            const quotaPayer = deletedData?.uploadedByCoachId || uid;
-
-            console.log(`[Video Deletion Trigger] Re-evaluating stored asset compliance for UID: ${quotaPayer}`);
-            await evaluateVideoQuotaCompliance(quotaPayer);
+            // Stored-asset compliance is per gallery, so re-evaluate the owner whose
+            // gallery shrank — never a uid taken from the client-written doc.
+            console.log(`[Video Deletion Trigger] Re-evaluating stored asset compliance for UID: ${uid}`);
+            await evaluateVideoQuotaCompliance(uid);
         }
     }
 );
@@ -970,10 +978,8 @@ export const onPdfDeletion = onDocumentWritten(
             if (deletedData?.quotaCounted === false) {
                 return;
             }
-            const quotaPayer = deletedData?.uploadedByCoachId || uid;
-
-            console.log(`[PDF Deletion Trigger] Re-evaluating stored asset compliance for UID: ${quotaPayer}`);
-            await evaluateVideoQuotaCompliance(quotaPayer);
+            console.log(`[PDF Deletion Trigger] Re-evaluating stored asset compliance for UID: ${uid}`);
+            await evaluateVideoQuotaCompliance(uid);
         }
     }
 );
