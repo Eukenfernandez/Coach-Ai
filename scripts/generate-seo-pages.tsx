@@ -47,44 +47,20 @@ function toOutputFile(pagePath: string) {
   return path.join(distDir, `${pagePath.replace(/^\//, "")}.html`);
 }
 
+// Both scripts live in pub/ as files: the CSP in vercel.json does not allow
+// inline script ('unsafe-inline'), so anything emitted here must be external.
 function buildAnalyticsScript(page: PublicPageContent) {
-  return `
-<script>
-window.dataLayer = window.dataLayer || [];
-document.addEventListener('click', function (event) {
-  var target = event.target && event.target.closest ? event.target.closest('[data-cta-event]') : null;
-  if (!target) return;
-  window.dataLayer.push({
-    event: 'coachai_cta_click',
-    cta_name: target.getAttribute('data-cta-event'),
-    page_path: '${page.path}',
-    page_locale: '${page.locale}'
-  });
-});
-</script>`.trim();
+  return `<script src="/analytics.js" data-page-path="${escapeHtml(page.path)}" data-page-locale="${escapeHtml(page.locale)}"></script>`;
 }
 
 function buildServiceWorkerScript() {
-  return `
-<script>
-if ('serviceWorker' in navigator && (window.location.protocol === 'http:' || window.location.protocol === 'https:')) {
-  var isLocalHost = ['localhost', '127.0.0.1', '::1'].indexOf(window.location.hostname) !== -1;
-  window.addEventListener('load', function () {
-    if (isLocalHost) {
-      navigator.serviceWorker.getRegistrations().then(function (registrations) {
-        registrations.forEach(function (registration) { registration.unregister(); });
-      }).catch(function () {});
-      if ('caches' in window) {
-        caches.keys().then(function (keys) {
-          keys.filter(function (key) { return key.indexOf('coach-ai') === 0; }).forEach(function (key) { caches.delete(key); });
-        }).catch(function () {});
-      }
-      return;
-    }
-    navigator.serviceWorker.register('/sw.js').catch(function () {});
-  });
+  return `<script src="/sw-register.js"></script>`;
 }
-</script>`.trim();
+
+// JSON-LD stays inline (browsers never execute it, so CSP doesn't apply), but
+// escape "<" so a value can never close the <script> element early.
+function serializeJsonLd(node: unknown) {
+  return JSON.stringify(node).replace(/</g, "\\u003c");
 }
 
 function buildPreloadLinks(page: PublicPageContent) {
@@ -101,7 +77,7 @@ function buildHead(page: PublicPageContent, cssHrefs: string[]) {
   const verificationToken = getVerificationToken();
   const locale = localeConfig[page.locale];
   const structuredDataScripts = getStructuredData(page.id, page.locale)
-    .map((node) => `<script type="application/ld+json">${JSON.stringify(node)}</script>`)
+    .map((node) => `<script type="application/ld+json">${serializeJsonLd(node)}</script>`)
     .join("\n");
 
   return `

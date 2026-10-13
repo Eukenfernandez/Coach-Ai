@@ -23,7 +23,8 @@ type PageMetrics = {
 const MIN_ZOOM_LEVEL = 0.75;
 const MAX_ZOOM_LEVEL = 4;
 const ZOOM_STEP = 0.2;
-const PDF_JS_BASE = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174";
+// Must be a host allowed by script-src in vercel.json/firebase.json (cdnjs is not).
+const PDF_JS_BASE = "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build";
 
 let pdfJsLoadPromise: Promise<any> | null = null;
 

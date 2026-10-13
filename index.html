@@ -21,24 +21,6 @@
   <body class="bg-gray-100 text-neutral-900 dark:bg-neutral-950 dark:text-white min-h-[100dvh] w-full transition-colors duration-300">
     <div id="root" class="h-full w-full"></div>
     <script type="module" src="/index.tsx"></script>
-    <script>
-      if ("serviceWorker" in navigator && (window.location.protocol === "http:" || window.location.protocol === "https:")) {
-        var isLocalHost = ["localhost", "127.0.0.1", "::1"].indexOf(window.location.hostname) !== -1;
-        window.addEventListener("load", function () {
-          if (isLocalHost) {
-            navigator.serviceWorker.getRegistrations().then(function (registrations) {
-              registrations.forEach(function (registration) { registration.unregister(); });
-            }).catch(function () {});
-            if ("caches" in window) {
-              caches.keys().then(function (keys) {
-                keys.filter(function (key) { return key.indexOf("coach-ai") === 0; }).forEach(function (key) { caches.delete(key); });
-              }).catch(function () {});
-            }
-            return;
-          }
-          navigator.serviceWorker.register("/sw.js").catch(function () {});
-        });
-      }
-    </script>
+    <script src="/sw-register.js"></script>
   </body>
 </html>
