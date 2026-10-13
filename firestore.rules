@@ -38,6 +38,23 @@ service cloud.firestore {
       return request.resource.data.get(['profile', 'role'], '') != 'admin';
     }
 
+    // Identity fields on a new profile must match the Auth record. Absent
+    // fields are allowed so a profile-only merge on a missing doc still works.
+    function identityMatchesAuth(uid) {
+      let data = request.resource.data;
+      let authEmail = request.auth.token.get('email', '').lower();
+      return data.get('uid', uid) == uid
+        && data.get('email', authEmail) == authEmail
+        && data.get('username', authEmail) == authEmail;
+    }
+
+    // ...and can never be added, changed or removed afterwards. username used
+    // to be freely writable, so anyone could set it to someone else's email.
+    function identityUnchanged() {
+      return !request.resource.data.diff(resource.data).affectedKeys()
+        .hasAny(['uid', 'email', 'username']);
+    }
+
     // ========== USER PROFILES ==========
     // Reads are restricted to the involved parties: profiles hold PII (name,
     // email, athletes list) and used to be enumerable by any signed-in user.
@@ -45,7 +62,8 @@ service cloud.firestore {
     match /users/{uid} {
       allow get: if isOwner(uid) || isAdmin() || isAcceptedCoach(uid) || isMyAcceptedCoach(uid);
       allow list: if isAdmin();
-      allow create, update: if isAdmin() || (isOwner(uid) && roleIsNotAdmin());
+      allow create: if isAdmin() || (isOwner(uid) && roleIsNotAdmin() && identityMatchesAuth(uid));
+      allow update: if isAdmin() || (isOwner(uid) && roleIsNotAdmin() && identityUnchanged());
       allow delete: if isOwner(uid) || isAdmin();
     }
 
@@ -145,9 +163,13 @@ service cloud.firestore {
       allow delete: if isOwner(uid) || isAdmin();
       allow create, update: if false;
 
-      // The client creates checkout sessions; the extension fills in the URL
+      // The client creates checkout sessions; the extension fills in the URL.
+      // The client may not pre-fill the extension's output fields: the app
+      // opens `url` in the browser as soon as it appears.
       match /checkout_sessions/{sessionId} {
-        allow read, create: if isOwner(uid);
+        allow read: if isOwner(uid);
+        allow create: if isOwner(uid)
+          && !request.resource.data.keys().hasAny(['url', 'error', 'sessionId']);
         allow update, delete: if false;
       }
 

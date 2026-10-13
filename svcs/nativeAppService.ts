@@ -101,6 +101,18 @@ export const getPortalReturnUrl = () =>
   isNativeApp() ? getHostedReturnUrl({ action: 'portal' }) : window.location.origin;
 
 export const openExternalUrl = async (url: string) => {
+  // The URL comes from Stripe via Firestore/callables. Refuse anything that
+  // isn't https so a javascript:/data: value can never reach the navigation.
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(url);
+  } catch {
+    throw new Error('URL de pago no válida.');
+  }
+  if (parsedUrl.protocol !== 'https:') {
+    throw new Error('URL de pago no válida.');
+  }
+
   if (isNativeApp()) {
     await Browser.open({ url });
     return;
