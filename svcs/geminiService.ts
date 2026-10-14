@@ -77,7 +77,7 @@ export const chatWithCoach = async (
       throw new Error("Debes iniciar sesión para chatear con el entrenador.");
     }
     if (error.code === 'resource-exhausted' || error.code === 'functions/resource-exhausted') {
-      throw new Error(error.message || "Has alcanzado el límite mensual de mensajes de IA de tu suscripción.");
+      throw new Error(error.message || "Has alcanzado el límite de mensajes de IA de tu ciclo actual.");
     }
     throw new Error("Error al conectar con el entrenador.");
   }

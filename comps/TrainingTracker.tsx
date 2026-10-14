@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { ThrowRecord, UserProfile, Language, isTimeBased as checkTimeBased, getMetricUnit } from '../types';
 import { MapPin, Trash2, Target, StopCircle } from 'lucide-react';
+import { getTranslatedDiscipline } from '../utl/sportTranslations';
 
 interface TrainingTrackerProps {
   profile: UserProfile;
@@ -25,7 +26,9 @@ const TEXTS = {
     empty: 'No hay entrenamientos registrados.',
     graphEmpty: 'Añade al menos 2 registros para ver la gráfica.',
     time: 'Tiempo',
-    mark: 'Marca'
+    mark: 'Marca',
+    notesPlaceholder: 'Ej. Series cortas',
+    defaultLocation: 'Entrenamiento'
   },
   ing: {
     title: 'Technical Practice',
@@ -40,7 +43,9 @@ const TEXTS = {
     empty: 'No workouts registered.',
     graphEmpty: 'Add at least 2 records to see the graph.',
     time: 'Time',
-    mark: 'Mark'
+    mark: 'Mark',
+    notesPlaceholder: 'e.g. Full approach throws',
+    defaultLocation: 'Training Session'
   },
   eus: {
     title: 'Praktika Teknikoa',
@@ -55,7 +60,9 @@ const TEXTS = {
     empty: 'Ez dago entrenamendurik erregistratuta.',
     graphEmpty: 'Gehitu gutxienez 2 erregistro grafikoa ikusteko.',
     time: 'Denbora',
-    mark: 'Marka'
+    mark: 'Marka',
+    notesPlaceholder: 'Adib. Serie laburrak',
+    defaultLocation: 'Entrenamendua'
   }
 };
 
@@ -75,7 +82,7 @@ export const TrainingTracker: React.FC<TrainingTrackerProps> = ({ profile, recor
     if (!value || !date) return;
     onAddRecord({
       distance: parseFloat(value),
-      location: location || 'Entrenamiento',
+      location: location || t.defaultLocation,
       date
     });
     setValue('');
@@ -153,7 +160,7 @@ export const TrainingTracker: React.FC<TrainingTrackerProps> = ({ profile, recor
         <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 mb-6">
           <div>
             <h1 className="text-xl md:text-3xl font-bold text-neutral-900 dark:text-white mb-1 md:mb-2">{t.title}</h1>
-            <p className="text-sm md:text-base text-neutral-500 dark:text-neutral-400">{profile.discipline} - {t.subtitle}</p>
+            <p className="text-sm md:text-base text-neutral-500 dark:text-neutral-400">{getTranslatedDiscipline(profile.discipline || '', language)} - {t.subtitle}</p>
           </div>
           <div className="bg-white dark:bg-neutral-900 px-4 py-3 md:px-6 md:py-3 rounded-xl border border-emerald-500/20 shadow-sm dark:shadow-none w-full md:w-auto transition-colors">
             <span className="block text-[10px] md:text-xs text-neutral-500 dark:text-neutral-400 uppercase tracking-wider mb-1">{t.best}</span>
@@ -197,7 +204,7 @@ export const TrainingTracker: React.FC<TrainingTrackerProps> = ({ profile, recor
                   value={location}
                   onChange={(e) => setLocation(e.target.value)}
                   className="w-full bg-gray-50 dark:bg-neutral-800 text-neutral-900 dark:text-white p-3 rounded-lg border border-neutral-300 dark:border-neutral-700 focus:border-emerald-500 focus:outline-none"
-                  placeholder="Ej. Series cortas"
+                  placeholder={t.notesPlaceholder}
                 />
               </div>
               <div>

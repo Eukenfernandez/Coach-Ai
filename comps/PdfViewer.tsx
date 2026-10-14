@@ -2,6 +2,10 @@ import React, { useEffect, useRef, useState } from 'react';
 import { PlanFile } from '../types';
 import { StorageService } from '../svcs/storageService';
 import { ChevronLeft, FileText, ChevronRight, ZoomIn, ZoomOut, Loader2 } from 'lucide-react';
+// Legacy build: the modern pdfjs-dist 5 build relies on Promise.try /
+// Promise.withResolvers, which older Safari (< 18.2) and WebViews lack.
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
+import pdfWorkerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
 
 interface PdfViewerProps {
   plan: PlanFile;
@@ -23,45 +27,11 @@ type PageMetrics = {
 const MIN_ZOOM_LEVEL = 0.75;
 const MAX_ZOOM_LEVEL = 4;
 const ZOOM_STEP = 0.2;
-// Must be a host allowed by script-src in vercel.json/firebase.json (cdnjs is not).
-const PDF_JS_BASE = "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build";
-
-let pdfJsLoadPromise: Promise<any> | null = null;
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 function ensurePdfJsLoaded() {
   if (typeof window === "undefined") return Promise.resolve(null);
-  if ((window as any).pdfjsLib) {
-    (window as any).pdfjsLib.GlobalWorkerOptions.workerSrc = `${PDF_JS_BASE}/pdf.worker.min.js`;
-    return Promise.resolve((window as any).pdfjsLib);
-  }
-
-  if (pdfJsLoadPromise) return pdfJsLoadPromise;
-
-  pdfJsLoadPromise = new Promise((resolve, reject) => {
-    const existingScript = document.querySelector<HTMLScriptElement>('script[data-pdfjs="true"]');
-    if (existingScript) {
-      existingScript.addEventListener("load", () => resolve((window as any).pdfjsLib), { once: true });
-      existingScript.addEventListener("error", () => reject(new Error("PDF.js failed to load")), { once: true });
-      return;
-    }
-
-    const script = document.createElement("script");
-    script.src = `${PDF_JS_BASE}/pdf.min.js`;
-    script.async = true;
-    script.dataset.pdfjs = "true";
-    script.onload = () => {
-      if ((window as any).pdfjsLib) {
-        (window as any).pdfjsLib.GlobalWorkerOptions.workerSrc = `${PDF_JS_BASE}/pdf.worker.min.js`;
-        resolve((window as any).pdfjsLib);
-        return;
-      }
-      reject(new Error("PDF.js loaded without exposing pdfjsLib"));
-    };
-    script.onerror = () => reject(new Error("PDF.js failed to load"));
-    document.body.appendChild(script);
-  });
-
-  return pdfJsLoadPromise;
+  return Promise.resolve(pdfjsLib);
 }
 
 export const PdfViewer: React.FC<PdfViewerProps> = ({ plan, onBack }) => {
@@ -184,9 +154,10 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({ plan, onBack }) => {
         }
 
         // Plan PDFs are written by the other side of a coach-athlete pair.
-        // isEvalSupported:false closes CVE-2024-4367 (a crafted font running
-        // JS through new Function) in this pdf.js 3.x build; the web CSP already
-        // blocks eval, but the Capacitor and Electron shells have no CSP.
+        // isEvalSupported:false keeps pdf.js from compiling font code with
+        // new Function (the CVE-2024-4367 vector). The bundled 5.x build is
+        // already patched; this stays as defence in depth because the web CSP
+        // blocks eval but the Capacitor and Electron shells have no CSP.
         const loadedPdf = await pdfjsLib.getDocument({ data: fileData, isEvalSupported: false }).promise;
         loadedPdfInstance = loadedPdf;
         if (cancelled) return;

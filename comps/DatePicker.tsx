@@ -124,7 +124,9 @@ export const DatePicker: React.FC<DatePickerProps> = ({
 
   // Format display value
   const displayValue = parsed
-    ? `${String(parsed.getDate()).padStart(2, '0')}/${String(parsed.getMonth() + 1).padStart(2, '0')}/${parsed.getFullYear()}`
+    ? locale === 'ing'
+      ? `${String(parsed.getMonth() + 1).padStart(2, '0')}/${String(parsed.getDate()).padStart(2, '0')}/${parsed.getFullYear()}`
+      : `${String(parsed.getDate()).padStart(2, '0')}/${String(parsed.getMonth() + 1).padStart(2, '0')}/${parsed.getFullYear()}`
     : '';
 
   return (
@@ -149,7 +151,7 @@ export const DatePicker: React.FC<DatePickerProps> = ({
       >
         <Calendar size={18} className="text-orange-500 flex-shrink-0" />
         <span className={displayValue ? 'text-sm' : 'text-sm text-neutral-400 dark:text-neutral-500'}>
-          {displayValue || placeholder || 'dd/mm/yyyy'}
+          {displayValue || placeholder || (locale === 'ing' ? 'mm/dd/yyyy' : 'dd/mm/yyyy')}
         </span>
         {required && <input type="text" value={value} required tabIndex={-1} className="sr-only" readOnly aria-hidden="true" />}
       </div>

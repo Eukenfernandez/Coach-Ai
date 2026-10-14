@@ -32,7 +32,10 @@ const TEXTS = {
     warn: '⚠️ Sin base de datos. Datos solo locales.',
     settings: 'Ajustes',
     darkMode: 'Modo Oscuro',
-    lightMode: 'Modo Claro'
+    lightMode: 'Modo Claro',
+    userPlaceholder: 'Correo electrónico',
+    showPassword: 'Mostrar contraseña',
+    hidePassword: 'Ocultar contraseña'
   },
   ing: {
     welcome: 'Welcome back, athlete',
@@ -52,7 +55,10 @@ const TEXTS = {
     warn: '⚠️ No database. Data is local only.',
     settings: 'Settings',
     darkMode: 'Dark Mode',
-    lightMode: 'Light Mode'
+    lightMode: 'Light Mode',
+    userPlaceholder: 'Email address',
+    showPassword: 'Show password',
+    hidePassword: 'Hide password'
   },
   eus: {
     welcome: 'Ongi etorri berriro, atleta',
@@ -72,7 +78,10 @@ const TEXTS = {
     warn: '⚠️ Datu-baserik ez. Datuak lokalean bakarrik.',
     settings: 'Ezarpenak',
     darkMode: 'Modu Iluna',
-    lightMode: 'Modu Argia'
+    lightMode: 'Modu Argia',
+    userPlaceholder: 'Helbide elektronikoa',
+    showPassword: 'Erakutsi pasahitza',
+    hidePassword: 'Ezkutatu pasahitza'
   }
 };
 
@@ -287,7 +296,7 @@ export const Login: React.FC<LoginProps> = ({ onLogin, language, onLanguageChang
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
                     className="w-full bg-neutral-100 dark:bg-black/50 border border-neutral-300 dark:border-neutral-700 rounded-xl py-3 pl-11 pr-4 text-neutral-900 dark:text-white placeholder-neutral-400 dark:placeholder-neutral-600 focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500 transition-all"
-                    placeholder="Usuario"
+                    placeholder={t.userPlaceholder}
                     autoCapitalize="none"
                     autoComplete="username"
                     autoCorrect="off"
@@ -316,7 +325,8 @@ export const Login: React.FC<LoginProps> = ({ onLogin, language, onLanguageChang
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 dark:text-neutral-500 hover:text-neutral-700 dark:hover:text-white transition-colors p-1"
-                    title={showPassword ? "Ocultar" : "Mostrar"}
+                    title={showPassword ? t.hidePassword : t.showPassword}
+                    aria-label={showPassword ? t.hidePassword : t.showPassword}
                   >
                     {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                   </button>

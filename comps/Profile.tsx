@@ -201,8 +201,13 @@ export const Profile: React.FC<ProfileProps> = ({ currentUser, onUpdateUser, onL
 
    const handleDelete = async () => {
       if (confirm(t.deleteDesc)) {
-         await StorageService.deleteCurrentAccount();
-         onLogout();
+         try {
+            await StorageService.deleteCurrentAccount();
+            onLogout();
+         } catch (error) {
+            console.error(error);
+            alert(error instanceof Error ? error.message : 'No se pudo eliminar la cuenta.');
+         }
       }
    };
 
@@ -274,8 +279,8 @@ export const Profile: React.FC<ProfileProps> = ({ currentUser, onUpdateUser, onL
       }
    };
 
-   const currentSportLabel = formData.sport && SPORTS_LIST[formData.sport] ? SPORTS_LIST[formData.sport] : formData.sport;
-   const newSportLabel = pendingSport && SPORTS_LIST[pendingSport] ? SPORTS_LIST[pendingSport] : pendingSport;
+   const currentSportLabel = formData.sport ? getTranslatedSportCategory(formData.sport, language) : formData.sport;
+   const newSportLabel = pendingSport ? getTranslatedSportCategory(pendingSport, language) : pendingSport;
 
    return (
       <div className="h-full bg-gray-50 dark:bg-neutral-950 p-6 md:p-10 overflow-y-auto transition-colors duration-300 relative">

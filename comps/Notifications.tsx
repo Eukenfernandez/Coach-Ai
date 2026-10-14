@@ -90,9 +90,20 @@ export const Notifications: React.FC<NotificationsProps> = ({ currentUser, onRef
     try {
       await StorageService.respondToCoachRequest(req, accept, currentUser);
     } catch (error) {
-      // Usually a stale item: the coach cancelled it or it was already answered,
-      // and the rules only accept answers to pending requests. Reload the list.
       console.error('Error responding to request', error);
+      // The coach is at their plan's athlete limit: the request stays pending,
+      // so keep it and show the server's explanation instead of hiding it.
+      const code = String((error as { code?: unknown })?.code || '');
+      if (code === 'resource-exhausted' || code === 'functions/resource-exhausted') {
+        setSyncState('error');
+        setStatusMessage(
+          (error as { message?: string })?.message
+          || 'El entrenador ha alcanzado el límite de atletas de su plan.'
+        );
+        return;
+      }
+      // Otherwise usually a stale item: the coach cancelled it or it was already
+      // answered, and only pending requests can be answered. Reload the list.
       setRequests((prev) => prev.filter((request) => request.id !== req.id));
       void loadRequests('manual-refresh');
       return;

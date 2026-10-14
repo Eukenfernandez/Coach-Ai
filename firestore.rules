@@ -17,83 +17,218 @@ service cloud.firestore {
 
     // Check if caller is the master admin account
     function isAdmin() {
-      return isAuth() && request.auth.uid == 'MASTER_GOD_EUKEN';
+      return isAuth() && (
+        request.auth.uid == 'MASTER_GOD_EUKEN'
+        || request.auth.token.admin == true
+      );
     }
 
-    // Check if the caller is a coach with an ACCEPTED relationship with this athlete
+    // Check if coach has an accepted relationship with this athlete
     function isAcceptedCoach(athleteId) {
       return isAuth() && exists(/databases/$(database)/documents/requests/$(request.auth.uid + '_' + athleteId))
+        && get(/databases/$(database)/documents/requests/$(request.auth.uid + '_' + athleteId)).data.coachId == request.auth.uid
+        && get(/databases/$(database)/documents/requests/$(request.auth.uid + '_' + athleteId)).data.athleteId == athleteId
         && get(/databases/$(database)/documents/requests/$(request.auth.uid + '_' + athleteId)).data.status == 'accepted';
     }
 
-    // Check if {uid} is a coach with an ACCEPTED relationship with the caller
-    // (the reverse direction: an athlete reading their coach's profile)
-    function isMyAcceptedCoach(uid) {
-      return isAuth() && exists(/databases/$(database)/documents/requests/$(uid + '_' + request.auth.uid))
-        && get(/databases/$(database)/documents/requests/$(uid + '_' + request.auth.uid)).data.status == 'accepted';
+    function identityFieldsAreValidOnCreate(uid) {
+      return request.resource.data.uid == uid
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.username == request.auth.token.email;
     }
 
-    // The client may never self-assign the admin role; 'coach'/'athlete' are fine.
-    function roleIsNotAdmin() {
-      return request.resource.data.get(['profile', 'role'], '') != 'admin';
+    function identityFieldsAreUnchanged() {
+      return request.resource.data.get('uid', null) == resource.data.get('uid', null)
+        && request.resource.data.get('email', null) == resource.data.get('email', null)
+        && request.resource.data.get('username', null) == resource.data.get('username', null)
+        && request.resource.data.get('createdAt', null) == resource.data.get('createdAt', null)
+        && request.resource.data.get('emailVerified', false) == resource.data.get('emailVerified', false)
+        && request.resource.data.get('verifiedEmail', null) == resource.data.get('verifiedEmail', null)
+        && request.resource.data.get('emailVerifiedAt', null) == resource.data.get('emailVerifiedAt', null);
     }
 
-    // Identity fields on a new profile must match the Auth record. Absent
-    // fields are allowed so a profile-only merge on a missing doc still works.
-    function identityMatchesAuth(uid) {
-      let data = request.resource.data;
-      let authEmail = request.auth.token.get('email', '').lower();
-      return data.get('uid', uid) == uid
-        && data.get('email', authEmail) == authEmail
-        && data.get('username', authEmail) == authEmail;
+    function profileRoleIsValidOnCreate() {
+      return request.resource.data.get('profile', null) == null
+        || request.resource.data.profile.get('role', '') in ['athlete', 'coach'];
     }
 
-    // ...and can never be added, changed or removed afterwards. username used
-    // to be freely writable, so anyone could set it to someone else's email.
-    function identityUnchanged() {
-      return !request.resource.data.diff(resource.data).affectedKeys()
-        .hasAny(['uid', 'email', 'username']);
+    function serverManagedProfileFieldsAreUnchanged() {
+      return resource.data.get('profile', null) == null
+        ? (
+          request.resource.data.get('profile', null) == null
+          || (
+            request.resource.data.profile.get('role', '') in ['athlete', 'coach']
+            && request.resource.data.profile.get('managedAthletes', []).size() == 0
+            && request.resource.data.profile.get('coaches', []).size() == 0
+          )
+        )
+        : (
+          request.resource.data.get('profile', null) != null
+          && request.resource.data.profile.get('role', '') == resource.data.profile.get('role', '')
+          && request.resource.data.profile.get('managedAthletes', []) == resource.data.profile.get('managedAthletes', [])
+          && request.resource.data.profile.get('coaches', []) == resource.data.profile.get('coaches', [])
+        );
+    }
+
+    function isEmptyAssetList(fieldName) {
+      return !(fieldName in request.resource.data) || request.resource.data[fieldName].size() == 0;
+    }
+
+    function assetListsAreUnchanged() {
+      return request.resource.data.get('videos', []) == resource.data.get('videos', [])
+        && request.resource.data.get('plans', []) == resource.data.get('plans', [])
+        && request.resource.data.get('usage', null) == resource.data.get('usage', null);
+    }
+
+    function checkoutPriceAllowed(uid) {
+      let role = get(/databases/$(database)/documents/users/$(uid)).data.profile.role;
+      let price = request.resource.data.price;
+      return (
+        role == 'athlete'
+        && price in [
+          'price_1Shp2GRpDniZdTBe8jaP3rKT',
+          'price_1Shp77RpDniZdTBeN9KYx4oM'
+        ]
+      ) || (
+        (role == 'coach' || role == 'admin')
+        && price in [
+          'price_1Shp77RpDniZdTBeN9KYx4oM',
+          'price_1Sj8emRpDniZdTBeCxkGvGnO'
+        ]
+      );
+    }
+
+    function checkoutUrlAllowed(url) {
+      return url is string && (
+        url.matches('^https://(www\\.)?coachai\\.es(/.*)?$')
+        || url.matches('^https://entrenamientos-bfac2\\.web\\.app(/.*)?$')
+        || url.matches('^http://(localhost|127\\.0\\.0\\.1)(:[0-9]+)?(/.*)?$')
+      );
+    }
+
+    function checkoutPayloadIsValid(uid) {
+      return request.resource.data.keys().hasOnly([
+          'price', 'mode', 'success_url', 'cancel_url', 'created'
+        ])
+        && request.resource.data.mode == 'subscription'
+        && checkoutPriceAllowed(uid)
+        && checkoutUrlAllowed(request.resource.data.success_url)
+        && checkoutUrlAllowed(request.resource.data.cancel_url);
+    }
+
+    function profileSubscriptionTier(data) {
+      return data.get('profile', null) == null
+        ? 'FREE'
+        : data.profile.get('subscriptionTier', 'FREE');
+    }
+
+    function subscriptionFieldsAreDefaultOnCreate() {
+      return request.resource.data.get('currentPlanId', 'FREE') == 'FREE'
+        && request.resource.data.get('subscriptionAccessTier', null) == null
+        && request.resource.data.get('subscriptionAccessUntil', null) == null
+        && request.resource.data.get('subscriptionAccessPeriodStart', null) == null
+        && request.resource.data.get('subscriptionTierUpdatedAt', null) == null
+        && profileSubscriptionTier(request.resource.data) == 'FREE';
+    }
+
+    function subscriptionFieldsAreUnchanged() {
+      return request.resource.data.get('currentPlanId', 'FREE') == resource.data.get('currentPlanId', 'FREE')
+        && request.resource.data.get('subscriptionAccessTier', null) == resource.data.get('subscriptionAccessTier', null)
+        && request.resource.data.get('subscriptionAccessUntil', null) == resource.data.get('subscriptionAccessUntil', null)
+        && request.resource.data.get('subscriptionAccessPeriodStart', null) == resource.data.get('subscriptionAccessPeriodStart', null)
+        && request.resource.data.get('subscriptionTierUpdatedAt', null) == resource.data.get('subscriptionTierUpdatedAt', null)
+        && profileSubscriptionTier(request.resource.data) == profileSubscriptionTier(resource.data);
+    }
+
+    function marketingFieldsAreDefaultOnCreate() {
+      return !request.resource.data.keys().hasAny([
+        'marketingConsent',
+        'marketingConsentGrantedAt',
+        'marketingConsentUpdatedAt',
+        'marketingConsentVersion',
+        'marketingConsentSource',
+        'marketingConsentLanguage',
+        'marketingConsentPending',
+        'marketingConsentPendingAt',
+        'marketingConsentPendingVersion',
+        'marketingConsentPendingSource',
+        'marketingConsentPendingLanguage',
+        'marketingTrialCheckoutCreatedAt',
+        'marketingTrialCheckoutDocId',
+        'marketingTrialClaimedAt',
+        'marketingTrialSubscriptionId',
+        'marketingTrialEndsAt',
+        'marketingTrialOfferDismissedAt',
+        'marketingTrialOfferDismissedSource',
+        'marketingTrialOfferDismissedVersion'
+      ]);
+    }
+
+    function marketingFieldsAreUnchanged() {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'marketingConsent',
+        'marketingConsentGrantedAt',
+        'marketingConsentUpdatedAt',
+        'marketingConsentVersion',
+        'marketingConsentSource',
+        'marketingConsentLanguage',
+        'marketingConsentPending',
+        'marketingConsentPendingAt',
+        'marketingConsentPendingVersion',
+        'marketingConsentPendingSource',
+        'marketingConsentPendingLanguage',
+        'marketingTrialCheckoutCreatedAt',
+        'marketingTrialCheckoutDocId',
+        'marketingTrialClaimedAt',
+        'marketingTrialSubscriptionId',
+        'marketingTrialEndsAt',
+        'marketingTrialOfferDismissedAt',
+        'marketingTrialOfferDismissedSource',
+        'marketingTrialOfferDismissedVersion'
+      ]);
     }
 
     // ========== USER PROFILES ==========
-    // Reads are restricted to the involved parties: profiles hold PII (name,
-    // email, athletes list) and used to be enumerable by any signed-in user.
-    // Coach lookup by email now happens through the sendCoachRequest callable.
     match /users/{uid} {
-      allow get: if isOwner(uid) || isAdmin() || isAcceptedCoach(uid) || isMyAcceptedCoach(uid);
+      allow get: if isOwner(uid) || isAcceptedCoach(uid) || isAdmin();
       allow list: if isAdmin();
-      allow create: if isAdmin() || (isOwner(uid) && roleIsNotAdmin() && identityMatchesAuth(uid));
-      allow update: if isAdmin() || (isOwner(uid) && roleIsNotAdmin() && identityUnchanged());
-      allow delete: if isOwner(uid) || isAdmin();
+      allow create: if isAdmin() || (
+        isOwner(uid)
+        && identityFieldsAreValidOnCreate(uid)
+        && profileRoleIsValidOnCreate()
+        && subscriptionFieldsAreDefaultOnCreate()
+        && marketingFieldsAreDefaultOnCreate()
+      );
+      allow delete: if false;
+      allow update: if isAdmin() || (
+        isOwner(uid)
+        && identityFieldsAreUnchanged()
+        && serverManagedProfileFieldsAreUnchanged()
+        && subscriptionFieldsAreUnchanged()
+        && marketingFieldsAreUnchanged()
+      );
     }
 
     // ========== USER DATA (videos, plans, records) ==========
     match /userdata/{uid} {
       allow read: if isOwner(uid) || isAcceptedCoach(uid) || isAdmin();
-      allow write: if isOwner(uid) || isAcceptedCoach(uid) || isAdmin();
+      allow create: if (isOwner(uid) || isAcceptedCoach(uid) || isAdmin())
+        && isEmptyAssetList('videos')
+        && isEmptyAssetList('plans');
+      allow update: if (isOwner(uid) || isAcceptedCoach(uid) || isAdmin())
+        && assetListsAreUnchanged();
+      allow delete: if isOwner(uid) || isAdmin();
 
-      // Video subcollection. Clients may never claim quotaCounted:true —
-      // only Cloud Functions mark an asset as already counted; otherwise a
-      // direct write could skip the monthly quota.
+      // Video subcollection
       match /videos/{videoId} {
         allow read: if isOwner(uid) || isAcceptedCoach(uid) || isAdmin();
-        allow create: if (isOwner(uid) || isAcceptedCoach(uid) || isAdmin())
-          && request.resource.data.get('quotaCounted', false) != true;
-        allow update: if (isOwner(uid) || isAcceptedCoach(uid) || isAdmin())
-          && (request.resource.data.get('quotaCounted', false) != true
-              || resource.data.get('quotaCounted', false) == true);
-        allow delete: if isOwner(uid) || isAcceptedCoach(uid) || isAdmin();
+        allow write: if false;
       }
 
-      // Plans subcollection (same quotaCounted guard)
+      // Plans subcollection
       match /plans/{planId} {
         allow read: if isOwner(uid) || isAcceptedCoach(uid) || isAdmin();
-        allow create: if (isOwner(uid) || isAcceptedCoach(uid) || isAdmin())
-          && request.resource.data.get('quotaCounted', false) != true;
-        allow update: if (isOwner(uid) || isAcceptedCoach(uid) || isAdmin())
-          && (request.resource.data.get('quotaCounted', false) != true
-              || resource.data.get('quotaCounted', false) == true);
-        allow delete: if isOwner(uid) || isAcceptedCoach(uid) || isAdmin();
+        allow write: if false;
       }
 
       // Video intelligence context generated by backend
@@ -119,37 +254,21 @@ service cloud.firestore {
     }
 
     // ========== COACH-ATHLETE REQUESTS (canonical relationship) ==========
-    // Creation happens ONLY via the sendCoachRequest Cloud Function: a client
-    // used to be able to create a request with status 'accepted' in one write
-    // and grant itself full access to any user's data.
     match /requests/{requestId} {
-      // Only the two involved parties can read a request
       allow read: if isAuth() && (
-        resource.data.coachId == request.auth.uid ||
-        resource.data.athleteId == request.auth.uid ||
-        resource.data.athleteEmail == request.auth.token.email
+        resource.data.coachId == request.auth.uid
+        || resource.data.athleteId == request.auth.uid
+        || isAdmin()
       );
-      allow create: if false; // Only the sendCoachRequest Cloud Function
-      // Status is the only mutable field. The athlete may answer a pending
-      // request or leave an active one; a rejection is final until the coach
-      // re-sends through sendCoachRequest, otherwise a removed athlete could
-      // flip 'rejected' back to 'accepted' and undo the coach's revocation.
-      // 'suspended' is server-only (coach over their plan's athlete limit).
-      // The coach may only reject (cancel) — never accept on the athlete's behalf.
-      allow update: if isAuth()
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
-        && (
-          ((resource.data.athleteId == request.auth.uid ||
-            resource.data.athleteEmail == request.auth.token.email)
-            && ((resource.data.status == 'pending'
-                  && request.resource.data.status in ['accepted', 'rejected'])
-                || (resource.data.status in ['accepted', 'suspended']
-                  && request.resource.data.status == 'rejected')))
-          ||
-          (resource.data.coachId == request.auth.uid
-            && request.resource.data.status == 'rejected')
-        );
-      allow delete: if false;
+      // Relationship creation and status transitions are server-authoritative.
+      allow create, update, delete: if false;
+    }
+
+    // Short-lived, server-created upload grants. Storage Rules consume these
+    // documents so a client cannot bypass quota validation with the Storage SDK.
+    match /upload_authorizations/{authorizationId} {
+      allow read: if isAuth() && resource.data.uploaderId == request.auth.uid;
+      allow write: if false;
     }
 
     // ========== QUOTA COUNTERS (server-managed, read-only for clients) ==========
@@ -161,22 +280,13 @@ service cloud.firestore {
     }
 
     // ========== SUBSCRIPTION & STRIPE (managed by extension + Cloud Functions) ==========
-    // Subscription/payment docs are written exclusively by the Stripe
-    // extension (Admin SDK). If the client could write them, it could forge
-    // an active PREMIUM subscription — the server trusts these docs for tier.
     match /customers/{uid} {
       allow read: if isOwner(uid) || isAdmin();
-      // The resync flow deletes the mapping doc after a 'No such customer' error
-      allow delete: if isOwner(uid) || isAdmin();
-      allow create, update: if false;
+      allow write: if false;
 
-      // The client creates checkout sessions; the extension fills in the URL.
-      // The client may not pre-fill the extension's output fields: the app
-      // opens `url` in the browser as soon as it appears.
       match /checkout_sessions/{sessionId} {
-        allow read: if isOwner(uid);
-        allow create: if isOwner(uid)
-          && !request.resource.data.keys().hasAny(['url', 'error', 'sessionId']);
+        allow read: if isOwner(uid) || isAdmin();
+        allow create: if isOwner(uid) && checkoutPayloadIsValid(uid);
         allow update, delete: if false;
       }
 
@@ -186,6 +296,11 @@ service cloud.firestore {
       }
 
       match /payments/{paymentId} {
+        allow read: if isOwner(uid) || isAdmin();
+        allow write: if false;
+      }
+
+      match /{subcollection=**} {
         allow read: if isOwner(uid) || isAdmin();
         allow write: if false;
       }
@@ -200,7 +315,11 @@ service cloud.firestore {
     // ========== NOTIFICATIONS ==========
     match /notifications/{notifId} {
       allow read: if isAuth() && resource.data.userId == request.auth.uid;
-      allow update: if isAuth() && resource.data.userId == request.auth.uid;
+      allow update: if isAuth()
+        && resource.data.userId == request.auth.uid
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])
+        && request.resource.data.read is bool;
       allow create: if false; // Only Cloud Functions
     }
 

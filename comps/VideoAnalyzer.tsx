@@ -1,5 +1,5 @@
 
-import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useRef, useState, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { VideoContextDoc, VideoFile, ChatMessage, UserUsage, UserLimits, Language, UserProfile, Screen, VideoPoseSnapshot, VideoQuestionMode } from '../types';
 import { VideoIntelligenceService } from '../svcs/videoIntelligenceService';
 import { StorageService, VideoStorage, FilmstripStorage } from '../svcs/storageService';
@@ -62,7 +62,16 @@ const ANALYZER_TEXTS = {
       viewPlans: 'Ver Planes',
       close: 'Cerrar',
       connectionError: 'Error de conexión.',
-      limitResponse: 'Has llegado al límite mensual de mensajes de IA de tu suscripción. Para seguir preguntando al entrenador, mejora tu plan o espera al próximo reseteo mensual.'
+      limitResponse: 'Has llegado al límite de mensajes de IA de tu ciclo de facturación. Para seguir preguntando al entrenador, mejora tu plan o espera a la próxima renovación.',
+      freehand: 'Lápiz libre',
+      straightLine: 'Línea recta',
+      eraser: 'Goma de borrar',
+      clearAll: 'Borrar todo',
+      drawingMode: 'Modo lápiz',
+      poseDetection: 'Detección corporal',
+      poseRetry: 'Reintentar detección corporal',
+      compareVideo: 'Comparar vídeo',
+      syncMovement: 'Sincronizar movimiento'
    },
    ing: {
       chatIntro: 'Hi, I\'m your AI coach. What do you want to analyze in this video?',
@@ -80,7 +89,16 @@ const ANALYZER_TEXTS = {
       viewPlans: 'View Plans',
       close: 'Close',
       connectionError: 'Connection error.',
-      limitResponse: 'You have reached your subscription monthly AI message limit. Upgrade your plan or wait for the next monthly reset to keep asking the coach.'
+      limitResponse: 'You have reached the AI message limit for your billing cycle. Upgrade your plan or wait for the next renewal to keep asking the coach.',
+      freehand: 'Freehand pencil',
+      straightLine: 'Straight line',
+      eraser: 'Eraser',
+      clearAll: 'Clear all',
+      drawingMode: 'Drawing mode',
+      poseDetection: 'Body detection',
+      poseRetry: 'Retry body detection',
+      compareVideo: 'Compare video',
+      syncMovement: 'Sync movement'
    },
    eus: {
       chatIntro: 'Kaixo, zure AI entrenatzailea naiz. Zer aztertu nahi duzu bideo honetan?',
@@ -98,7 +116,16 @@ const ANALYZER_TEXTS = {
       viewPlans: 'Ikusi Planak',
       close: 'Itxi',
       connectionError: 'Konexio errorea.',
-      limitResponse: 'Zure harpidetzaren hileko IA mezuen mugara iritsi zara. Jarraitzeko, hobetu plana edo itxaron hileko berrezarpenera.'
+      limitResponse: 'Fakturazio-zikloko IA mezuen mugara iritsi zara. Jarraitzeko, hobetu plana edo itxaron hurrengo berritzera.',
+      freehand: 'Arkatz librea',
+      straightLine: 'Lerro zuzena',
+      eraser: 'Borragoma',
+      clearAll: 'Ezabatu dena',
+      drawingMode: 'Marrazketa modua',
+      poseDetection: 'Gorputz detekzioa',
+      poseRetry: 'Saiatu berriro gorputza detektatzen',
+      compareVideo: 'Konparatu bideoa',
+      syncMovement: 'Sinkronizatu mugimendua'
    }
 };
 
@@ -658,7 +685,14 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
    const poseCanvasRef2 = useRef<HTMLCanvasElement>(null); // For comparison video
    const [videoDimensions, setVideoDimensions] = useState({ width: 0, height: 0, left: 0, top: 0 });
    // Single pose detection hook that handles both videos sequentially
-   const { landmarks, landmarks2, isLoading: isPoseLoading, isReady: isPoseReady, error: poseError } = usePoseDetection(
+   const {
+      landmarks,
+      landmarks2,
+      isLoading: isPoseLoading,
+      isReady: isPoseReady,
+      error: poseError,
+      retry: retryPoseDetection,
+   } = usePoseDetection(
       videoRef,
       isPoseEnabled,
       compareVideo ? videoRef2 : null
@@ -1044,11 +1078,13 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
    }, [targetUserId, video.id]);
 
    useEffect(() => {
+      // Sampling reads frames from the playback element, so wait until it has loaded.
+      if (!isVideoLoaded) return;
       if ((!activeUrl && !video.storagePath) || video.isUploading || video.status === 'error') return;
       if (!videoContext) {
          triggerVideoContextPreparation(false);
       }
-   }, [activeUrl, triggerVideoContextPreparation, video.isUploading, video.status, video.storagePath, videoContext]);
+   }, [activeUrl, isVideoLoaded, triggerVideoContextPreparation, video.isUploading, video.status, video.storagePath, videoContext]);
 
    // ÚNICA FUENTE DE VERDAD PARA ESTADO DE CARGA
   const handleLoadStart = () => {
@@ -1431,7 +1467,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
       };
    }, [isVideoLoaded, compareVideo, zoom1, pan1, zoom2, pan2]);
 
-   useEffect(() => {
+   useLayoutEffect(() => {
       const poseCanvas = poseCanvasRef.current;
       const video = videoRef.current;
       if (!poseCanvas || !video) return;
@@ -1502,7 +1538,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
    }, [landmarks, isPoseEnabled, isVideoLoaded, currentTime, zoom1, pan1]);
 
    // --- POSE CANVAS DRAWING LOGIC FOR COMPARISON VIDEO ---
-   useEffect(() => {
+   useLayoutEffect(() => {
       const poseCanvas = poseCanvasRef2.current;
       const video = videoRef2.current;
       if (!poseCanvas || !video || !compareVideo) return;
@@ -2195,21 +2231,21 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
                            <button
                               onClick={() => { setActiveTool('pen'); setDrawShape('free'); }}
                               className={`p-1.5 rounded-full transition-colors ${activeTool === 'pen' && drawShape === 'free' ? 'bg-white/20 text-white' : 'text-neutral-400 hover:text-white'}`}
-                              title="Lápiz Libre"
+                              title={t.freehand}
                            >
                               <PenTool size={14} />
                            </button>
                            <button
                               onClick={() => { setActiveTool('pen'); setDrawShape('line'); }}
                               className={`p-1.5 rounded-full transition-colors ${activeTool === 'pen' && drawShape === 'line' ? 'bg-white/20 text-white' : 'text-neutral-400 hover:text-white'}`}
-                              title="Línea Recta"
+                              title={t.straightLine}
                            >
                               <Minus size={14} className="-rotate-45" />
                            </button>
                            <button
                               onClick={() => setActiveTool('eraser')}
                               className={`p-1.5 rounded-full transition-colors ${activeTool === 'eraser' ? 'bg-white/20 text-white' : 'text-neutral-400 hover:text-white'}`}
-                              title="Goma de Borrar"
+                              title={t.eraser}
                            >
                               <Eraser size={14} />
                            </button>
@@ -2217,7 +2253,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
                            <button
                               onClick={() => { setDrawings1([]); setDrawings2([]); }}
                               className="p-1.5 text-red-400 hover:bg-red-900/30 rounded-full transition-colors"
-                              title="Borrar Todo"
+                              title={t.clearAll}
                            >
                               <Trash2 size={14} />
                            </button>
@@ -2228,21 +2264,29 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
                   <button
                      onClick={() => setIsDrawingMode(!isDrawingMode)}
                      className={`p-3 rounded-full border transition-all ${isDrawingMode ? 'bg-orange-600 border-orange-500 text-white' : 'bg-black/40 border-white/10 text-white hover:bg-white/10'}`}
-                     title="Modo Lápiz"
+                     title={t.drawingMode}
                   >
                      <PenTool size={20} />
                   </button>
 
                   {/* Pose Detection Toggle */}
                   <button
-                     onClick={() => setIsPoseEnabled(!isPoseEnabled)}
+                     onClick={() => {
+                        if (poseError) {
+                           setIsPoseEnabled(true);
+                           void retryPoseDetection();
+                           return;
+                        }
+                        setIsPoseEnabled(!isPoseEnabled);
+                     }}
                      className={`p-3 rounded-full border transition-all relative ${poseError
                         ? 'bg-red-600 border-red-500 text-white'
                         : isPoseEnabled
                            ? 'bg-green-600 border-green-500 text-white'
                            : 'bg-black/40 border-white/10 text-white hover:bg-white/10'
                         }`}
-                     title={poseError ? `Error: ${poseError}` : "Detección de Postura"}
+                     title={poseError ? t.poseRetry : t.poseDetection}
+                     aria-label={poseError ? t.poseRetry : t.poseDetection}
                      disabled={isPoseLoading}
                   >
                      {isPoseLoading ? (
@@ -2272,7 +2316,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
                               ? 'bg-black/40 border-white/10 text-white hover:bg-white/10'
                               : 'bg-neutral-800/60 border-neutral-700 text-neutral-500 cursor-pointer'
                            }`}
-                        title={canCompare ? "Comparar Vídeo" : "Función Pro/Premium"}
+                        title={canCompare ? t.compareVideo : t.upgradeTitle}
                      >
                         <Split size={20} />
                         {/* Lock badge for free users */}
@@ -2310,7 +2354,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
                         <button
                            onClick={toggleSync}
                            className={`p-3 rounded-full border transition-all ${isSynced ? 'bg-green-600 border-green-500 text-white' : 'bg-black/40 border-white/10 text-white hover:bg-white/10'}`}
-                           title="Sincronizar movimiento"
+                           title={t.syncMovement}
                         >
                            {isSynced ? <Link2 size={20} /> : <Unlink size={20} />}
                         </button>

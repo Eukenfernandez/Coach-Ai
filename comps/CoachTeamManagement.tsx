@@ -126,7 +126,7 @@ export const CoachTeamManagement: React.FC<CoachTeamManagementProps> = ({ curren
          
          // Fetch coach's outgoing requests
          const outgoingReqs = await StorageService.getCoachRequests(currentUser.id);
-         setRequests(outgoingReqs.sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
+         setRequests(outgoingReqs.sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''))));
 
       } catch (e) {
          console.warn("Could not fetch fresh coach data or requests", e);
@@ -158,9 +158,9 @@ export const CoachTeamManagement: React.FC<CoachTeamManagementProps> = ({ curren
       setAthleteToRemove({ id: athleteId, name: athleteName });
    };
 
-   // Pending invites hold a plan slot, so the coach needs a way to withdraw
-   // them; accepted rows go through the usual confirmation (this also covers
-   // athletes who deleted their account and no longer appear in the list).
+   // Pending invites hold a plan slot (sendCoachRequest counts them), so the
+   // coach can withdraw them; accepted rows go through the usual removal
+   // confirmation (this also covers athletes who no longer appear in the list).
    const handleCancelRequest = async (req: { athleteId?: string; athleteName?: string; athleteEmail?: string; status?: string }) => {
       if (!req.athleteId) return;
       if (req.status === 'accepted') {

@@ -1,4 +1,4 @@
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, shell } = require('electron');
 const path = require('path');
 
 
@@ -15,11 +15,23 @@ function createWindow() {
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
+            sandbox: true,
+            webviewTag: false,
         },
     });
 
     // Load the built app
     mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
+
+    mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+        if (/^https:\/\//i.test(url)) void shell.openExternal(url);
+        return { action: 'deny' };
+    });
+    mainWindow.webContents.on('will-navigate', (event, url) => {
+        if (url.startsWith('file://')) return;
+        event.preventDefault();
+        if (/^https:\/\//i.test(url)) void shell.openExternal(url);
+    });
 
     // Remove default menu
     mainWindow.setMenuBarVisibility(false);

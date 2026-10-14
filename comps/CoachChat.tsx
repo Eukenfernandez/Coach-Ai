@@ -18,10 +18,11 @@ const TEXTS = {
     writing: 'Escribiendo...',
     title: 'Entrenador IA',
     subtitle: 'Especialista en rendimiento, recuperación y estrategia.',
-    limitReached: 'Has alcanzado el límite mensual de mensajes.',
-    limitResponse: 'Has llegado al límite mensual de mensajes de IA de tu suscripción. Para seguir chateando, mejora tu plan o espera al próximo reseteo mensual.',
+    limitReached: 'Has alcanzado el límite de mensajes del ciclo.',
+    limitResponse: 'Has llegado al límite de mensajes de IA de tu ciclo de facturación. Para seguir chateando, mejora tu plan o espera a la próxima renovación.',
     messagesLeft: 'mensajes restantes este mes',
-    unlimited: 'Mensajes ilimitados'
+    unlimited: 'Mensajes ilimitados',
+    monthlyLimit: 'Límite mensual'
   },
   ing: {
     welcome: 'Hello! I am your AI personal coach. How are you feeling today? Tell me about your training, injuries, or nutrition questions.',
@@ -30,9 +31,10 @@ const TEXTS = {
     title: 'AI Coach',
     subtitle: 'Performance, recovery and strategy specialist.',
     limitReached: 'Monthly message limit reached.',
-    limitResponse: 'You have reached your subscription monthly AI message limit. Upgrade your plan or wait for the next monthly reset to keep chatting.',
+    limitResponse: 'You have reached the AI message limit for your billing cycle. Upgrade your plan or wait for the next renewal to keep chatting.',
     messagesLeft: 'messages left this month',
-    unlimited: 'Unlimited messages'
+    unlimited: 'Unlimited messages',
+    monthlyLimit: 'Monthly limit'
   },
   eus: {
     welcome: 'Kaixo! Zure AI entrenatzaile pertsonala naiz. Nola sentitzen zara gaur? Kontatu entrenamenduaz, lesioez edo nutrizio-zalantzez.',
@@ -41,9 +43,10 @@ const TEXTS = {
     title: 'AI Entrenatzailea',
     subtitle: 'Errendimendu, errekuperazio eta estrategia espezialista.',
     limitReached: 'Hileko mezu-muga gainditu duzu.',
-    limitResponse: 'Zure harpidetzaren hileko IA mezuen mugara iritsi zara. Jarraitzeko, hobetu plana edo itxaron hileko berrezarpenera.',
+    limitResponse: 'Fakturazio-zikloko IA mezuen mugara iritsi zara. Jarraitzeko, hobetu plana edo itxaron hurrengo berritzera.',
     messagesLeft: 'mezu geratzen dira hilabete honetan',
-    unlimited: 'Mezu mugagabeak'
+    unlimited: 'Mezu mugagabeak',
+    monthlyLimit: 'Hileko muga'
   }
 };
 
@@ -144,7 +147,7 @@ export const CoachChat: React.FC<CoachChatProps> = ({ language, usage, limits, o
         
         {!isUnlimited && (
           <div className="hidden sm:flex flex-col items-end">
-            <span className="text-[10px] uppercase text-neutral-500 font-bold tracking-widest">Límite Mensual</span>
+            <span className="text-[10px] uppercase text-neutral-500 font-bold tracking-widest">{t.monthlyLimit}</span>
             <span className={`text-xs font-mono ${isLimitReached ? 'text-red-500' : 'text-blue-400'}`}>
               {Math.max(0, chatLimit - messagesUsed)} {t.messagesLeft}
             </span>

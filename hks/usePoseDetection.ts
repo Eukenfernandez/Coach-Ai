@@ -5,7 +5,16 @@ import {
     NormalizedLandmark,
 } from '@mediapipe/tasks-vision';
 
+// Wall-clock cap on inference: keeps the decoder and the main thread free for
+// smooth playback/scrubbing (the media-time checks below still apply).
 const POSE_INTERVAL_MS = 1000 / 12;
+
+// Keep the runtime assets on the exact same version as the installed JS package.
+// Using `@latest` can silently load an incompatible WASM build and is especially
+// likely to fail in Safari after a new MediaPipe release is published.
+const MEDIAPIPE_VERSION = '0.10.22-rc.20250304';
+const MEDIAPIPE_WASM_ROOT = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MEDIAPIPE_VERSION}/wasm`;
+const POSE_MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
 
 const POSE_DEBUG = typeof import.meta !== 'undefined' && Boolean(import.meta.env?.DEV);
 const poseLog = (...args: any[]) => {
@@ -69,55 +78,60 @@ let cachedPoseLandmarker2: PoseLandmarker | null = null;
 let isModel2Loading = false;
 let model2LoadPromise: Promise<PoseLandmarker | null> | null = null;
 
-// Detect iOS/Safari for compatibility
-function isIOSorSafari(): boolean {
+// iOS/iPadOS still benefits from the conservative CPU path. Desktop Safari
+// supports WebGL2, so let it try the GPU delegate first (with the existing CPU
+// fallback) to avoid the one-to-two-frame delay of synchronous CPU inference.
+function requiresCpuDelegate(): boolean {
     const ua = navigator.userAgent;
     const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-    const isSafari = /^((?!chrome|android).)*safari/i.test(ua);
-    return isIOS || isSafari;
+    return isIOS;
 }
 
 // Create a new PoseLandmarker instance
 async function createPoseLandmarkerInstance(): Promise<PoseLandmarker | null> {
     try {
-        // Pinned to the same version as package.json: @latest can silently
-        // ship breaking changes (and is a supply-chain risk) at page load.
-        const vision = await FilesetResolver.forVisionTasks(
-            'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22-rc.20250304/wasm'
-        );
+        const vision = await FilesetResolver.forVisionTasks(MEDIAPIPE_WASM_ROOT);
 
-        const useGPU = !isIOSorSafari();
-        const modelPath = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
+        const useGPU = !requiresCpuDelegate();
 
         if (useGPU) {
             try {
                 return await PoseLandmarker.createFromOptions(vision, {
                     baseOptions: {
-                        modelAssetPath: modelPath,
+                        modelAssetPath: POSE_MODEL_URL,
                         delegate: 'GPU',
                     },
                     runningMode: 'VIDEO',
                     numPoses: 1,
+                    minPoseDetectionConfidence: 0.45,
+                    minPosePresenceConfidence: 0.45,
+                    minTrackingConfidence: 0.45,
                 });
             } catch (gpuError) {
                 poseWarn('[PoseDetection] GPU delegate failed, falling back to CPU:', gpuError);
                 return await PoseLandmarker.createFromOptions(vision, {
                     baseOptions: {
-                        modelAssetPath: modelPath,
+                        modelAssetPath: POSE_MODEL_URL,
                         delegate: 'CPU',
                     },
                     runningMode: 'VIDEO',
                     numPoses: 1,
+                    minPoseDetectionConfidence: 0.45,
+                    minPosePresenceConfidence: 0.45,
+                    minTrackingConfidence: 0.45,
                 });
             }
         } else {
             return await PoseLandmarker.createFromOptions(vision, {
                 baseOptions: {
-                    modelAssetPath: modelPath,
+                    modelAssetPath: POSE_MODEL_URL,
                     delegate: 'CPU',
                 },
                 runningMode: 'VIDEO',
                 numPoses: 1,
+                minPoseDetectionConfidence: 0.45,
+                minPosePresenceConfidence: 0.45,
+                minTrackingConfidence: 0.45,
             });
         }
     } catch (err) {
@@ -152,6 +166,8 @@ async function preloadModel(): Promise<PoseLandmarker | null> {
             return null;
         } finally {
             isModelLoading = false;
+            // A rejected preload must remain retryable from the pose button.
+            if (!cachedPoseLandmarker) modelLoadPromise = null;
         }
     })();
 
@@ -178,6 +194,7 @@ async function loadSecondaryModel(): Promise<PoseLandmarker | null> {
             return null;
         } finally {
             isModel2Loading = false;
+            if (!cachedPoseLandmarker2) model2LoadPromise = null;
         }
     })();
 
@@ -213,6 +230,28 @@ export function usePoseDetection(
 
     // Track if we have the secondary model loaded
     const [hasSecondaryModel, setHasSecondaryModel] = useState(!!cachedPoseLandmarker2);
+
+    const retry = useCallback(async () => {
+        if (cachedPoseLandmarker) {
+            setIsReady(true);
+            setIsLoading(false);
+            setError(null);
+            return true;
+        }
+
+        modelLoadPromise = null;
+        modelLoadError = null;
+        setError(null);
+        setIsReady(false);
+        setIsLoading(true);
+
+        const model = await preloadModel();
+        const ready = Boolean(model);
+        setIsReady(ready);
+        setIsLoading(false);
+        setError(ready ? null : (modelLoadError || 'Error al cargar el modelo de detección'));
+        return ready;
+    }, []);
 
     // Keep the UI in sync with the primary model preload state even before the user enables detection.
     useEffect(() => {
@@ -269,8 +308,14 @@ export function usePoseDetection(
         // is still the old one: detecting it wastes 10-60ms per rAF during scrubbing.
         if (video && video.readyState >= 2 && video.videoWidth > 0 && !video.seeking) {
             const currentTime = video.currentTime;
-            // Only process if time changed (avoid processing paused frame repeatedly)
-            if (Math.abs(currentTime - lastTime1.current) > 0.001 || lastTime1.current === -1) {
+            const timeDelta = Math.abs(currentTime - lastTime1.current);
+            // While playing, cap inference close to 30 fps so CPU detection does
+            // not steal smoothness from the video. While paused/scrubbing, analyse
+            // every decoded frame so the skeleton lands on the precise seek frame.
+            const shouldProcess = lastTime1.current === -1 || (
+                video.paused ? timeDelta > 0.0005 : timeDelta >= 1 / 36
+            );
+            if (shouldProcess) {
                 lastTime1.current = currentTime;
                 try {
                     const timestamp1 = performance.now();
@@ -291,7 +336,11 @@ export function usePoseDetection(
         // Process SECONDARY video with model2 (SEPARATE instance!)
         if (video2 && video2.readyState >= 2 && video2.videoWidth > 0 && !video2.seeking && model2) {
             const currentTime2 = video2.currentTime;
-            if (Math.abs(currentTime2 - lastTime2.current) > 0.001 || lastTime2.current === -1) {
+            const timeDelta2 = Math.abs(currentTime2 - lastTime2.current);
+            const shouldProcess2 = lastTime2.current === -1 || (
+                video2.paused ? timeDelta2 > 0.0005 : timeDelta2 >= 1 / 36
+            );
+            if (shouldProcess2) {
                 lastTime2.current = currentTime2;
                 try {
                     const timestamp2 = performance.now();
@@ -336,6 +385,7 @@ export function usePoseDetection(
     useEffect(() => {
         if (enabled) {
             poseLog('[PoseDetection] Pose detection enabled, starting...');
+            setError(null);
             // Reset time trackers
             lastTime1.current = -1;
             lastTime2.current = -1;
@@ -391,6 +441,7 @@ export function usePoseDetection(
         isLoading,
         isReady,
         error,
+        retry,
     };
 }
 

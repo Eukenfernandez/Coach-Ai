@@ -25,10 +25,11 @@ import {
   VIDEO_CONTEXT_SCHEMA,
 } from './video-intelligence/prompts.js';
 import {
-  consumeMonthlyQuota,
+  getPlanLimits,
   resolveAllowedModelForTier,
-  resolveUserTier,
-} from './quota.js';
+  resolveSubscriptionContext,
+  toMillis,
+} from './subscriptionPolicy.js';
 
 if (!getApps().length) {
   initializeApp();
@@ -37,6 +38,9 @@ if (!getApps().length) {
 const db = getFirestore();
 const storage = getStorage();
 const geminiApiKey = defineSecret('GEMINI_API_KEY');
+const callableSecurityOptions = {
+  enforceAppCheck: process.env.ENFORCE_APP_CHECK === 'true',
+};
 
 type AppLanguage = 'es' | 'ing' | 'eus';
 type VideoContextStatus =
@@ -77,8 +81,8 @@ interface MetadataPayload {
   frameCountEstimate?: number | null;
   aspectRatio?: number | null;
   orientation?: 'landscape' | 'portrait' | 'square';
-  mimeType?: string;
-  sizeBytes?: number;
+  mimeType?: string | null;
+  sizeBytes?: number | null;
 }
 
 interface HistoryEntry {
@@ -161,12 +165,114 @@ interface StorageObjectVerification {
 const PROCESSING_VERSION = 'video-context-v1';
 const MAX_SAMPLE_FRAMES = 12;
 const MAX_QUERY_FRAMES = 7;
-const MAX_FRAME_BASE64_CHARS = 3_500_000; // ~2.5MB decoded per frame
-const MAX_QUESTION_CHARS = 4000;
+const MAX_FRAME_BASE64_LENGTH = 2_500_000;
+const MAX_TOTAL_FRAME_BASE64_LENGTH = 18_000_000;
 const UPLOAD_IN_PROGRESS_STAGE = 'waiting_for_video';
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
+const resolveUserTier = async (uid: string, userEmail?: string, emailVerified = false): Promise<string> => {
+  return (await resolveSubscriptionContext({ db, uid, userEmail, emailVerified })).tier;
+};
+
+const getServerMonthKey = (date = new Date()) =>
+  `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+
+const isLegacyUsageInPeriod = (
+  legacyUsage: any,
+  period: string,
+  periodStartMs: number,
+  periodEndMs: number,
+) => {
+  const explicitPeriod = legacyUsage?.period || legacyUsage?.monthKey || legacyUsage?.monthlyPeriod;
+  if (explicitPeriod) return String(explicitPeriod) === period;
+  const resetMs = toMillis(legacyUsage?.lastAnalysisReset || legacyUsage?.lastChatReset);
+  return resetMs >= periodStartMs && resetMs < periodEndMs;
+};
+
+const normalizeMonthlyChatCount = (
+  rawCounters: any,
+  period: string,
+  periodStartMs: number,
+  periodEndMs: number,
+  legacyUsage?: any,
+) => {
+  const legacyCalendarPeriod = typeof rawCounters?.period === 'string'
+    && /^\d{4}-\d{2}$/.test(rawCounters.period)
+    && rawCounters.period === getServerMonthKey();
+  const legacyOrCurrent = !rawCounters?.period || rawCounters.period === period || legacyCalendarPeriod;
+  if (!legacyOrCurrent) return 0;
+  const legacyChats = (isLegacyUsageInPeriod(legacyUsage, period, periodStartMs, periodEndMs) || !rawCounters?.period)
+    ? Number(legacyUsage?.chatCount ?? 0) || 0
+    : 0;
+  return Math.max(Number(rawCounters?.chatsMonthly ?? rawCounters?.chatCount ?? 0) || 0, legacyChats);
+};
+
+const consumeMonthlyChatQuota = async (uid: string, userEmail?: string, emailVerified = false) => {
+  return db.runTransaction(async (transaction) => {
+    const context = await resolveSubscriptionContext({ db, uid, userEmail, emailVerified, transaction });
+    const { tier, period, periodStartMs, periodEndMs } = context;
+    const limit = getPlanLimits(tier).monthlyAiMessages;
+    const counterRef = db.collection('quota_counters').doc(uid);
+    const userDataRef = db.collection('userdata').doc(uid);
+    const [counterSnap, userDataSnap] = await Promise.all([
+      transaction.get(counterRef),
+      transaction.get(userDataRef),
+    ]);
+    const rawCounters = counterSnap.exists ? counterSnap.data() : {};
+    const current = normalizeMonthlyChatCount(
+      rawCounters,
+      period,
+      periodStartMs,
+      periodEndMs,
+      userDataSnap.exists ? userDataSnap.data()?.usage : undefined,
+    );
+
+    if (limit !== 'unlimited' && current >= limit) {
+      throw new HttpsError(
+        'resource-exhausted',
+        'Has alcanzado el límite de mensajes de IA de tu ciclo de facturación.',
+      );
+    }
+
+    // Starting a new cycle here must reset the upload counters too: writing
+    // only the chat fields under the new period label carried last cycle's
+    // videos/PDFs over, and index.ts then read them as this cycle's usage.
+    const storedPeriod = rawCounters?.period;
+    const startsNewPeriod = typeof storedPeriod === 'string'
+      && storedPeriod !== period
+      && !(/^\d{4}-\d{2}$/.test(storedPeriod) && storedPeriod === getServerMonthKey());
+
+    transaction.set(counterRef, {
+      period,
+      periodStart: new Date(periodStartMs),
+      periodEnd: new Date(periodEndMs),
+      chatsMonthly: current + 1,
+      chatCount: current + 1,
+      ...(startsNewPeriod ? { videosMonthly: 0, pdfsMonthly: 0, videosGlobal: 0, pdfsGlobal: 0 } : {}),
+      lastUpdated: FieldValue.serverTimestamp(),
+    }, { merge: true });
+
+    return { tier, count: current + 1, limit, period };
+  });
+};
+
+const releaseMonthlyChatQuota = async (uid: string, period: string) => {
+  const counterRef = db.collection('quota_counters').doc(uid);
+  await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(counterRef);
+    if (!snapshot.exists || snapshot.data()?.period !== period) return;
+    const data = snapshot.data() || {};
+    const current = Math.max(0, Number(data.chatsMonthly ?? data.chatCount ?? 0) || 0);
+    const next = Math.max(0, current - 1);
+    transaction.update(counterRef, {
+      chatsMonthly: next,
+      chatCount: next,
+      lastUpdated: FieldValue.serverTimestamp(),
+    });
+  });
+};
 
 const normalizeLanguage = (value: string | undefined): AppLanguage =>
   value === 'ing' || value === 'eus' ? value : 'es';
@@ -178,9 +284,9 @@ const normalizeConfidence = (value: unknown): 'low' | 'medium' | 'high' => {
   return 'medium';
 };
 
-const sanitizeText = (value: unknown, fallback = '') => {
+const sanitizeText = (value: unknown, fallback = '', maxLength = 12_000) => {
   if (typeof value !== 'string') return fallback;
-  return value.trim();
+  return value.trim().slice(0, maxLength);
 };
 
 const sanitizeOptionalText = (value: unknown) => {
@@ -215,9 +321,9 @@ const normalizeMetadataPayload = (value: unknown): MetadataPayload => {
     throw new HttpsError('invalid-argument', 'El campo metadata es obligatorio y debe ser un objeto.');
   }
 
-  const durationSeconds = clampNumber(value.durationSeconds, 0);
-  const width = clampNumber(value.width, 0);
-  const height = clampNumber(value.height, 0);
+  const durationSeconds = clampNumber(value.durationSeconds, 0, 3_600);
+  const width = clampNumber(value.width, 0, 16_384);
+  const height = clampNumber(value.height, 0, 16_384);
 
   if (durationSeconds <= 0) {
     throw new HttpsError('invalid-argument', 'metadata.durationSeconds debe ser mayor que 0.');
@@ -227,7 +333,7 @@ const normalizeMetadataPayload = (value: unknown): MetadataPayload => {
     throw new HttpsError('invalid-argument', 'metadata.width y metadata.height deben ser mayores que 0.');
   }
 
-  const mimeType = sanitizeText(value.mimeType);
+  const mimeType = sanitizeText(value.mimeType, '', 100);
 
   return {
     durationSeconds,
@@ -236,11 +342,11 @@ const normalizeMetadataPayload = (value: unknown): MetadataPayload => {
     estimatedFps:
       value.estimatedFps === null || value.estimatedFps === undefined
         ? null
-        : clampNumber(value.estimatedFps, 0),
+        : clampNumber(value.estimatedFps, 0, 1_000),
     frameCountEstimate:
       value.frameCountEstimate === null || value.frameCountEstimate === undefined
         ? null
-        : clampNumber(value.frameCountEstimate, 0),
+        : clampNumber(value.frameCountEstimate, 0, 10_000_000),
     aspectRatio:
       value.aspectRatio === null || value.aspectRatio === undefined
         ? width && height
@@ -249,11 +355,11 @@ const normalizeMetadataPayload = (value: unknown): MetadataPayload => {
         : clampNumber(value.aspectRatio, 0),
     orientation:
       width === height ? 'square' : width > height ? 'landscape' : 'portrait',
-    mimeType: mimeType || undefined,
+    mimeType: mimeType || null,
     sizeBytes:
       value.sizeBytes === null || value.sizeBytes === undefined
-        ? undefined
-        : clampNumber(value.sizeBytes, 0),
+        ? null
+        : clampNumber(value.sizeBytes, 0, 512 * 1024 * 1024),
   };
 };
 
@@ -285,7 +391,7 @@ const normalizeSegmentPlanPayload = (
     }
 
     return {
-      id: sanitizeText(rawSegment.id, `segment_${index + 1}`),
+      id: sanitizeText(rawSegment.id, `segment_${index + 1}`, 128),
       startTimeSeconds,
       endTimeSeconds,
       representativeTimeSeconds: clampNumber(
@@ -293,7 +399,7 @@ const normalizeSegmentPlanPayload = (
         startTimeSeconds,
         endTimeSeconds,
       ),
-      label: sanitizeText(rawSegment.label, `Segment ${index + 1}`),
+      label: sanitizeText(rawSegment.label, `Segment ${index + 1}`, 120),
     };
   });
 };
@@ -306,33 +412,39 @@ const normalizeSampleFramesPayload = (value: unknown): FrameArtifactPayload[] =>
     );
   }
 
-  return value.slice(0, MAX_SAMPLE_FRAMES).map((rawFrame, index) => {
+  const normalized = value.slice(0, MAX_SAMPLE_FRAMES).map((rawFrame, index) => {
     if (!isRecord(rawFrame)) {
       throw new HttpsError('invalid-argument', `sampleFrames[${index}] no tiene un formato válido.`);
     }
 
-    const base64Jpeg = sanitizeText(rawFrame.base64Jpeg);
+    const base64Jpeg = sanitizeText(rawFrame.base64Jpeg, '', MAX_FRAME_BASE64_LENGTH + 1);
     if (!base64Jpeg) {
       throw new HttpsError(
         'invalid-argument',
         `sampleFrames[${index}].base64Jpeg es obligatorio.`,
       );
     }
-    if (base64Jpeg.length > MAX_FRAME_BASE64_CHARS) {
+    if (base64Jpeg.length > MAX_FRAME_BASE64_LENGTH || !/^[A-Za-z0-9+/=]+$/.test(base64Jpeg)) {
       throw new HttpsError(
         'invalid-argument',
-        `sampleFrames[${index}] es demasiado grande.`,
+        `sampleFrames[${index}] supera el tamaño permitido o no contiene Base64 válido.`,
       );
     }
 
     return {
       timestampSeconds: clampNumber(rawFrame.timestampSeconds, 0),
-      label: sanitizeText(rawFrame.label, `Frame ${index + 1}`),
+      label: sanitizeText(rawFrame.label, `Frame ${index + 1}`, 120),
       base64Jpeg,
       width: clampNumber(rawFrame.width, 1),
       height: clampNumber(rawFrame.height, 1),
     };
   });
+
+  const totalBase64Length = normalized.reduce((total, frame) => total + frame.base64Jpeg.length, 0);
+  if (totalBase64Length > MAX_TOTAL_FRAME_BASE64_LENGTH) {
+    throw new HttpsError('invalid-argument', 'El conjunto de fotogramas supera el tamaño permitido.');
+  }
+  return normalized;
 };
 
 const normalizeSportContextPayload = (value: unknown): SportContext => {
@@ -341,9 +453,25 @@ const normalizeSportContextPayload = (value: unknown): SportContext => {
   }
 
   return {
-    sport: sanitizeText(value.sport),
-    discipline: sanitizeText(value.discipline),
+    sport: sanitizeText(value.sport, '', 120),
+    discipline: sanitizeText(value.discipline, '', 120),
   };
+};
+
+const normalizePoseSnapshotPayload = (value: unknown): PoseSnapshotPayload | null => {
+  if (!isRecord(value) || value.source !== 'mediapipe' || !isRecord(value.joints)) return null;
+  const joints: PoseSnapshotPayload['joints'] = {};
+  Object.entries(value.joints).slice(0, 40).forEach(([name, rawJoint]) => {
+    if (!/^[A-Za-z0-9_-]{1,80}$/.test(name) || !isRecord(rawJoint)) return;
+    joints[name] = {
+      x: clampNumber(rawJoint.x, 0, 1),
+      y: clampNumber(rawJoint.y, 0, 1),
+      visibility: rawJoint.visibility === undefined
+        ? undefined
+        : clampNumber(rawJoint.visibility, 0, 1),
+    };
+  });
+  return Object.keys(joints).length > 0 ? { source: 'mediapipe', joints } : null;
 };
 
 const normalizeUpsertVideoContextInput = (
@@ -354,13 +482,17 @@ const normalizeUpsertVideoContextInput = (
     throw new HttpsError('invalid-argument', 'El payload de upsertVideoContext es inválido.');
   }
 
-  const videoId = sanitizeText(data.videoId);
-  if (!videoId) {
+  const videoId = sanitizeText(data.videoId, '', 128);
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(videoId)) {
     throw new HttpsError('invalid-argument', 'videoId es obligatorio.');
   }
 
-  const videoUrl = sanitizeOptionalText(data.videoUrl);
-  const storagePath = sanitizeOptionalText(data.storagePath);
+  const videoUrl = sanitizeText(data.videoUrl, '', 2_048) || null;
+  const storagePath = sanitizeText(data.storagePath, '', 500) || null;
+  const targetUserId = sanitizeText(data.targetUserId, callerId, 128);
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(targetUserId)) {
+    throw new HttpsError('invalid-argument', 'targetUserId no es válido.');
+  }
 
   if (!videoUrl && !storagePath) {
     throw new HttpsError(
@@ -372,15 +504,15 @@ const normalizeUpsertVideoContextInput = (
   const metadata = normalizeMetadataPayload(data.metadata);
 
   return {
-    targetUserId: sanitizeText(data.targetUserId, callerId),
+    targetUserId,
     videoId,
-    videoName: sanitizeText(data.videoName),
+    videoName: sanitizeText(data.videoName, '', 255),
     videoUrl,
     storagePath,
     metadata,
     segmentPlan: normalizeSegmentPlanPayload(data.segments, metadata.durationSeconds),
     sampleFrames: normalizeSampleFramesPayload(data.sampleFrames),
-    samplingProfile: sanitizeText(data.samplingProfile, 'standard'),
+    samplingProfile: sanitizeText(data.samplingProfile, 'standard', 50),
     language: normalizeLanguage(sanitizeText(data.language)),
     sportContext: normalizeSportContextPayload(data.sportContext),
     force: parseBoolean(data.force),
@@ -573,9 +705,8 @@ const resolveVideoStorageReference = ({
 
   // The path may come straight from the payload (or a client-supplied URL), and
   // the exists()/getMetadata() calls below run with admin credentials that
-  // skip storage.rules. Confine it to the owner's prefix — same invariant as
-  // assertOwnedStoragePath in index.ts — so callers can't probe other users'
-  // files.
+  // skip storage.rules. Confine it to the gallery owner's prefix so callers
+  // can't probe other users' files.
   const ownerPrefix = `videos/${input.targetUserId}/`;
   if (storagePath.includes('..') || !storagePath.startsWith(ownerPrefix)) {
     throw new HttpsError(
@@ -584,9 +715,9 @@ const resolveVideoStorageReference = ({
     );
   }
 
-  // Pin the bucket to this project's default bucket. The parsed name comes
-  // from client-supplied URLs; honoring an arbitrary bucket would let a
-  // caller probe metadata of any bucket the service account can reach.
+  // Pin the bucket to this project's default bucket. Parsed names come from
+  // client-supplied URLs; honouring an arbitrary bucket would let a caller
+  // probe metadata of any bucket the service account can reach.
   const defaultBucketName = storage.bucket().name;
   const normalizeBucketName = (name: string) =>
     name.replace(/\.(appspot\.com|firebasestorage\.app)$/, '');
@@ -768,10 +899,19 @@ const parseJsonResponse = (rawText: string) => {
   return JSON.parse(cleaned);
 };
 
+const getUserTier = async (uid: string, email: string | undefined, emailVerified = false) =>
+  resolveUserTier(uid, email, emailVerified);
+
 const validateTargetAccess = async (callerId: string, targetUserId: string) => {
   if (callerId === targetUserId) return;
   const relationSnap = await db.collection('requests').doc(`${callerId}_${targetUserId}`).get();
-  if (!relationSnap.exists || relationSnap.data()?.status !== 'accepted') {
+  const relation = relationSnap.data() || {};
+  if (
+    !relationSnap.exists
+    || relation.coachId !== callerId
+    || relation.athleteId !== targetUserId
+    || relation.status !== 'accepted'
+  ) {
     throw new HttpsError(
       'permission-denied',
       `No tienes acceso a los datos del usuario ${targetUserId}.`,
@@ -812,7 +952,7 @@ const embedText = async (
   taskType: TaskType,
 ) => {
   if (!text.trim()) return [];
-  const embedModel = genAI.getGenerativeModel({ model: 'gemini-embedding-001' });
+  const embedModel = genAI.getGenerativeModel({ model: 'gemini-embedding-2' });
   const result = await embedModel.embedContent({
     content: {
       role: 'user',
@@ -931,6 +1071,28 @@ const enrichSegmentsWithEmbeddings = async (genAI: GoogleGenerativeAI, segments:
   }));
 };
 
+// The first context generation of a video is covered by its (already
+// metered) upload. Any regeneration -- an explicit `force`, or a context that
+// was already generated -- is metered as one AI message of the caller's quota.
+// The free generation is claimed transactionally so parallel first calls
+// cannot each get a free Gemini run, and the claim is never returned.
+const claimVideoContextGeneration = async (
+  contextRef: FirebaseFirestore.DocumentReference<FirebaseFirestore.DocumentData>,
+  force: boolean,
+): Promise<'free' | 'metered'> => {
+  if (force) return 'metered';
+  return db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(contextRef);
+    const existing = snapshot.exists ? snapshot.data() || {} : {};
+    const status = sanitizeText(existing.status);
+    if (existing.freeGenerationClaimedAt || status === 'ready' || status === 'partial') {
+      return 'metered';
+    }
+    transaction.set(contextRef, { freeGenerationClaimedAt: FieldValue.serverTimestamp() }, { merge: true });
+    return 'free';
+  });
+};
+
 const readPersistedSegments = async (userId: string, videoId: string) => {
   const snapshot = await getSegmentsRef(userId, videoId).orderBy('startTimeSeconds').get();
   return snapshot.docs.map((doc) => doc.data() as PersistedSegment);
@@ -940,6 +1102,7 @@ const executeUpsertVideoContextFlow = async ({
   request,
   callerId,
   callerEmail,
+  callerEmailVerified,
   requestId,
   input,
   logContext,
@@ -947,11 +1110,14 @@ const executeUpsertVideoContextFlow = async ({
   request: CallableRequest<any>;
   callerId: string;
   callerEmail?: string;
+  callerEmailVerified?: boolean;
   requestId: string;
   input: NormalizedUpsertVideoContextInput;
   logContext: ReturnType<typeof buildUpsertVideoContextLog>;
 }) => {
   const contextRef = getContextRef(input.targetUserId, input.videoId);
+  let chargedQuota: { tier: string; period: string } | null = null;
+  let persistFailureState = true;
 
   try {
     const [videoLookup, contextSnap] = await Promise.all([
@@ -1067,10 +1233,19 @@ const executeUpsertVideoContextFlow = async ({
       videoRecord: videoLookup.record,
     });
 
-    // Paid Gemini processing starts past this point: consume one analysis
-    // quota unit first. Reused/in-progress contexts returned above are free;
-    // a forced reprocess costs a unit like any fresh run.
-    const quota = await consumeMonthlyQuota(callerId, callerEmail, 'analyses');
+    const generationBilling = await claimVideoContextGeneration(contextRef, input.force);
+    if (generationBilling === 'metered') {
+      // A rejected quota must not overwrite the status of an existing context.
+      persistFailureState = false;
+      chargedQuota = await consumeMonthlyChatQuota(callerId, callerEmail, callerEmailVerified);
+      persistFailureState = true;
+    }
+    logger.info('[upsertVideoContext] generation_billing', {
+      requestId,
+      videoId: input.videoId,
+      billing: generationBilling,
+      period: chargedQuota?.period || null,
+    });
 
     await contextRef.set(
       {
@@ -1104,13 +1279,14 @@ const executeUpsertVideoContextFlow = async ({
       targetUserId: input.targetUserId,
     });
 
-    const tier = quota.tier;
+    const tier = chargedQuota
+      ? chargedQuota.tier
+      : await getUserTier(callerId, callerEmail, callerEmailVerified);
     const modelName = resolveAllowedModelForTier(tier);
     const genAI = new GoogleGenerativeAI(getConfiguredGeminiApiKey());
     const processingModel = genAI.getGenerativeModel({
       model: modelName,
       generationConfig: {
-        temperature: 0.25,
         responseMimeType: 'application/json',
         responseSchema: VIDEO_CONTEXT_SCHEMA,
       },
@@ -1266,6 +1442,22 @@ const executeUpsertVideoContextFlow = async ({
       stack: error instanceof Error ? error.stack : null,
     });
 
+    if (chargedQuota) {
+      const { period } = chargedQuota;
+      await releaseMonthlyChatQuota(callerId, period).catch((releaseError) => {
+        logger.error('[upsertVideoContext] quota_release_failed', {
+          requestId,
+          callerId,
+          period,
+          errorMessage: sanitizeErrorMessage(releaseError),
+        });
+      });
+    }
+
+    if (!persistFailureState) {
+      throw typedError;
+    }
+
     await persistContextErrorState({
       contextRef,
       error: typedError,
@@ -1291,6 +1483,7 @@ const executeUpsertVideoContextFlow = async ({
 
 export const upsertVideoContext = onCall(
   {
+    ...callableSecurityOptions,
     region: 'europe-west1',
     maxInstances: 10,
     secrets: [geminiApiKey],
@@ -1318,6 +1511,7 @@ export const upsertVideoContext = onCall(
       request,
       callerId,
       callerEmail: request.auth.token.email,
+      callerEmailVerified: request.auth.token.email_verified === true,
       requestId,
       input,
       logContext,
@@ -1358,7 +1552,6 @@ export const upsertVideoContext = onCall(
     const processingModel = genAI.getGenerativeModel({
       model: modelName,
       generationConfig: {
-        temperature: 0.25,
         responseMimeType: 'application/json',
         responseSchema: VIDEO_CONTEXT_SCHEMA,
       },
@@ -1445,6 +1638,7 @@ export const upsertVideoContext = onCall(
 
 export const askVideoQuestion = onCall(
   {
+    ...callableSecurityOptions,
     region: 'europe-west1',
     maxInstances: 20,
     secrets: [geminiApiKey],
@@ -1455,44 +1649,56 @@ export const askVideoQuestion = onCall(
     }
 
     const callerId = request.auth.uid;
-    const targetUserId = sanitizeText(request.data?.targetUserId, callerId);
-    const videoId = sanitizeText(request.data?.videoId);
-    const message = sanitizeText(request.data?.message);
-    const sessionId = sanitizeText(request.data?.sessionId);
+    const targetUserId = sanitizeText(request.data?.targetUserId, callerId, 128);
+    const videoId = sanitizeText(request.data?.videoId, '', 128);
+    const message = sanitizeText(request.data?.message, '', 4_001);
+    const sessionId = sanitizeText(request.data?.sessionId, '', 128);
     const currentTimeSeconds =
       request.data?.currentTimeSeconds === null || request.data?.currentTimeSeconds === undefined
         ? null
-        : clampNumber(request.data?.currentTimeSeconds);
+        : clampNumber(request.data?.currentTimeSeconds, 0, 3_600);
     const durationSeconds =
       request.data?.durationSeconds === null || request.data?.durationSeconds === undefined
         ? null
-        : clampNumber(request.data?.durationSeconds);
-    const mode = sanitizeText(request.data?.mode, 'frame') as VideoQuestionMode;
+        : clampNumber(request.data?.durationSeconds, 0, 3_600);
+    const rawMode = sanitizeText(request.data?.mode, 'frame', 20);
+    const mode = (rawMode === 'range' || rawMode === 'summary' ? rawMode : 'frame') as VideoQuestionMode;
     const language = normalizeLanguage(request.data?.language);
-    const sportContext = (request.data?.sportContext || {}) as SportContext;
-    const poseSnapshot = (request.data?.poseSnapshot || null) as PoseSnapshotPayload | null;
+    const sportContext = normalizeSportContextPayload(request.data?.sportContext);
+    const poseSnapshot = normalizePoseSnapshotPayload(request.data?.poseSnapshot);
     const history = Array.isArray(request.data?.history)
-      ? (request.data.history as HistoryEntry[]).slice(-6)
+      ? (request.data.history as HistoryEntry[]).slice(-6).map((entry) => ({
+          role: entry?.role === 'model' ? 'model' as const : 'user' as const,
+          text: sanitizeText(entry?.text, '', 4_000),
+          activeTimestampSeconds: entry?.activeTimestampSeconds === null
+            || entry?.activeTimestampSeconds === undefined
+            ? null
+            : clampNumber(entry.activeTimestampSeconds, 0, 3_600),
+          mode: entry?.mode === 'range' || entry?.mode === 'summary' ? entry.mode : 'frame' as const,
+        })).filter((entry) => entry.text)
       : [];
-    const isValidFrame = (frame: unknown): frame is FrameArtifactPayload =>
-      isRecord(frame) &&
-      typeof frame.base64Jpeg === 'string' &&
-      frame.base64Jpeg.length > 0 &&
-      frame.base64Jpeg.length <= MAX_FRAME_BASE64_CHARS;
-    const rawCurrentFrame = request.data?.currentFrame;
-    if (rawCurrentFrame && !isValidFrame(rawCurrentFrame)) {
-      throw new HttpsError('invalid-argument', 'currentFrame no es válido o es demasiado grande.');
-    }
-    const currentFrame = rawCurrentFrame ? (rawCurrentFrame as FrameArtifactPayload) : null;
-    const windowFrames = Array.isArray(request.data?.windowFrames)
-      ? (request.data.windowFrames as unknown[]).filter(isValidFrame).slice(0, MAX_QUERY_FRAMES)
+    const currentFrame = request.data?.currentFrame
+      ? normalizeSampleFramesPayload([request.data.currentFrame])[0]
+      : null;
+    const windowFrames = Array.isArray(request.data?.windowFrames) && request.data.windowFrames.length > 0
+      ? normalizeSampleFramesPayload(request.data.windowFrames).slice(0, MAX_QUERY_FRAMES)
       : [];
 
-    if (!videoId || !message) {
+    if (
+      !/^[A-Za-z0-9_-]{1,128}$/.test(targetUserId)
+      || !/^[A-Za-z0-9_-]{1,128}$/.test(videoId)
+      || (sessionId && !/^[A-Za-z0-9_-]{1,128}$/.test(sessionId))
+      || !message
+    ) {
       throw new HttpsError('invalid-argument', 'Faltan datos de la consulta.');
     }
-    if (message.length > MAX_QUESTION_CHARS) {
-      throw new HttpsError('invalid-argument', 'La pregunta es demasiado larga.');
+    if (message.length > 4_000) {
+      throw new HttpsError('invalid-argument', 'El mensaje supera el tamaño permitido.');
+    }
+    const totalFrameLength = (currentFrame?.base64Jpeg.length || 0)
+      + windowFrames.reduce((total, frame) => total + frame.base64Jpeg.length, 0);
+    if (totalFrameLength > MAX_TOTAL_FRAME_BASE64_LENGTH) {
+      throw new HttpsError('invalid-argument', 'Los fotogramas de la consulta superan el tamaño permitido.');
     }
 
     await validateTargetAccess(callerId, targetUserId);
@@ -1506,10 +1712,16 @@ export const askVideoQuestion = onCall(
       ? (contextData?.keyMoments as PersistedKeyMoment[])
       : [];
 
-    const quota = await consumeMonthlyQuota(callerId, request.auth.token.email, 'chats');
+    const quota = await consumeMonthlyChatQuota(
+      callerId,
+      request.auth.token.email,
+      request.auth.token.email_verified === true,
+    );
     const tier = quota.tier;
     const modelName = resolveAllowedModelForTier(tier);
     const genAI = new GoogleGenerativeAI(geminiApiKey.value());
+
+    try {
 
     let questionEmbedding: number[] = [];
     if (segments.some((segment) => Array.isArray(segment.embedding) && segment.embedding.length > 0)) {
@@ -1560,7 +1772,6 @@ export const askVideoQuestion = onCall(
     const answerModel = genAI.getGenerativeModel({
       model: modelName,
       generationConfig: {
-        temperature: 0.2,
         responseMimeType: 'application/json',
         responseSchema: VIDEO_ANSWER_SCHEMA,
       },
@@ -1575,21 +1786,10 @@ export const askVideoQuestion = onCall(
       ),
     ];
 
-    let parsed: any;
-    try {
-      const generation = await answerModel.generateContent(
-        buildGenerationParts(prompt, framesForPrompt),
-      );
-      parsed = parseJsonResponse(generation.response.text());
-    } catch (error) {
-      logger.error('[askVideoQuestion] model_generation_failed', {
-        videoId,
-        targetUserId,
-        modelName,
-        errorMessage: sanitizeErrorMessage(error, 'Unknown model generation error.'),
-      });
-      throw toHttpsError(error, 'internal', 'No se pudo generar la respuesta del entrenador.');
-    }
+    const generation = await answerModel.generateContent(
+      buildGenerationParts(prompt, framesForPrompt),
+    );
+    const parsed = parseJsonResponse(generation.response.text());
 
     const structured: StructuredVideoAnswer = {
       momentOfGesture: sanitizeText(
@@ -1676,16 +1876,7 @@ export const askVideoQuestion = onCall(
       { merge: true },
     );
 
-    try {
-      await batch.commit();
-    } catch (error) {
-      logger.error('[askVideoQuestion] firestore_write_failed', {
-        videoId,
-        targetUserId,
-        errorMessage: sanitizeErrorMessage(error, 'Unknown Firestore write error.'),
-      });
-      throw toHttpsError(error, 'internal', 'No se pudo guardar la conversación.');
-    }
+    await batch.commit();
 
     return {
       sessionId: sessionRef.id,
@@ -1693,5 +1884,15 @@ export const askVideoQuestion = onCall(
       structured,
       trace,
     };
+    } catch (error) {
+      await releaseMonthlyChatQuota(callerId, quota.period).catch((releaseError) => {
+        logger.error('[askVideoQuestion] quota_release_failed', {
+          callerId,
+          period: quota.period,
+          errorMessage: sanitizeErrorMessage(releaseError),
+        });
+      });
+      throw toHttpsError(error, 'internal', 'No se pudo responder a la consulta del vídeo.');
+    }
   },
 );

@@ -1,7 +1,7 @@
 
 export type Language = 'es' | 'ing' | 'eus';
 
-export type SubscriptionTier = 'FREE' | 'PRO_ATHLETE' | 'PRO_COACH' | 'PREMIUM';
+export type SubscriptionTier = 'FREE' | 'PRO_ATHLETE' | 'PREMIUM_ATHLETE' | 'PRO_COACH' | 'PREMIUM';
 
 export type AssetStatus = 'uploading' | 'ready' | 'error';
 
@@ -22,14 +22,20 @@ export interface StoredAssetMetadata {
 
 export interface UserLimits {
   tier: SubscriptionTier;
+  maxVideoUploadsPerMonth: number;
   maxAnalysisPerMonth: number;
+  maxPdfUploadsPerMonth: number;
   maxPdfUploads: number;
   maxVideoDurationSeconds: number;
-  maxStoredVideos: number; // New: Limit of videos in gallery
+  maxStoredVideos: number;
+  maxStoredPdfs: number;
   maxChatMessagesPerMonth: number | 'unlimited';
   maxManagedAthletes: number | 'unlimited';
-  canCompareVideos: boolean; // New: Limit comparison
-  canUseDeepAnalysis: boolean; // New: For Premium Gemini 3 Pro
+  canCompareVideos: boolean;
+  canUseDeepAnalysis: boolean;
+  // Same model ids as the backend plan policy (PLAN_LIMITS in fns/src/subscriptionPolicy.ts).
+  aiModel: 'gemini-3.5-flash-lite' | 'gemini-3.6-flash' | 'gemini-3.5-flash';
+  aiQualityLabel: 'Esencial' | 'Avanzada' | 'Élite';
 }
 
 export interface VideoAnalysisResult {

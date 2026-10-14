@@ -19,6 +19,7 @@ import {
   type PublicPageContent,
   type PublicPageId,
 } from "../seo/site";
+import { CONTENT_SECURITY_POLICY } from "../seo/csp";
 
 type ManifestEntry = {
   file: string;
@@ -28,6 +29,10 @@ type ManifestEntry = {
 };
 
 const distDir = path.resolve(process.cwd(), "dist");
+
+function buildCspMeta() {
+  return `<meta http-equiv="Content-Security-Policy" content="${CONTENT_SECURITY_POLICY}" />`;
+}
 
 function escapeHtml(value: string) {
   return value
@@ -83,6 +88,7 @@ function buildHead(page: PublicPageContent, cssHrefs: string[]) {
   return `
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+${buildCspMeta()}
 <title>${escapeHtml(page.metaTitle)}</title>
 <meta name="description" content="${escapeHtml(page.metaDescription)}" />
 <meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1" />
@@ -193,6 +199,7 @@ async function writeLoginEntry(cssHrefs: string[], scriptHref: string) {
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+${buildCspMeta()}
 <title>Acceso a CoachAI</title>
 <meta name="description" content="Área autenticada de CoachAI. Esta experiencia no debe indexarse." />
 <meta name="robots" content="noindex,nofollow,noarchive" />
@@ -271,6 +278,7 @@ async function writeNotFound(cssHrefs: string[]) {
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+${buildCspMeta()}
 <title>404 | CoachAI</title>
 <meta name="description" content="Página no encontrada en CoachAI." />
 <meta name="robots" content="noindex,follow" />
@@ -283,6 +291,7 @@ ${cssHrefs.map((href) => `<link rel="stylesheet" href="${href}" />`).join("\n")}
 <body class="bg-gray-100 text-neutral-900 dark:bg-neutral-950 dark:text-white min-h-[100dvh] w-full transition-colors duration-300">
 ${page}
 ${buildAnalyticsScript(getPageContent("home", "es"))}
+${buildServiceWorkerScript()}
 </body>
 </html>`;
   await fs.writeFile(path.join(distDir, "404.html"), html, "utf8");

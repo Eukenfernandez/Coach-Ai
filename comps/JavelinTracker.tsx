@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { ThrowRecord, UserProfile, Language, isTimeBased as checkTimeBased, getMetricUnit } from '../types';
 import { MapPin, Trash2, Trophy, Timer } from 'lucide-react';
 import { DatePicker } from './DatePicker';
+import { getTranslatedDiscipline } from '../utl/sportTranslations';
 
 interface CompetitionTrackerProps {
   profile: UserProfile;
@@ -25,7 +26,9 @@ const TEXTS = {
     empty: 'No hay competiciones registradas.',
     graphEmpty: 'Añade al menos 2 competiciones para ver tu progresión.',
     time: 'Tiempo',
-    mark: 'Marca'
+    mark: 'Marca',
+    locationPlaceholder: 'Ej. Cto. de España',
+    defaultLocation: 'Competición Oficial'
   },
   ing: {
     title: 'Competitions',
@@ -39,7 +42,9 @@ const TEXTS = {
     empty: 'No competitions registered.',
     graphEmpty: 'Add at least 2 competitions to see your progression.',
     time: 'Time',
-    mark: 'Mark'
+    mark: 'Mark',
+    locationPlaceholder: 'e.g. National U20 Championships',
+    defaultLocation: 'Official Competition'
   },
   eus: {
     title: 'Txapelketak',
@@ -53,7 +58,9 @@ const TEXTS = {
     empty: 'Ez dago txapelketarik erregistratuta.',
     graphEmpty: 'Gehitu gutxienez 2 txapelketa zure progresioa ikusteko.',
     time: 'Denbora',
-    mark: 'Marka'
+    mark: 'Marka',
+    locationPlaceholder: 'Adib. Euskadiko Txapelketa',
+    defaultLocation: 'Txapelketa Ofiziala'
   }
 };
 
@@ -73,7 +80,7 @@ export const JavelinTracker: React.FC<CompetitionTrackerProps> = ({ profile, rec
     if (!value || !date) return;
     onAddRecord({
       distance: parseFloat(value), // Note: 'distance' field stores generic value (meters or seconds)
-      location: location || 'Competición Oficial',
+      location: location || t.defaultLocation,
       date
     });
     setValue('');
@@ -154,7 +161,7 @@ export const JavelinTracker: React.FC<CompetitionTrackerProps> = ({ profile, rec
         <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 mb-6">
           <div>
             <h1 className="text-xl md:text-3xl font-bold text-neutral-900 dark:text-white mb-1 md:mb-2">{t.title}</h1>
-            <p className="text-sm md:text-base text-neutral-500 dark:text-neutral-400">{profile.discipline}</p>
+            <p className="text-sm md:text-base text-neutral-500 dark:text-neutral-400">{getTranslatedDiscipline(profile.discipline || '', language)}</p>
           </div>
           <div className="bg-white dark:bg-neutral-900 px-4 py-3 md:px-6 md:py-3 rounded-xl border border-orange-500/20 shadow-sm dark:shadow-none w-full md:w-auto transition-colors">
             <span className="block text-[10px] md:text-xs text-neutral-500 dark:text-neutral-400 uppercase tracking-wider mb-1">{t.best} {label} (PB)</span>
@@ -198,7 +205,7 @@ export const JavelinTracker: React.FC<CompetitionTrackerProps> = ({ profile, rec
                   value={location}
                   onChange={(e) => setLocation(e.target.value)}
                   className="w-full bg-gray-50 dark:bg-neutral-800 text-neutral-900 dark:text-white p-3 rounded-lg border border-neutral-300 dark:border-neutral-700 focus:border-orange-500 focus:outline-none"
-                  placeholder="Ej. Cto. de España"
+                  placeholder={t.locationPlaceholder}
                 />
               </div>
               <div>

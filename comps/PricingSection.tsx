@@ -44,23 +44,22 @@ const TEXTS = {
     downgradeModalTitle: '¿Bajar al Plan Gratuito?',
     downgradeModalDesc: 'Serás redirigido al portal de Stripe para cancelar tu suscripción actual.',
     downgradeModalList: [
-      'Mantendrás tus privilegios hasta final de mes.',
+      'Mantendrás tus privilegios hasta el final del ciclo que ya has pagado.',
       'No se te cobrará el próximo ciclo.',
-      'Debes confirmar la cancelación en la página de Stripe.'
+      'Si superas el nuevo límite de galería, tendrás 3 días para elegir qué conservar.'
     ],
     downgradeConfirmBtn: 'Ir a Cancelar Suscripción',
     cancelBtn: 'Volver',
     mostPopular: 'Más Popular',
     bestValue: 'Elite',
-    featVideos: (n: number) => `${n} vídeos guardados`,
-    featAnalyses: (n: number) => `${n} análisis con IA/mes`,
-    featChats: (n: number) => `${n} mensajes de chat/mes`,
-    featChatsUnlimited: 'Mensajes de chat ilimitados',
-    featPdfs: (n: number) => `${n} PDFs de planes`,
-    featComparator: 'Comparador de vídeo',
-    featNoComparator: 'Sin comparador',
-    featModel: (model: string) => `Análisis con ${model}`,
-    featAthletes: (n: number) => `Gestión de ${n} atletas`,
+    featCycleUploads: (videos: number, pdfs: number) => `${videos} vídeos + ${pdfs} PDF por ciclo`,
+    featGallery: (videos: number, pdfs: number) => `Galería: ${videos} vídeos y ${pdfs} PDF`,
+    featAiQuestions: (n: number) => `${n} consultas IA por ciclo`,
+    featAiUnlimited: 'Consultas IA ilimitadas',
+    featComparator: 'Comparador técnico de vídeo',
+    featNoComparator: 'Sin comparador de vídeo',
+    aiCoach: { Esencial: 'Coach IA Esencial', Avanzada: 'Coach IA Avanzado', 'Élite': 'Coach IA Élite' },
+    featAthletes: (n: number) => `Gestión de hasta ${n} atletas`,
     featAthletesUnlimited: 'Gestión de atletas ilimitada'
   },
   ing: {
@@ -80,23 +79,22 @@ const TEXTS = {
     downgradeModalTitle: 'Downgrade to Free?',
     downgradeModalDesc: 'You will be redirected to the Stripe portal to cancel your current subscription.',
     downgradeModalList: [
-      'You keep benefits until the end of the month.',
+      'You keep your benefits until the end of the billing cycle you already paid for.',
       'You will not be charged for the next cycle.',
-      'You must confirm the cancellation on the Stripe page.'
+      'If your gallery exceeds the new limit, you will have 3 days to choose what to keep.'
     ],
     downgradeConfirmBtn: 'Go to Cancel Subscription',
     cancelBtn: 'Go Back',
     mostPopular: 'Most Popular',
     bestValue: 'Elite',
-    featVideos: (n: number) => `${n} stored videos`,
-    featAnalyses: (n: number) => `${n} AI analyses/mo`,
-    featChats: (n: number) => `${n} chat messages/mo`,
-    featChatsUnlimited: 'Unlimited chat messages',
-    featPdfs: (n: number) => `${n} plan PDFs`,
-    featComparator: 'Video comparator',
-    featNoComparator: 'No comparator',
-    featModel: (model: string) => `Analysis with ${model}`,
-    featAthletes: (n: number) => `Manage ${n} athletes`,
+    featCycleUploads: (videos: number, pdfs: number) => `${videos} videos + ${pdfs} PDFs per cycle`,
+    featGallery: (videos: number, pdfs: number) => `Gallery: ${videos} videos and ${pdfs} PDFs`,
+    featAiQuestions: (n: number) => `${n} AI questions per cycle`,
+    featAiUnlimited: 'Unlimited AI questions',
+    featComparator: 'Technical video comparison',
+    featNoComparator: 'No video comparison',
+    aiCoach: { Esencial: 'Essential AI Coach', Avanzada: 'Advanced AI Coach', 'Élite': 'Elite AI Coach' },
+    featAthletes: (n: number) => `Manage up to ${n} athletes`,
     featAthletesUnlimited: 'Unlimited athlete management'
   },
   eus: {
@@ -116,23 +114,22 @@ const TEXTS = {
     downgradeModalTitle: 'Doako Planera Jaitsi?',
     downgradeModalDesc: 'Stripe atarira bideratuko zaitugu harpidetza ezeztatzeko.',
     downgradeModalList: [
-      'Abantailak hilabete amaiera arte mantenduko dituzu.',
+      'Ordaindutako fakturazio-zikloa amaitu arte abantailak mantenduko dituzu.',
       'Ez zaizu hurrengo zikloan kobratuko.',
-      'Stripe orrian ezeztapena berretsi behar duzu.'
+      'Galeriak muga berria gainditzen badu, 3 egun izango dituzu zer gorde aukeratzeko.'
     ],
     downgradeConfirmBtn: 'Joan Harpidetza Ezeztatzera',
     cancelBtn: 'Itzuli',
     mostPopular: 'Ezagunena',
     bestValue: 'Elite',
-    featVideos: (n: number) => `Gordetako ${n} bideo`,
-    featAnalyses: (n: number) => `Hileko ${n} analisi IArekin`,
-    featChats: (n: number) => `Hileko ${n} txat mezu`,
-    featChatsUnlimited: 'Txat mezu mugagabeak',
-    featPdfs: (n: number) => `Planen ${n} PDF`,
-    featComparator: 'Bideo konparatzailea',
-    featNoComparator: 'Konparatzailerik ez',
-    featModel: (model: string) => `${model} bidezko analisia`,
-    featAthletes: (n: number) => `${n} atleta kudeatzeko`,
+    featCycleUploads: (videos: number, pdfs: number) => `${videos} bideo + ${pdfs} PDF zikloko`,
+    featGallery: (videos: number, pdfs: number) => `Galeria: ${videos} bideo eta ${pdfs} PDF`,
+    featAiQuestions: (n: number) => `Zikloko ${n} IA kontsulta`,
+    featAiUnlimited: 'IA kontsulta mugagabeak',
+    featComparator: 'Bideo-konparaketa teknikoa',
+    featNoComparator: 'Bideo-konparatzailerik gabe',
+    aiCoach: { Esencial: 'Oinarrizko IA Coach', Avanzada: 'IA Coach aurreratua', 'Élite': 'Elite IA Coach' },
+    featAthletes: (n: number) => `Kudeatu gehienez ${n} atleta`,
     featAthletesUnlimited: 'Atleta kudeaketa mugagabea'
   }
 };
@@ -146,8 +143,12 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ currentUser, lan
   const currentTier = currentUser.profile?.subscriptionTier || 'FREE';
   const isPaidUser = currentTier !== 'FREE';
   const isCoach = currentUser.profile?.role === 'coach';
-  // The athlete line tops out at the PRO_COACH-priced card; PREMIUM sits above it.
-  const hasTopAthletePlan = currentTier === 'PRO_COACH' || currentTier === 'PREMIUM';
+  const actionForTier = (tier: string): 'checkout' | 'portal' | 'none' => {
+    if (currentTier === tier) return 'none';
+    // A paid account changes plan in the Stripe portal; a second checkout
+    // would open a parallel subscription.
+    return isPaidUser ? 'portal' : 'checkout';
+  };
 
   const processStripeAction = async (planId: string, actionType: 'checkout' | 'portal') => {
     setLoadingPriceId(planId);
@@ -168,9 +169,13 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ currentUser, lan
   const handlePlanAction = async (planId: string, actionType: 'checkout' | 'portal') => {
     if (planId === 'FREE' && actionType === 'portal') {
        const uData = await StorageService.getUserData(currentUser.id);
-       const targetLimit = getUserLimits('FREE').maxStoredVideos || 3;
-       if (uData.videos.length > targetLimit) {
-           setDowngradeWarning(`¡Cuidado! Tu galería tiene ${uData.videos.length} vídeos. El plan Gratuito solo permite ${targetLimit}. Si confirmas, entrarás en un periodo de gracia obligatorio de 3 días para borrar el exceso, o tu cuenta será eliminada permanentemente.`);
+       const freeLimits = getUserLimits('FREE');
+       const currentVideos = uData.videos || [];
+       const currentPdfs = uData.plans || [];
+       const videoOver = currentVideos.length > freeLimits.maxStoredVideos;
+       const pdfOver = currentPdfs.length > freeLimits.maxStoredPdfs;
+       if (videoOver || pdfOver) {
+           setDowngradeWarning(`Al terminar tu ciclo pagado, el plan Gratuito permitirá ${freeLimits.maxStoredVideos} vídeos y ${freeLimits.maxStoredPdfs} PDF. Ahora tienes ${currentVideos.length} vídeos y ${currentPdfs.length} PDF. Tendrás 3 días para ajustarlo; si alguna galería sigue excedida, se eliminarán todos sus archivos.`);
        } else {
            setDowngradeWarning(null);
        }
@@ -187,24 +192,27 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ currentUser, lan
 
   // --- PLAN DEFINITIONS ---
 
-  // Mirrors resolveAllowedModelForTier() in fns/src/quota.ts. Keep both in step:
-  // the cards previously advertised a "Gemini 3 Pro" the backend never calls.
-  const modelForTier = (tierId: SubscriptionTier) =>
-    tierId === 'PREMIUM' || tierId === 'PRO_COACH' ? 'Gemini 2.5 Pro' : 'Gemini 2.5 Flash';
+  // "gemini-3.6-flash" -> "Gemini 3.6 Flash", "gemini-3.5-flash-lite" -> "Gemini 3.5 Flash-Lite".
+  const formatModelName = (model: string) =>
+    model
+      .replace(/^gemini-/, 'Gemini ')
+      .replace(/-flash-lite$/, ' Flash-Lite')
+      .replace(/-flash$/, ' Flash')
+      .replace(/-pro$/, ' Pro');
 
-  // Features are derived from the same limits the app enforces, so a card can
-  // never promise capacity or a model the plan does not actually grant.
+  // Features are derived from the same limits the app enforces (getUserLimits,
+  // which mirrors the backend plan policy), so a card can never promise
+  // capacity or a model the plan does not actually grant.
   const buildFeatures = (tierId: SubscriptionTier): string[] => {
     const limits = getUserLimits(tierId);
     const features = [
-      t.featVideos(limits.maxStoredVideos),
-      t.featAnalyses(limits.maxAnalysisPerMonth),
+      t.featCycleUploads(limits.maxVideoUploadsPerMonth, limits.maxPdfUploadsPerMonth),
+      t.featGallery(limits.maxStoredVideos, limits.maxStoredPdfs),
       limits.maxChatMessagesPerMonth === 'unlimited'
-        ? t.featChatsUnlimited
-        : t.featChats(limits.maxChatMessagesPerMonth),
-      t.featPdfs(limits.maxPdfUploads),
+        ? t.featAiUnlimited
+        : t.featAiQuestions(limits.maxChatMessagesPerMonth),
+      `${t.aiCoach[limits.aiQualityLabel]} · ${formatModelName(limits.aiModel)}`,
       limits.canCompareVideos ? t.featComparator : t.featNoComparator,
-      t.featModel(modelForTier(tierId)),
     ];
 
     if (limits.maxManagedAthletes === 'unlimited') {
@@ -240,27 +248,25 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ currentUser, lan
       icon: <Zap className="text-orange-500" size={24} />,
       features: buildFeatures('PRO_ATHLETE'),
       buttonText: currentTier === 'PRO_ATHLETE' ? t.current : (currentTier === 'FREE' ? t.upgrade : t.select),
-      actionType: currentTier === 'PRO_ATHLETE' ? 'none' : 'checkout',
+      actionType: actionForTier('PRO_ATHLETE'),
       disabled: currentTier === 'PRO_ATHLETE',
       highlight: true,
       tierId: 'PRO_ATHLETE'
     },
     {
-      id: STRIPE_PRICES.PRO_COACH,
+      id: STRIPE_PRICES.PREMIUM_ATHLETE,
       name: t.athletePremium,
       price: '49,99€',
       period: t.monthly,
       icon: <Crown className="text-yellow-500" size={24} />,
-      features: buildFeatures('PRO_COACH'),
-      // PREMIUM outranks this card, so an athlete on PREMIUM is already at or
-      // above it: offering "upgrade" here would check out a lower plan.
-      buttonText: hasTopAthletePlan ? t.current : t.upgrade,
-      actionType: hasTopAthletePlan ? 'none' : 'checkout',
-      disabled: hasTopAthletePlan,
+      features: buildFeatures('PREMIUM_ATHLETE'),
+      buttonText: currentTier === 'PREMIUM_ATHLETE' ? t.current : t.upgrade,
+      actionType: actionForTier('PREMIUM_ATHLETE'),
+      disabled: currentTier === 'PREMIUM_ATHLETE',
       highlight: false,
       isBlack: true,
       badge: t.bestValue,
-      tierId: 'PRO_COACH'
+      tierId: 'PREMIUM_ATHLETE'
     }
   ];
 
@@ -274,7 +280,7 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ currentUser, lan
       icon: <ShieldCheck className="text-blue-500" size={24} />,
       features: buildFeatures('PRO_COACH'),
       buttonText: currentTier === 'PRO_COACH' ? t.current : t.select,
-      actionType: currentTier === 'PRO_COACH' ? 'none' : 'checkout',
+      actionType: actionForTier('PRO_COACH'),
       disabled: currentTier === 'PRO_COACH',
       highlight: true,
       tierId: 'PRO_COACH'
@@ -287,7 +293,7 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ currentUser, lan
       icon: <Crown className="text-yellow-500" size={24} />,
       features: buildFeatures('PREMIUM'),
       buttonText: currentTier === 'PREMIUM' ? t.current : t.upgrade,
-      actionType: currentTier === 'PREMIUM' ? 'none' : 'checkout',
+      actionType: actionForTier('PREMIUM'),
       disabled: currentTier === 'PREMIUM',
       highlight: false,
       isBlack: true,
@@ -378,7 +384,7 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ currentUser, lan
 
               <ul className="space-y-3 mb-8 flex-1">
                 {plan.features.map((feature, idx) => {
-                  const isLimited = plan.tierId === 'FREE' && feature === 'Sin Comparador';
+                  const isLimited = feature === t.featNoComparator;
                   return (
                     <li key={idx} className="flex items-center gap-2 text-xs">
                       {isLimited ? <XCircle size={14} className="text-red-500 shrink-0" /> : <Check size={14} className="text-green-500 shrink-0" />}

@@ -81,6 +81,9 @@ export const GracePeriodBanner: React.FC = () => {
                    <p className="text-red-100 text-xs font-medium mt-0.5">
                       Tu plan permite {enforcementState.allowedVideoLimit} vídeos y {enforcementState.allowedPdfLimit ?? 0} PDFs. Tienes {enforcementState.currentVideoCount} vídeos y {enforcementState.currentPdfCount ?? 0} PDFs.
                    </p>
+                   <p className="text-white text-[11px] font-bold mt-1">
+                      Reduce las galerías al límite antes de que termine el plazo; si una sigue excedida, se eliminarán todos sus archivos.
+                   </p>
                 </div>
             </div>
             

@@ -182,7 +182,7 @@ function prepareRecipients(context) {
 
   if (!explicitConsentSeen) {
     summary.warnings.push(
-      "No se detectaron flags explícitos de marketing/newsletter en Firebase. campaign_safe usa una heurística conservadora sobre cuentas registradas reales."
+      "No se detectaron consentimientos explícitos de marketing/newsletter en Firebase. No se incluirá ninguna cuenta en campaign_safe hasta que acepte expresamente."
     );
   }
 
@@ -429,6 +429,7 @@ function classifyRecipient(meta) {
     rejectionReasons.push(meta.consent.reason || "consent_denied");
   }
 
+  // Informational only (reported as quality_score): consent must be explicit.
   let qualityScore = 0;
   if (meta.fromAuth) qualityScore += 2;
   if (meta.hasUsersDoc) qualityScore += 2;
@@ -440,8 +441,7 @@ function classifyRecipient(meta) {
   if (!meta.hasReliableName) qualityScore -= 1;
   if (looksRandomishLocalPart(localPart) && !meta.hasReliableName) qualityScore -= 1;
 
-  // Consent (explicit or implied by an existing account) only counts when the
-  // account provably owns the address.
+  // Explicit consent only counts when the account provably owns the address.
   if (!meta.identityTrusted) {
     reviewReasons.push("unverified_email_owner");
   }
@@ -455,19 +455,9 @@ function classifyRecipient(meta) {
     segment = "campaign_safe";
     consentStatus = "explicit_marketing";
     notes.push(`consent:${meta.consent.reason}`);
-  } else if (
-    meta.identityTrusted &&
-    qualityScore >= 5 &&
-    meta.hasReliableName &&
-    !reviewReasons.includes("coach_account") &&
-    !reviewReasons.includes("request_only_lead")
-  ) {
-    segment = "campaign_safe";
-    consentStatus = "implicit_existing_user";
-    notes.push("consent:implicit_existing_contact");
   } else {
     reviewReasons.push("manual_consent_review");
-    notes.push("consent:review_required");
+    notes.push("consent:explicit_marketing_required");
   }
 
   if (meta.hasReliableName && meta.name_source) {

@@ -20,7 +20,15 @@ import {
 } from "./types";
 import { StorageService, VideoStorage, PlanStorage, FilmstripStorage, db } from "./svcs/storageService";
 import { EXTERNAL_RETURN_EVENT, type ExternalReturnPayload, initializeNativeAppShell, isNativeApp } from "./svcs/nativeAppService";
-import { getSubscriptionTier, getUserLimits, waitForSubscriptionActive } from "./svcs/subscriptionService";
+import {
+  createMarketingTrialCheckout,
+  dismissMarketingTrialOffer,
+  getMarketingTrialOffer,
+  getSubscriptionTier,
+  getUserLimits,
+  waitForSubscriptionActive,
+  type MarketingTrialOfferState,
+} from "./svcs/subscriptionService";
 import { VideoIntelligenceService } from "./svcs/videoIntelligenceService";
 import { GracePeriodBanner } from "./comps/GracePeriodBanner";
 import { Menu, PanelLeft, Loader2, CheckCircle, XCircle, AlertTriangle, Clock } from "lucide-react";
@@ -36,6 +44,7 @@ function lazyNamed<T extends React.ComponentType<any>>(
 }
 
 const Onboarding = lazyNamed(() => import("./comps/Onboarding"), "Onboarding");
+const MarketingTrialOffer = lazyNamed(() => import("./comps/MarketingTrialOffer"), "MarketingTrialOffer");
 const Sidebar = lazyNamed(() => import("./comps/Sidebar"), "Sidebar");
 const Dashboard = lazyNamed(() => import("./comps/Dashboard"), "Dashboard");
 const Gallery = lazyNamed(() => import("./comps/Gallery"), "Gallery");
@@ -83,6 +92,7 @@ const TIER_ORDER: Record<SubscriptionTier, number> = {
   FREE: 0,
   PRO_ATHLETE: 1,
   PRO_COACH: 2,
+  PREMIUM_ATHLETE: 2,
   PREMIUM: 3,
 };
 
@@ -106,8 +116,13 @@ const PAYMENT_CANCELLED_MESSAGE = "El pago ha sido cancelado.";
 const PAYMENT_PENDING_MESSAGE =
   "Pago recibido. Stripe todavía no ha confirmado la suscripción: se activará sola en unos minutos. Si no aparece, cierra sesión y vuelve a entrar.";
 const DEV_BOOTSTRAP_LOGS = typeof import.meta !== "undefined" && Boolean(import.meta.env?.DEV);
+const DATA_SYNC_INDICATOR_TIMEOUT_MS = 10000;
 
 type DataSyncPhase = "idle" | "loading-local" | "syncing" | "hydrating" | "offline" | "error";
+
+const isBusyDataSyncPhase = (phase: DataSyncPhase) => (
+  phase === "loading-local" || phase === "syncing" || phase === "hydrating"
+);
 
 type DataSyncState = {
   phase: DataSyncPhase;
@@ -121,11 +136,15 @@ type DataSyncState = {
 type CloudQuotaUsage = {
   videosUsed: number;
   videosLimit: number;
+  videosStoredLimit?: number;
   pdfsUsed: number;
   pdfsLimit: number;
+  pdfsStoredLimit?: number;
   chatsUsed: number;
   chatsLimit: number | 'unlimited';
   period: string;
+  periodStartMs?: number;
+  periodEndMs?: number;
   tier: string;
 };
 
@@ -270,6 +289,7 @@ export default function App() {
 
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [paymentMessage, setPaymentMessage] = useState<{ type: 'success' | 'error' | 'info', text: string } | null>(null);
+  const [marketingTrialOffer, setMarketingTrialOffer] = useState<MarketingTrialOfferState | null>(null);
   const [gracePeriodInfo, setGracePeriodInfo] = useState<{ deadline: Date, isExpired: boolean, remainingText: string } | null>(null);
 
   const [videos, setVideos] = useState<VideoFile[]>([]);
@@ -304,18 +324,101 @@ export default function App() {
     userId: null,
     promise: null,
   });
+  const dataSyncStartedAtRef = useRef<{ requestId: number; startedAt: number } | null>(null);
   const pendingRepairCleanupRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    if (!isBusyDataSyncPhase(dataSyncState.phase)) {
+      dataSyncStartedAtRef.current = null;
+      return;
+    }
+
+    if (dataSyncStartedAtRef.current?.requestId !== dataSyncState.requestId) {
+      dataSyncStartedAtRef.current = {
+        requestId: dataSyncState.requestId,
+        startedAt: Date.now(),
+      };
+    }
+
+    const startedAt = dataSyncStartedAtRef.current.startedAt;
+    const remainingMs = Math.max(0, DATA_SYNC_INDICATOR_TIMEOUT_MS - (Date.now() - startedAt));
+    const requestId = dataSyncState.requestId;
+    const timeoutId = window.setTimeout(() => {
+      setDataSyncState((current) => {
+        if (current.requestId !== requestId || !isBusyDataSyncPhase(current.phase)) return current;
+
+        if (DEV_BOOTSTRAP_LOGS) {
+          console.warn("[AppBootstrap] sync-indicator-timeout", {
+            requestId,
+            phase: current.phase,
+            elapsedMs: Date.now() - startedAt,
+          });
+        }
+
+        return {
+          ...current,
+          phase: isOnline ? "idle" : "offline",
+          message: isOnline ? "" : "Sin conexión. Mostrando datos guardados.",
+        };
+      });
+    }, remainingMs);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [dataSyncState.phase, dataSyncState.requestId, isOnline]);
 
   const userLimits = useMemo(() => {
     const tier = currentUser?.profile?.subscriptionTier || 'FREE';
     return getUserLimits(tier);
   }, [currentUser]);
 
+  // Only the user id, role and tier decide whether to fetch the offer, so it
+  // is not refetched on every navigation. The offer is only rendered inside
+  // the app shell (never on login/onboarding), and users without a profile
+  // (onboarding) are skipped here.
+  useEffect(() => {
+    const profile = currentUser?.profile;
+    const canCheckOffer = Boolean(
+      currentUser
+      && profile
+      && profile.role !== 'admin'
+      && (profile.subscriptionTier || 'FREE') === 'FREE'
+      && StorageService.isCloudMode()
+    );
+
+    if (!canCheckOffer) {
+      if (profile?.subscriptionTier && profile.subscriptionTier !== 'FREE') {
+        setMarketingTrialOffer(null);
+      }
+      return;
+    }
+
+    let cancelled = false;
+    void getMarketingTrialOffer()
+      .then((offer) => {
+        if (!cancelled) setMarketingTrialOffer(offer.show ? offer : null);
+      })
+      .catch((error) => {
+        console.warn('Could not load the marketing trial offer', error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    currentUser?.id,
+    currentUser?.profile?.role,
+    currentUser?.profile?.subscriptionTier,
+  ]);
+
   const activeAnalysisProfile = useMemo(() => {
     if (!currentUser?.profile) return undefined;
     if (!viewedUserId || viewedUserId === currentUser.id) return currentUser.profile;
     return managedAthletes.find((athlete) => athlete.id === viewedUserId)?.profile || currentUser.profile;
   }, [currentUser, managedAthletes, viewedUserId]);
+  const targetUserLimits = useMemo(
+    () => getUserLimits(activeAnalysisProfile?.subscriptionTier || 'FREE'),
+    [activeAnalysisProfile?.subscriptionTier],
+  );
 
   const handleExternalReturn = (payload: ExternalReturnPayload) => {
     const user = StorageService.getCurrentUser();
@@ -406,7 +509,7 @@ export default function App() {
         setShowLanding(shouldRenderLandingFromLocation(window.location));
       }
 
-      const user = StorageService.getCurrentUser();
+      const user = await StorageService.restoreCurrentUser();
       if (user) {
         await handleLogin(user, paymentStatus === 'success');
       } else {
@@ -481,20 +584,42 @@ export default function App() {
   }, [currentScreen, currentUser]);
 
   useEffect(() => {
+    const localizedPrivateMetadata = {
+      es: {
+        loginTitle: "Acceso a CoachAI",
+        privateTitle: "CoachAI | Área privada",
+        description: "Área autenticada de CoachAI. Esta experiencia no debe indexarse.",
+        htmlLang: "es",
+      },
+      ing: {
+        loginTitle: "CoachAI Sign In",
+        privateTitle: "CoachAI | Private Area",
+        description: "CoachAI authenticated area. This experience must not be indexed.",
+        htmlLang: "en",
+      },
+      eus: {
+        loginTitle: "CoachAI Sarbidea",
+        privateTitle: "CoachAI | Eremu pribatua",
+        description: "CoachAIren eremu autentifikatua. Esperientzia hau ez da indexatu behar.",
+        htmlLang: "eu",
+      },
+    } as const;
+    const privateMetadata = localizedPrivateMetadata[language] || localizedPrivateMetadata.es;
     const isPublicHome = !currentUser && showLanding;
     const title = isPublicHome
       ? "App de entrenamiento con IA para analizar vídeos, técnica y progreso | CoachAI"
       : currentUser
-        ? "CoachAI | Área privada"
-        : "Acceso a CoachAI";
+        ? privateMetadata.privateTitle
+        : privateMetadata.loginTitle;
     const description = isPublicHome
       ? "CoachAI es una app de entrenamiento con IA para analizar vídeos, mejorar técnica, registrar marcas personales y seguir progreso deportivo."
-      : "Área autenticada de CoachAI. Esta experiencia no debe indexarse.";
+      : privateMetadata.description;
     const robotsValue = isPublicHome
       ? "index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1"
       : "noindex,nofollow,noarchive";
 
     document.title = title;
+    document.documentElement.lang = privateMetadata.htmlLang;
 
     const descriptionTag = upsertHeadTag('meta[name="description"]', () => {
       const meta = document.createElement("meta");
@@ -525,7 +650,7 @@ export default function App() {
     if (canonicalTag) {
       canonicalTag.href = window.location.origin + window.location.pathname;
     }
-  }, [currentUser, showLanding]);
+  }, [currentUser, language, showLanding]);
 
   useEffect(() => {
     if (currentUser || !showLanding) return;
@@ -700,18 +825,20 @@ export default function App() {
       let tier: SubscriptionTier = "FREE";
 
       // --- PLAN DETERMINATION LOGIC ---
-      // Premium allow-listing lives server-side (getCoachQuotaUsage resolves
-      // the authoritative tier). Only the owner's own address is mirrored in
-      // the bundle (see subscriptionService); the rest of the list stays on
-      // the server so members' addresses are never shipped to clients.
+      // The authoritative tier comes from the getSubscriptionState callable,
+      // which also owns the premium allow-list. Only the owner's own address is
+      // mirrored in the bundle (see subscriptionService); the rest of the list
+      // stays on the server so members' addresses are never shipped to clients.
+      const userRole = user.profile?.role || 'athlete';
+
       // Test accounts always use the hardcoded logic regardless of cloud mode
       if (user.id.startsWith('test-')) {
-        tier = await getSubscriptionTier(user.id, user.email || user.username);
+        tier = await getSubscriptionTier(user.id, user.email || user.username, userRole);
       }
       // Real accounts use cloud subscription check
       else if (StorageService.isCloudMode()) {
         if (isPaymentSuccess) {
-          tier = await waitForSubscriptionActive(user.id, user.email || user.username);
+          tier = await waitForSubscriptionActive(user.id, user.email || user.username, userRole);
           if (tier !== 'FREE') {
             setPaymentMessage({ type: 'success', text: `¡Pago confirmado!` });
           } else {
@@ -721,7 +848,7 @@ export default function App() {
             setPaymentMessage({ type: 'info', text: PAYMENT_PENDING_MESSAGE });
           }
         } else {
-          tier = await getSubscriptionTier(user.id, user.email || user.username);
+          tier = await getSubscriptionTier(user.id, user.email || user.username, userRole);
         }
       }
 
@@ -734,11 +861,13 @@ export default function App() {
       setIsProcessingPayment(false);
 
       if (userWithTier.profile?.role === "admin") {
+        setMarketingTrialOffer(null);
         setCurrentScreen("admin_panel");
         return;
       }
 
       if (!userWithTier.profile) {
+        setMarketingTrialOffer(null);
         setCurrentScreen("onboarding");
         return;
       }
@@ -770,6 +899,7 @@ export default function App() {
       }
 
       setCurrentScreen("dashboard");
+
     } catch (e) {
       console.error("Login failed:", e);
       setFatalError(toErrorMessage(e));
@@ -781,6 +911,39 @@ export default function App() {
   };
 
   const coachUsageRetryTimeoutRef = useRef<number | null>(null);
+  const handleOnboardingComplete = async (user: User) => {
+    await handleLogin(user, false);
+
+    if (!StorageService.isCloudMode() || Number(user.profile?.age) < 18) return;
+    const role = user.profile?.role === 'coach' ? 'coach' : 'athlete';
+    setMarketingTrialOffer({
+      show: true,
+      eligible: true,
+      role,
+      planName: role === 'coach' ? 'Coach Pro' : 'Athlete Pro',
+      monthlyAmountCents: role === 'coach' ? 4_999 : 1_999,
+      monthlyPriceLabel: role === 'coach' ? '49,99 €' : '19,99 €',
+      freeMonths: 1,
+    });
+  };
+
+  const handleMarketingTrialAccept = async () => {
+    if (!currentUser) return;
+    try {
+      await createMarketingTrialCheckout(currentUser.id, 'existing_user_offer', language);
+    } catch (error) {
+      setPaymentMessage({ type: 'error', text: toErrorMessage(error) });
+    }
+  };
+
+  const handleMarketingTrialDismiss = async () => {
+    try {
+      await dismissMarketingTrialOffer('existing_user_offer');
+      setMarketingTrialOffer(null);
+    } catch (error) {
+      setPaymentMessage({ type: 'error', text: toErrorMessage(error) });
+    }
+  };
 
   const refreshCoachGlobalUsage = async (attempt = 0) => {
     const scheduleRetry = () => {
@@ -817,6 +980,7 @@ export default function App() {
       };
       await StorageService.logout();
       setCurrentUser(null);
+      setMarketingTrialOffer(null);
       setViewedUserId(null);
       setManagedAthletes([]);
       setCurrentScreen("login");
@@ -937,7 +1101,13 @@ export default function App() {
         // A size mismatch means a truncated or stale download; keep streaming in that case.
         if (expectedSize && downloaded.size !== expectedSize) return;
 
-        await VideoStorage.saveVideo(video.id, downloaded);
+        // A large write can outlive VideoStorage's operation timeout while it
+        // still commits; the downloaded blob is usable for this session anyway.
+        try {
+          await VideoStorage.saveVideo(video.id, downloaded);
+        } catch (saveError) {
+          console.warn('[VideoCache] Local cache write did not confirm', video.id, saveError);
+        }
         blob = downloaded;
       }
 
@@ -1378,10 +1548,10 @@ export default function App() {
         ? 'Harpidetza muga gaindituta'
         : 'Límite de suscripción alcanzado';
     const message = overrideMessage || (language === 'ing'
-      ? `You have reached the monthly ${isVideo ? 'video' : 'PDF'} upload limit for your subscription (${limit}).`
+      ? `You have reached the ${isVideo ? 'video' : 'PDF'} upload limit for your current billing cycle (${limit}).`
       : language === 'eus'
-        ? `Zure harpidetzaren hileko ${isVideo ? 'bideo' : 'PDF'} igoera muga gainditu duzu (${limit}).`
-        : `Has alcanzado el límite mensual de ${isVideo ? 'vídeos' : 'PDFs'} de tu suscripción (${limit}).`);
+        ? `Uneko zikloko ${isVideo ? 'bideo' : 'PDF'} igoera-mugara iritsi zara (${limit}).`
+        : `Has alcanzado el límite de subidas de ${isVideo ? 'vídeos' : 'PDFs'} de tu ciclo actual (${limit}).`);
 
     setQuotaLimitModal({ kind, title, message });
   };
@@ -1470,12 +1640,26 @@ export default function App() {
 
     if (!effectiveUsage) return;
 
-    const monthlyVideoLimit = coachGlobalUsage?.videosLimit ?? userLimits.maxStoredVideos;
+    // Prefer the server's plan limits (getCoachQuotaUsage) when known; the
+    // profile tier can lag behind the subscription the backend enforces.
+    const monthlyVideoLimit = coachGlobalUsage?.videosLimit ?? userLimits.maxVideoUploadsPerMonth;
     const monthlyVideoCount = coachGlobalUsage?.videosUsed ?? (StorageService.isCloudMode() ? 0 : effectiveUsage.analysisCount ?? 0);
 
-    // Check monthly upload limit. This mirrors the cloud function; the backend remains authoritative.
+    // Check the billing-cycle upload limit. The backend remains authoritative.
     if ((!StorageService.isCloudMode() || coachGlobalUsage) && monthlyVideoCount >= monthlyVideoLimit) {
       openQuotaLimitModal('video', monthlyVideoLimit);
+      return;
+    }
+    // The stored limit is the gallery owner's; the quota callable reports the
+    // signed-in user's, so it only applies to their own gallery.
+    const storedVideoLimit = (viewedUserId === currentUser.id ? coachGlobalUsage?.videosStoredLimit : undefined)
+      ?? targetUserLimits.maxStoredVideos;
+    if (videos.length >= storedVideoLimit) {
+      openQuotaLimitModal(
+        'video',
+        storedVideoLimit,
+        `La galería ya tiene ${videos.length} vídeos y este plan permite guardar ${storedVideoLimit}. Elimina uno antes de subir otro.`,
+      );
       return;
     }
 
@@ -1521,11 +1705,10 @@ export default function App() {
       console.warn("[Video upload] Local video cache save failed", localSaveError);
     });
 
-    void (async () => {
-      const [durationLabel, generatedThumbnail] = await Promise.all([
+    const metadataPromise = Promise.all([
         getVideoDurationLabel(file),
         thumbnail ? Promise.resolve(thumbnail) : generateVideoThumbnail(file),
-      ]);
+      ]).then(([durationLabel, generatedThumbnail]) => {
 
       setVideos((prev) => prev.map((v) => v.id !== newId ? v : {
         ...v,
@@ -1533,8 +1716,14 @@ export default function App() {
         thumbnail: generatedThumbnail || v.thumbnail,
         playbackStatus: durationLabel ? 'playable' : v.playbackStatus,
       }));
-    })().catch((metadataError) => {
+
+      return { durationLabel, generatedThumbnail };
+    }).catch((metadataError) => {
       console.warn("[Video upload] Local metadata generation failed", metadataError);
+      return {
+        durationLabel: undefined,
+        generatedThumbnail: thumbnail || '',
+      };
     });
 
     let cloudUrl = "";
@@ -1558,8 +1747,15 @@ export default function App() {
         return;
       }
 
+      // Metadata work runs in parallel with the upload, but it must be included
+      // in the persisted record. Previously the gallery thumbnail was only put
+      // in React state and the database kept the original empty value.
+      const { durationLabel, generatedThumbnail } = await metadataPromise;
+
       const videoForDb: VideoFile = {
         ...videoForState,
+        thumbnail: generatedThumbnail || videoForState.thumbnail,
+        duration: durationLabel || videoForState.duration,
         isLocal: !cloudUrl,
         isUploading: false,
         url: "",
@@ -1571,6 +1767,7 @@ export default function App() {
         createdAt: uploadResult?.createdAt || createdAt,
         ownerId: uploadResult?.ownerId || viewedUserId,
         status: 'ready',
+        playbackStatus: durationLabel ? 'playable' : videoForState.playbackStatus,
       };
 
       // V3 Authoritative Video Storage (Backend verifies global coach quota)
@@ -1667,26 +1864,45 @@ export default function App() {
 
   const handleDeleteVideo = async (id: string) => {
     if (!currentUser || !viewedUserId) return;
+    const ownerId = viewedUserId;
     const video = videos.find((v) => v.id === id);
 
     // If video is still uploading, remove from tracking to prevent counter increment
     // The upload will complete but won't count towards usage
-    if (uploadingVideosRef.current.has(id)) {
+    const wasUploading = uploadingVideosRef.current.has(id);
+    if (wasUploading) {
       uploadingVideosRef.current.delete(id);
     }
 
-    const videoCloudUrl = video?.downloadURL || video?.remoteUrl;
-    if (videoCloudUrl) {
-      await StorageService.deleteFileFromCloud(videoCloudUrl, 'videos', viewedUserId);
-    } else if (video?.storagePath) {
-      await StorageService.deleteFileByPath(video.storagePath, 'videos', viewedUserId);
+    // Delete the server record first: if it fails the video stays in the
+    // gallery (and its file is kept) instead of disappearing until reload.
+    try {
+      await StorageService.deleteVideoSafe(ownerId, id);
+    } catch (error) {
+      console.error("[Video delete] Failed", error);
+      if (wasUploading) uploadingVideosRef.current.add(id);
+      alert(language === 'ing'
+        ? "The video could not be deleted. Please try again."
+        : language === 'eus'
+          ? "Ezin izan da bideoa ezabatu. Saiatu berriro."
+          : "No se pudo eliminar el vídeo. Inténtalo de nuevo.");
+      return;
     }
-    await VideoStorage.deleteVideo(id);
-    await FilmstripStorage.deleteFilmstrip(id);
+
+    try {
+      const videoCloudUrl = video?.downloadURL || video?.remoteUrl;
+      if (videoCloudUrl) {
+        await StorageService.deleteFileFromCloud(videoCloudUrl, 'videos', ownerId);
+      } else if (video?.storagePath) {
+        await StorageService.deleteFileByPath(video.storagePath, 'videos', ownerId);
+      }
+      await VideoStorage.deleteVideo(id);
+      await FilmstripStorage.deleteFilmstrip(id);
+    } catch (cleanupError) {
+      console.warn("[Video delete] File cleanup failed", cleanupError);
+    }
     revokeObjectUrlMaybe(video?.url);
-    const updatedVideos = videos.filter((v) => v.id !== id);
-    setVideos(updatedVideos);
-    await StorageService.deleteVideoSafe(viewedUserId, id);
+    setVideos((prev) => prev.filter((v) => v.id !== id));
   };
 
   const handleUploadPlan = async (file: File) => {
@@ -1701,10 +1917,21 @@ export default function App() {
     const effectiveUsage = isCoach ? myUsage : usage;
     if (!effectiveUsage) return;
 
-    const planLimit = coachGlobalUsage?.pdfsLimit ?? userLimits.maxPdfUploads;
+    // Prefer the server's plan limits when known (see handleUploadVideo).
+    const planLimit = coachGlobalUsage?.pdfsLimit ?? userLimits.maxPdfUploadsPerMonth;
     const planCount = coachGlobalUsage?.pdfsUsed ?? (StorageService.isCloudMode() ? 0 : effectiveUsage.plansCount || 0);
     if ((!StorageService.isCloudMode() || coachGlobalUsage) && planCount >= planLimit) {
       openQuotaLimitModal('pdf', planLimit);
+      return;
+    }
+    const storedPdfLimit = (viewedUserId === currentUser.id ? coachGlobalUsage?.pdfsStoredLimit : undefined)
+      ?? targetUserLimits.maxStoredPdfs;
+    if (plans.length >= storedPdfLimit) {
+      openQuotaLimitModal(
+        'pdf',
+        storedPdfLimit,
+        `La galería ya tiene ${plans.length} PDF y este plan permite guardar ${storedPdfLimit}. Elimina uno antes de subir otro.`,
+      );
       return;
     }
 
@@ -1824,18 +2051,36 @@ export default function App() {
 
   const handleDeletePlan = async (id: string) => {
     if (!viewedUserId) return;
+    const ownerId = viewedUserId;
     const plan = plans.find(p => p.id === id);
-    const planCloudUrl = plan?.downloadURL || plan?.remoteUrl;
-    if (planCloudUrl) {
-      await StorageService.deleteFileFromCloud(planCloudUrl, 'plans', viewedUserId);
-    } else if (plan?.storagePath) {
-      await StorageService.deleteFileByPath(plan.storagePath, 'plans', viewedUserId);
+
+    // Delete the server record first: if it fails the PDF stays in the list
+    // (and its file is kept) instead of disappearing until reload.
+    try {
+      await StorageService.deletePlanSafe(ownerId, id);
+    } catch (error) {
+      console.error("[Plan delete] Failed", error);
+      alert(language === 'ing'
+        ? "The PDF could not be deleted. Please try again."
+        : language === 'eus'
+          ? "Ezin izan da PDFa ezabatu. Saiatu berriro."
+          : "No se pudo eliminar el PDF. Inténtalo de nuevo.");
+      return;
     }
-    await PlanStorage.deletePlan(id);
+
+    try {
+      const planCloudUrl = plan?.downloadURL || plan?.remoteUrl;
+      if (planCloudUrl) {
+        await StorageService.deleteFileFromCloud(planCloudUrl, 'plans', ownerId);
+      } else if (plan?.storagePath) {
+        await StorageService.deleteFileByPath(plan.storagePath, 'plans', ownerId);
+      }
+      await PlanStorage.deletePlan(id);
+    } catch (cleanupError) {
+      console.warn("[Plan delete] File cleanup failed", cleanupError);
+    }
     revokeObjectUrlMaybe(plan?.url);
-    const updated = plans.filter(p => p.id !== id);
-    setPlans(updated);
-    await StorageService.deletePlanSafe(viewedUserId, id);
+    setPlans((prev) => prev.filter(p => p.id !== id));
   };
 
   const handleIncrementChat = async () => {
@@ -1974,28 +2219,25 @@ export default function App() {
   if (currentScreen === "onboarding") {
     return (
       <Suspense fallback={<ScreenLoader fullScreen />}>
-        <Onboarding user={currentUser} onComplete={(u: User) => handleLogin(u)} language={language} />
+        <Onboarding user={currentUser} onComplete={handleOnboardingComplete} language={language} />
       </Suspense>
     );
   }
 
   // Logic for display-only stats (Global if Coach active).
-  // Features follow whichever tier is higher: taking the server's tier alone
-  // strips capabilities from an account the client resolved as premium (the
-  // owner allow-list) whenever the deployed backend has not caught up. Monthly
-  // counts still come from the server, which is what actually enforces them.
+  // The signed-in payer's plan policy drives the visible limits. Features
+  // follow whichever tier is higher between it and the quota callable's tier,
+  // so a lagging response never strips capabilities the account has. Cloud
+  // usage provides authoritative counters, and the backend still makes the
+  // final accept/reject decision for every upload or AI request.
   const serverTier = coachGlobalUsage?.tier as SubscriptionTier | undefined;
   const effectiveTier: SubscriptionTier =
     serverTier && (TIER_ORDER[serverTier] ?? 0) > (TIER_ORDER[userLimits.tier] ?? 0)
       ? serverTier
       : userLimits.tier;
   const finalUserLimits = { ...getUserLimits(effectiveTier) };
-  if (coachGlobalUsage) {
-    // Override with backend-authoritative monthly limits for the quota payer.
-    finalUserLimits.maxStoredVideos = coachGlobalUsage.videosLimit;
-    finalUserLimits.maxPdfUploads = coachGlobalUsage.pdfsLimit;
-    finalUserLimits.maxChatMessagesPerMonth = coachGlobalUsage.chatsLimit;
-  }
+  finalUserLimits.maxStoredVideos = targetUserLimits.maxStoredVideos;
+  finalUserLimits.maxStoredPdfs = targetUserLimits.maxStoredPdfs;
 
   const isCloudQuotaPending = StorageService.isCloudMode() && Boolean(currentUser) && !coachGlobalUsage;
   const galleryVideoCount = coachGlobalUsage?.videosUsed;
@@ -2052,11 +2294,10 @@ export default function App() {
     }
   })();
 
-  const showDataSyncIndicator = (
-    dataSyncState.phase === "loading-local"
-    || dataSyncState.phase === "syncing"
-    || dataSyncState.phase === "hydrating"
-  );
+  const showDataSyncIndicator = isBusyDataSyncPhase(dataSyncState.phase);
+  const dataSyncIndicatorLabel = dataSyncState.phase === "hydrating"
+    ? "Preparando vídeos..."
+    : "Sincronizando cuenta...";
 
   return (
     <div className="native-app-shell flex min-h-screen h-[100dvh] w-full bg-black text-white overflow-hidden transition-colors duration-300">
@@ -2068,6 +2309,18 @@ export default function App() {
         </div>
       )}
 
+      {marketingTrialOffer?.show && currentUser && (
+        <Suspense fallback={null}>
+          <MarketingTrialOffer
+            language={language}
+            role={marketingTrialOffer.role || (currentUser.profile?.role === 'coach' ? 'coach' : 'athlete')}
+            monthlyPriceLabel={marketingTrialOffer.monthlyPriceLabel || (currentUser.profile?.role === 'coach' ? '49,99 €' : '19,99 €')}
+            onAccept={handleMarketingTrialAccept}
+            onDismiss={handleMarketingTrialDismiss}
+          />
+        </Suspense>
+      )}
+
       {gracePeriodInfo && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/90 backdrop-blur-md p-4 animate-in fade-in duration-300">
           <div className="bg-neutral-900 border border-red-900/50 p-8 rounded-3xl max-w-md w-full shadow-2xl text-center relative overflow-hidden">
@@ -2076,7 +2329,7 @@ export default function App() {
                 <AlertTriangle size={40} className="text-red-500" />
               </div>
               <h2 className="text-2xl font-black text-white mb-2">LÍMITE EXCEDIDO</h2>
-              <p className="text-neutral-300 mb-6">Tu suscripción actual tiene menos capacidad que tus archivos guardados. Tienes 3 días para ajustarte; después se eliminarán solo los vídeos o PDFs que sobren.</p>
+              <p className="text-neutral-300 mb-6">Tu suscripción actual permite menos archivos. Tienes 3 días para elegir qué conservar y reducir cada galería a su límite. Si una categoría sigue excedida al terminar el plazo, se eliminarán todos sus vídeos o todos sus PDF.</p>
               {!gracePeriodInfo.isExpired && (
                 <div className="flex items-center gap-2 text-orange-400 bg-orange-900/20 px-4 py-2 rounded-lg mb-6 border border-orange-500/20">
                   <Clock size={18} /><span className="font-mono font-bold">{gracePeriodInfo.remainingText}</span>
@@ -2181,7 +2434,7 @@ export default function App() {
           {showDataSyncIndicator && (
             <div className="hidden sm:flex items-center gap-2 rounded-full border border-sky-500/20 bg-sky-950/70 px-3 py-2 text-xs font-medium text-sky-100 shadow-lg backdrop-blur-md">
               <Loader2 size={14} className="animate-spin" />
-              <span>Sincronizando...</span>
+              <span>{dataSyncIndicatorLabel}</span>
             </div>
           )}
           <Suspense fallback={null}>
