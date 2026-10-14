@@ -7,7 +7,7 @@ import { getTranslatedDiscipline } from '../utl/sportTranslations';
 
 interface OnboardingProps {
   user: User;
-  onComplete: (updatedUser: User) => void;
+  onComplete: (updatedUser: User) => void | Promise<void>;
   language: Language;
 }
 
@@ -67,6 +67,8 @@ Los planes Premium se facturan mensualmente. Puedes cancelar en cualquier moment
 5. RESPONSABILIDAD
 Coach AI no se hace responsable de lesiones ocurridas durante la práctica deportiva basada en nuestros análisis. Consulta siempre a un profesional antes de comenzar un nuevo régimen de entrenamiento.`,
     acceptContinue: "Aceptar y Continuar",
+    firstNamePlaceholder: "Ej. Carlos",
+    lastNamePlaceholder: "Ej. Pérez",
 
     // Sports Labels
     gym: "Gimnasio / Fitness",
@@ -136,6 +138,8 @@ Premium plans are billed monthly. You can cancel at any time. We do not offer re
 5. LIABILITY
 Coach AI is not responsible for injuries occurring during sports practice based on our analysis. Always consult a professional before starting a new training regimen.`,
     acceptContinue: "Accept and Continue",
+    firstNamePlaceholder: "e.g. Alex",
+    lastNamePlaceholder: "e.g. Carter",
 
     // Sports Labels
     gym: "Gym / Fitness",
@@ -205,6 +209,8 @@ Premium planak hilero fakturatzen dira. Edozein unetan ezeztatu dezakezu. Ez dug
 5. ERANTZUKIZUNA
 Coach AI ez da gure analisietan oinarritutako kirol praktikan gertatutako lesioen erantzule. Kontsultatu beti profesional bati entrenamendu erregimen berri bat hasi aurretik.`,
     acceptContinue: "Onartu eta Jarraitu",
+    firstNamePlaceholder: "Adib. Aitor",
+    lastNamePlaceholder: "Adib. Agirre",
 
     // Sports Labels
     gym: "Gimnasioa / Fitness",
@@ -262,7 +268,7 @@ export const Onboarding: React.FC<OnboardingProps> = ({ user, onComplete, langua
       try {
         const updatedUser = await StorageService.updateUserProfile(user.id, profile);
         await StorageService.initializeExercisesForSport(user.id, formData.sport);
-        onComplete(updatedUser);
+        await onComplete(updatedUser);
       } catch (e) {
         console.error("Failed to save profile", e);
       }
@@ -327,7 +333,7 @@ export const Onboarding: React.FC<OnboardingProps> = ({ user, onComplete, langua
                   value={formData.firstName || ''}
                   onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
                   className="w-full bg-neutral-100 dark:bg-black/50 border border-neutral-300 dark:border-neutral-700 rounded-xl p-3 text-neutral-900 dark:text-white focus:border-orange-500 focus:outline-none text-sm transition-colors"
-                  placeholder="Ej. Carlos"
+                  placeholder={t.firstNamePlaceholder}
                 />
               </div>
               <div>
@@ -337,7 +343,7 @@ export const Onboarding: React.FC<OnboardingProps> = ({ user, onComplete, langua
                   value={formData.lastName || ''}
                   onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
                   className="w-full bg-neutral-100 dark:bg-black/50 border border-neutral-300 dark:border-neutral-700 rounded-xl p-3 text-neutral-900 dark:text-white focus:border-orange-500 focus:outline-none text-sm transition-colors"
-                  placeholder="Ej. Pérez"
+                  placeholder={t.lastNamePlaceholder}
                 />
               </div>
             </div>

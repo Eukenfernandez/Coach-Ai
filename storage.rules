@@ -3,52 +3,78 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
 
+    function isAdmin() {
+      return request.auth != null && (
+        request.auth.uid == 'MASTER_GOD_EUKEN'
+        || request.auth.token.admin == true
+      );
+    }
+
+    function isAcceptedCoach(userId) {
+      return request.auth != null
+        && firestore.exists(/databases/(default)/documents/requests/$(request.auth.uid + '_' + userId))
+        && firestore.get(/databases/(default)/documents/requests/$(request.auth.uid + '_' + userId)).data.coachId == request.auth.uid
+        && firestore.get(/databases/(default)/documents/requests/$(request.auth.uid + '_' + userId)).data.athleteId == userId
+        && firestore.get(/databases/(default)/documents/requests/$(request.auth.uid + '_' + userId)).data.status == 'accepted';
+    }
+
+    function canAccessUser(userId) {
+      return request.auth != null && (
+        request.auth.uid == userId
+        || isAdmin()
+        || isAcceptedCoach(userId)
+      );
+    }
+
+    function hasUploadAuthorization(kind, userId, fileName) {
+      let authorization = firestore.get(
+        /databases/(default)/documents/upload_authorizations/$(request.auth.uid + '_' + kind)
+      ).data;
+      return request.auth != null
+        && authorization.uploaderId == request.auth.uid
+        && authorization.targetUserId == userId
+        && authorization.kind == kind
+        && authorization.storagePath == kind + '/' + userId + '/' + fileName
+        && authorization.expiresAt > request.time
+        && authorization.expectedSize == request.resource.size
+        && authorization.expectedContentType == request.resource.contentType;
+    }
+
     // ========== PUBLIC ASSETS (landing video, etc.) ==========
     match /pub/{allPaths=**} {
       allow read: if true;
-      allow write: if request.auth != null && request.auth.uid == 'MASTER_GOD_EUKEN';
+      allow write: if isAdmin();
     }
 
     match /public/{allPaths=**} {
       allow read: if true;
-      allow write: if request.auth != null && request.auth.uid == 'MASTER_GOD_EUKEN';
+      allow write: if isAdmin();
     }
 
     // ========== USER VIDEOS ==========
     // Path pattern: videos/{userId}/{filename}
     match /videos/{userId}/{fileName} {
-      allow read: if request.auth != null && (
-        request.auth.uid == userId ||
-        request.auth.uid == 'MASTER_GOD_EUKEN' ||
-        firestore.exists(/databases/(default)/documents/requests/$(request.auth.uid + '_' + userId))
-        && firestore.get(/databases/(default)/documents/requests/$(request.auth.uid + '_' + userId)).data.status == 'accepted'
-      );
-      allow write: if request.auth != null && (
-        request.auth.uid == userId ||
-        request.auth.uid == 'MASTER_GOD_EUKEN' ||
-        // Coach with accepted relationship can upload to athlete's folder
-        firestore.exists(/databases/(default)/documents/requests/$(request.auth.uid + '_' + userId))
-        && firestore.get(/databases/(default)/documents/requests/$(request.auth.uid + '_' + userId)).data.status == 'accepted'
-      );
+      allow read: if canAccessUser(userId);
+      allow create: if canAccessUser(userId)
+        && request.resource.size > 0
+        && request.resource.size <= 512 * 1024 * 1024
+        && request.resource.contentType.matches('video/.*')
+        && hasUploadAuthorization('videos', userId, fileName);
+      allow update: if false;
+      allow delete: if canAccessUser(userId);
     }
 
     // ========== USER PLANS (PDFs) ==========
     // Path pattern: plans/{userId}/{filename}
     match /plans/{userId}/{fileName} {
-      allow read: if request.auth != null && (
-        request.auth.uid == userId ||
-        request.auth.uid == 'MASTER_GOD_EUKEN' ||
-        // Check accepted relationship for read access
-        firestore.exists(/databases/(default)/documents/requests/$(request.auth.uid + '_' + userId))
-        && firestore.get(/databases/(default)/documents/requests/$(request.auth.uid + '_' + userId)).data.status == 'accepted'
-      );
-      allow write: if request.auth != null && (
-        request.auth.uid == userId ||
-        request.auth.uid == 'MASTER_GOD_EUKEN' ||
-        // Coach with accepted relationship can upload to athlete's folder
-        firestore.exists(/databases/(default)/documents/requests/$(request.auth.uid + '_' + userId))
-        && firestore.get(/databases/(default)/documents/requests/$(request.auth.uid + '_' + userId)).data.status == 'accepted'
-      );
+      allow read: if canAccessUser(userId);
+      allow create: if canAccessUser(userId)
+        && request.resource.size > 0
+        && request.resource.size <= 50 * 1024 * 1024
+        && request.resource.contentType == 'application/pdf'
+        && hasUploadAuthorization('plans', userId, fileName);
+      allow update: if false;
+      allow delete: if canAccessUser(userId);
     }
 
     // ========== CATCH-ALL: Deny everything else ==========

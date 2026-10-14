@@ -699,10 +699,15 @@ async function getFirebaseCliAccessToken() {
       return config?.tokens?.access_token || "";
     }
 
+    const firebaseToolsClientId = process.env.FIREBASE_TOOLS_CLIENT_ID?.trim() || "";
+    const firebaseToolsClientSecret = process.env.FIREBASE_TOOLS_CLIENT_SECRET?.trim() || "";
+    if (!firebaseToolsClientId || !firebaseToolsClientSecret) {
+      return config?.tokens?.access_token || "";
+    }
+
     const params = new URLSearchParams({
-      client_id:
-        "563584335869-fgrhgmd47bqnekij5i8b5pr03ho849e6.apps.googleusercontent.com",
-      client_secret: "j9iVZfS8kkCEFUPaAeJV0sAi",
+      client_id: firebaseToolsClientId,
+      client_secret: firebaseToolsClientSecret,
       refresh_token: refreshToken,
       grant_type: "refresh_token",
     });

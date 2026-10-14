@@ -10,6 +10,11 @@ Scripts listos para preparar, sincronizar y lanzar una campaña de CoachAI desde
    - `BREVO_SENDER_EMAIL`
    - `BREVO_SENDER_NAME`
 
+Para acceder a Firebase, utiliza preferentemente `GOOGLE_APPLICATION_CREDENTIALS`,
+`FIREBASE_SERVICE_ACCOUNT_JSON` o `FIREBASE_TOOLS_TOKEN`. Si necesitas renovar el
+token guardado por Firebase CLI, configura también `FIREBASE_TOOLS_CLIENT_ID` y
+`FIREBASE_TOOLS_CLIENT_SECRET`; estas credenciales no deben guardarse en Git.
+
 ## Flujo
 
 Desde [`fns`](/C:/Users/Usuario/Downloads/pruebak-coach-ai%20(3)%20-%20copia/fns):
@@ -46,6 +51,6 @@ npm run campaign:send -- --send --test-emails=tu@email.com
 
 ## Criterio de segmentacion
 
-- `campaign_safe`: cuentas registradas y limpias, con heuristica conservadora de calidad.
-- `review_required`: correos plausibles pero con dudas de consentimiento o calidad.
+- `campaign_safe`: cuentas limpias con consentimiento explícito de marketing registrado.
+- `review_required`: correos plausibles sin consentimiento explícito o con dudas de calidad; nunca se envían automáticamente.
 - `rejected`: test, basura, dominios sospechosos, identidades internas repetidas o exclusiones explicitas.

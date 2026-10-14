@@ -37,10 +37,11 @@ const TEXTS = {
     fileMissing: 'No encontrado',
     unplayable: 'Formato no reproducible',
     usageLimit: 'Análisis Mensuales',
-    videoLimit: 'Vídeos Mensuales',
+    videoLimit: 'Subidas del ciclo',
+    storedLimit: 'En galería',
     used: 'usados',
     limitReached: 'Límite alcanzado',
-    upgradeAlert: 'Has alcanzado el límite mensual de vídeos de tu suscripción. Mejora tu plan para subir más.',
+    upgradeAlert: 'Has alcanzado el límite de subidas del ciclo o la capacidad de tu galería. Borrar un vídeo libera espacio en la galería, pero no devuelve una subida ya consumida.',
     upgradeBtn: 'Mejorar Plan',
     syncingQuota: 'Sincronizando...',
     unlimited: 'Ilimitado'
@@ -64,10 +65,11 @@ const TEXTS = {
     fileMissing: 'Missing',
     unplayable: 'Unplayable format',
     usageLimit: 'Monthly Analysis',
-    videoLimit: 'Monthly Videos',
+    videoLimit: 'Cycle uploads',
+    storedLimit: 'In gallery',
     used: 'used',
     limitReached: 'Limit reached',
-    upgradeAlert: 'You have reached your subscription monthly video limit. Upgrade your plan to upload more.',
+    upgradeAlert: 'You reached the cycle upload quota or gallery capacity. Deleting a video frees gallery space but does not restore a used upload.',
     upgradeBtn: 'Upgrade Plan',
     syncingQuota: 'Syncing...',
     unlimited: 'Unlimited'
@@ -91,10 +93,11 @@ const TEXTS = {
     fileMissing: 'Ez dago fitxategirik',
     unplayable: 'Formatua ezin da erreproduzitu',
     usageLimit: 'Hileko Analisi',
-    videoLimit: 'Hileko Bideoak',
+    videoLimit: 'Zikloko igoerak',
+    storedLimit: 'Galerian',
     used: 'erabilita',
     limitReached: 'Muga gaindituta',
-    upgradeAlert: 'Zure harpidetzaren hileko bideo muga gainditu duzu. Hobetu plana gehiago igotzeko.',
+    upgradeAlert: 'Zikloko igoera-mugara edo galeriaren edukierara iritsi zara. Bideo bat ezabatzeak tokia askatzen du, baina ez du erabilitako igoera berreskuratzen.',
     upgradeBtn: 'Plana Hobetu',
     syncingQuota: 'Sinkronizatzen...',
     unlimited: 'Mugagabea'
@@ -146,6 +149,115 @@ const getVideoStatusBadge = (
   };
 };
 
+const GalleryVideoThumbnail: React.FC<{ video: VideoFile }> = ({ video }) => {
+  const source = video.url || video.downloadURL || video.remoteUrl || '';
+  const previewTargetRef = useRef(0);
+  const [useStoredThumbnail, setUseStoredThumbnail] = useState(
+    Boolean(video.thumbnail) && !video.thumbnail?.startsWith('data:image/svg+xml'),
+  );
+  const [videoFrameReady, setVideoFrameReady] = useState(false);
+
+  useEffect(() => {
+    setUseStoredThumbnail(
+      Boolean(video.thumbnail) && !video.thumbnail?.startsWith('data:image/svg+xml'),
+    );
+    setVideoFrameReady(false);
+    previewTargetRef.current = 0;
+  }, [source, video.id, video.thumbnail]);
+
+  const handleStoredThumbnailLoad = (event: React.SyntheticEvent<HTMLImageElement>) => {
+    // Old records can contain a valid JPEG that was captured before the first
+    // visible frame. Detect those effectively-black images and fall back to a
+    // real frame from the video itself.
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = 20;
+      canvas.height = 20;
+      const context = canvas.getContext('2d', { willReadFrequently: true });
+      if (!context) return;
+
+      context.drawImage(event.currentTarget, 0, 0, canvas.width, canvas.height);
+      const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+      let luminance = 0;
+      let visiblePixels = 0;
+      let detailedPixels = 0;
+
+      for (let index = 0; index < pixels.length; index += 4) {
+        if (pixels[index + 3] < 16) continue;
+        const pixelLuminance = (pixels[index] * 0.2126) + (pixels[index + 1] * 0.7152) + (pixels[index + 2] * 0.0722);
+        luminance += pixelLuminance;
+        visiblePixels += 1;
+        if (pixelLuminance > 28) detailedPixels += 1;
+      }
+
+      const averageLuminance = visiblePixels > 0 ? luminance / visiblePixels : 0;
+      const detailRatio = visiblePixels > 0 ? detailedPixels / visiblePixels : 0;
+      if (averageLuminance < 11 && detailRatio < 0.02) {
+        setUseStoredThumbnail(false);
+      }
+    } catch {
+      // If a remote image cannot be inspected because of CORS, keep it. Its
+      // own load/error events still provide a safe fallback.
+    }
+  };
+
+  const handlePreviewMetadata = (event: React.SyntheticEvent<HTMLVideoElement>) => {
+    const element = event.currentTarget;
+    const duration = Number.isFinite(element.duration) ? element.duration : 0;
+    const lastSafeFrame = Math.max(0, duration - 0.05);
+    const target = Math.min(Math.max(duration * 0.15, 0.2), 3, lastSafeFrame);
+    previewTargetRef.current = target;
+
+    if (target <= 0.001) {
+      if (element.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) setVideoFrameReady(true);
+      return;
+    }
+
+    try {
+      element.currentTime = target;
+    } catch {
+      setVideoFrameReady(element.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA);
+    }
+  };
+
+  return (
+    <div className="absolute inset-0 overflow-hidden bg-neutral-950" aria-hidden="true">
+      <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-neutral-900 to-black">
+        <Film size={28} className="text-orange-500/70" />
+      </div>
+
+      {!useStoredThumbnail && source && (
+        <video
+          src={source}
+          muted
+          playsInline
+          preload="metadata"
+          tabIndex={-1}
+          onLoadedMetadata={handlePreviewMetadata}
+          onLoadedData={(event) => {
+            if (Math.abs(event.currentTarget.currentTime - previewTargetRef.current) < 0.05) {
+              setVideoFrameReady(true);
+            }
+          }}
+          onSeeked={() => setVideoFrameReady(true)}
+          onError={() => setVideoFrameReady(false)}
+          className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-300 ${videoFrameReady ? 'opacity-90' : 'opacity-0'}`}
+        />
+      )}
+
+      {useStoredThumbnail && video.thumbnail && (
+        <img
+          src={video.thumbnail}
+          alt=""
+          onLoad={handleStoredThumbnailLoad}
+          onError={() => setUseStoredThumbnail(false)}
+          className="absolute inset-0 h-full w-full object-cover opacity-90 transition-all duration-700 group-hover:scale-110 group-hover:opacity-100"
+        />
+      )}
+    </div>
+  );
+};
+
 export const Gallery: React.FC<GalleryProps> = ({ videos, onSelectVideo, onUpload, onDelete, onNavigate, language, usage, limits, onResetUsage, overrideCount, quotaPending = false }) => {
   const t = TEXTS[language] || TEXTS.es;
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -159,9 +271,13 @@ export const Gallery: React.FC<GalleryProps> = ({ videos, onSelectVideo, onUploa
   const [showCamera, setShowCamera] = useState(false);
   const [stream, setStream] = useState<MediaStream | null>(null);
 
-  const limitVal = limits.maxStoredVideos || 3;
-  const currentCount = overrideCount !== undefined ? overrideCount : videos.length;
-  const isLimitReached = !quotaPending && currentCount >= limitVal;
+  const monthlyLimit = limits.maxVideoUploadsPerMonth || limits.maxAnalysisPerMonth;
+  const monthlyCount = overrideCount !== undefined ? overrideCount : (usage?.analysisCount || 0);
+  const storedLimit = limits.maxStoredVideos || 3;
+  const storedCount = videos.length;
+  const monthlyLimitReached = !quotaPending && monthlyCount >= monthlyLimit;
+  const storedLimitReached = storedCount >= storedLimit;
+  const isLimitReached = monthlyLimitReached || storedLimitReached;
 
   // We show the capacity indicator at the top
   const showUsage = true;
@@ -275,15 +391,16 @@ export const Gallery: React.FC<GalleryProps> = ({ videos, onSelectVideo, onUploa
                 <span className="text-[10px] uppercase tracking-widest text-neutral-500 font-bold">{t.videoLimit}</span>
                 <div className="flex items-baseline gap-1">
                   <span className={`text-xl font-black ${isLimitReached ? 'text-red-500' : 'text-orange-500'}`}>
-                    {quotaPending ? '...' : currentCount}
+                    {quotaPending ? '...' : monthlyCount}
                   </span>
-                  <span className="text-neutral-500 text-xs">/ {limitVal}</span>
+                  <span className="text-neutral-500 text-xs">/ {monthlyLimit}</span>
                 </div>
+                <span className="text-[10px] text-neutral-500">{t.storedLimit}: {storedCount}/{storedLimit}</span>
               </div>
               <div className="w-12 h-12 rounded-full border-4 border-neutral-800 flex items-center justify-center relative overflow-hidden">
                 <div
                   className={`absolute bottom-0 left-0 w-full transition-all duration-1000 ${isLimitReached ? 'bg-red-500' : 'bg-orange-600'}`}
-                  style={{ height: `${quotaPending ? 0 : Math.min(100, (currentCount / limitVal) * 100)}%` }}
+                  style={{ height: `${quotaPending ? 0 : Math.min(100, (monthlyCount / monthlyLimit) * 100)}%` }}
                 />
                 <Info size={16} className="relative z-10 text-white" />
               </div>
@@ -293,7 +410,7 @@ export const Gallery: React.FC<GalleryProps> = ({ videos, onSelectVideo, onUploa
             <div className="md:hidden absolute safe-top-6 safe-right-6 flex items-center gap-1.5 bg-white/80 dark:bg-neutral-900/80 backdrop-blur border border-neutral-200 dark:border-neutral-800 px-2.5 py-1 rounded-full shadow-lg">
               <div className={`w-2 h-2 rounded-full ${isLimitReached ? 'bg-red-500 animate-pulse' : 'bg-orange-500'}`}></div>
               <span className="text-xs font-mono font-bold text-neutral-900 dark:text-white">
-                {quotaPending ? t.syncingQuota : `${currentCount}/${limitVal}`}
+                {quotaPending ? t.syncingQuota : `${monthlyCount}/${monthlyLimit} · ${storedCount}/${storedLimit}`}
               </span>
             </div>
           </div>
@@ -334,13 +451,7 @@ export const Gallery: React.FC<GalleryProps> = ({ videos, onSelectVideo, onUploa
                   className={`group relative aspect-square bg-black rounded-2xl overflow-hidden shadow-md border border-neutral-800 transition-all duration-500 ease-out ${canOpenVideo ? 'cursor-pointer hover:shadow-2xl hover:scale-105' : 'cursor-wait opacity-80'}`}
                   onClick={() => canOpenVideo && onSelectVideo(video)}
                 >
-                  {video.thumbnail && (
-                    <img
-                      src={video.thumbnail}
-                      alt={video.name}
-                      className="w-full h-full object-cover opacity-90 transition-all duration-700 group-hover:scale-110 group-hover:opacity-100"
-                    />
-                  )}
+                  <GalleryVideoThumbnail video={video} />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent opacity-80 group-hover:opacity-100 transition-opacity p-3 flex flex-col justify-end pointer-events-none">
                     <h4 className="text-[10px] md:text-xs font-bold text-white truncate">{video.name}</h4>
                     <p className="text-[8px] md:text-[10px] text-neutral-300 mt-0.5">{video.date.split(',')[0]}</p>

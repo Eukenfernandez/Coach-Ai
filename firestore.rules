@@ -17,36 +17,216 @@ service cloud.firestore {
 
     // Check if caller is the master admin account
     function isAdmin() {
-      return isAuth() && request.auth.uid == 'MASTER_GOD_EUKEN';
+      return isAuth() && (
+        request.auth.uid == 'MASTER_GOD_EUKEN'
+        || request.auth.token.admin == true
+      );
     }
 
     // Check if coach has an accepted relationship with this athlete
     function isAcceptedCoach(athleteId) {
       return isAuth() && exists(/databases/$(database)/documents/requests/$(request.auth.uid + '_' + athleteId))
+        && get(/databases/$(database)/documents/requests/$(request.auth.uid + '_' + athleteId)).data.coachId == request.auth.uid
+        && get(/databases/$(database)/documents/requests/$(request.auth.uid + '_' + athleteId)).data.athleteId == athleteId
         && get(/databases/$(database)/documents/requests/$(request.auth.uid + '_' + athleteId)).data.status == 'accepted';
+    }
+
+    function identityFieldsAreValidOnCreate(uid) {
+      return request.resource.data.uid == uid
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.username == request.auth.token.email;
+    }
+
+    function identityFieldsAreUnchanged() {
+      return request.resource.data.get('uid', null) == resource.data.get('uid', null)
+        && request.resource.data.get('email', null) == resource.data.get('email', null)
+        && request.resource.data.get('username', null) == resource.data.get('username', null)
+        && request.resource.data.get('createdAt', null) == resource.data.get('createdAt', null)
+        && request.resource.data.get('emailVerified', false) == resource.data.get('emailVerified', false)
+        && request.resource.data.get('verifiedEmail', null) == resource.data.get('verifiedEmail', null)
+        && request.resource.data.get('emailVerifiedAt', null) == resource.data.get('emailVerifiedAt', null);
+    }
+
+    function profileRoleIsValidOnCreate() {
+      return request.resource.data.get('profile', null) == null
+        || request.resource.data.profile.get('role', '') in ['athlete', 'coach'];
+    }
+
+    function serverManagedProfileFieldsAreUnchanged() {
+      return resource.data.get('profile', null) == null
+        ? (
+          request.resource.data.get('profile', null) == null
+          || (
+            request.resource.data.profile.get('role', '') in ['athlete', 'coach']
+            && request.resource.data.profile.get('managedAthletes', []).size() == 0
+            && request.resource.data.profile.get('coaches', []).size() == 0
+          )
+        )
+        : (
+          request.resource.data.get('profile', null) != null
+          && request.resource.data.profile.get('role', '') == resource.data.profile.get('role', '')
+          && request.resource.data.profile.get('managedAthletes', []) == resource.data.profile.get('managedAthletes', [])
+          && request.resource.data.profile.get('coaches', []) == resource.data.profile.get('coaches', [])
+        );
+    }
+
+    function isEmptyAssetList(fieldName) {
+      return !(fieldName in request.resource.data) || request.resource.data[fieldName].size() == 0;
+    }
+
+    function assetListsAreUnchanged() {
+      return request.resource.data.get('videos', []) == resource.data.get('videos', [])
+        && request.resource.data.get('plans', []) == resource.data.get('plans', [])
+        && request.resource.data.get('usage', null) == resource.data.get('usage', null);
+    }
+
+    function checkoutPriceAllowed(uid) {
+      let role = get(/databases/$(database)/documents/users/$(uid)).data.profile.role;
+      let price = request.resource.data.price;
+      return (
+        role == 'athlete'
+        && price in [
+          'price_1Shp2GRpDniZdTBe8jaP3rKT',
+          'price_1Shp77RpDniZdTBeN9KYx4oM'
+        ]
+      ) || (
+        (role == 'coach' || role == 'admin')
+        && price in [
+          'price_1Shp77RpDniZdTBeN9KYx4oM',
+          'price_1Sj8emRpDniZdTBeCxkGvGnO'
+        ]
+      );
+    }
+
+    function checkoutUrlAllowed(url) {
+      return url is string && (
+        url.matches('^https://(www\\.)?coachai\\.es(/.*)?$')
+        || url.matches('^https://entrenamientos-bfac2\\.web\\.app(/.*)?$')
+        || url.matches('^http://(localhost|127\\.0\\.0\\.1)(:[0-9]+)?(/.*)?$')
+      );
+    }
+
+    function checkoutPayloadIsValid(uid) {
+      return request.resource.data.keys().hasOnly([
+          'price', 'mode', 'success_url', 'cancel_url', 'created'
+        ])
+        && request.resource.data.mode == 'subscription'
+        && checkoutPriceAllowed(uid)
+        && checkoutUrlAllowed(request.resource.data.success_url)
+        && checkoutUrlAllowed(request.resource.data.cancel_url);
+    }
+
+    function profileSubscriptionTier(data) {
+      return data.get('profile', null) == null
+        ? 'FREE'
+        : data.profile.get('subscriptionTier', 'FREE');
+    }
+
+    function subscriptionFieldsAreDefaultOnCreate() {
+      return request.resource.data.get('currentPlanId', 'FREE') == 'FREE'
+        && request.resource.data.get('subscriptionAccessTier', null) == null
+        && request.resource.data.get('subscriptionAccessUntil', null) == null
+        && request.resource.data.get('subscriptionAccessPeriodStart', null) == null
+        && request.resource.data.get('subscriptionTierUpdatedAt', null) == null
+        && profileSubscriptionTier(request.resource.data) == 'FREE';
+    }
+
+    function subscriptionFieldsAreUnchanged() {
+      return request.resource.data.get('currentPlanId', 'FREE') == resource.data.get('currentPlanId', 'FREE')
+        && request.resource.data.get('subscriptionAccessTier', null) == resource.data.get('subscriptionAccessTier', null)
+        && request.resource.data.get('subscriptionAccessUntil', null) == resource.data.get('subscriptionAccessUntil', null)
+        && request.resource.data.get('subscriptionAccessPeriodStart', null) == resource.data.get('subscriptionAccessPeriodStart', null)
+        && request.resource.data.get('subscriptionTierUpdatedAt', null) == resource.data.get('subscriptionTierUpdatedAt', null)
+        && profileSubscriptionTier(request.resource.data) == profileSubscriptionTier(resource.data);
+    }
+
+    function marketingFieldsAreDefaultOnCreate() {
+      return !request.resource.data.keys().hasAny([
+        'marketingConsent',
+        'marketingConsentGrantedAt',
+        'marketingConsentUpdatedAt',
+        'marketingConsentVersion',
+        'marketingConsentSource',
+        'marketingConsentLanguage',
+        'marketingConsentPending',
+        'marketingConsentPendingAt',
+        'marketingConsentPendingVersion',
+        'marketingConsentPendingSource',
+        'marketingConsentPendingLanguage',
+        'marketingTrialCheckoutCreatedAt',
+        'marketingTrialCheckoutDocId',
+        'marketingTrialClaimedAt',
+        'marketingTrialSubscriptionId',
+        'marketingTrialEndsAt',
+        'marketingTrialOfferDismissedAt',
+        'marketingTrialOfferDismissedSource'
+      ]);
+    }
+
+    function marketingFieldsAreUnchanged() {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'marketingConsent',
+        'marketingConsentGrantedAt',
+        'marketingConsentUpdatedAt',
+        'marketingConsentVersion',
+        'marketingConsentSource',
+        'marketingConsentLanguage',
+        'marketingConsentPending',
+        'marketingConsentPendingAt',
+        'marketingConsentPendingVersion',
+        'marketingConsentPendingSource',
+        'marketingConsentPendingLanguage',
+        'marketingTrialCheckoutCreatedAt',
+        'marketingTrialCheckoutDocId',
+        'marketingTrialClaimedAt',
+        'marketingTrialSubscriptionId',
+        'marketingTrialEndsAt',
+        'marketingTrialOfferDismissedAt',
+        'marketingTrialOfferDismissedSource'
+      ]);
     }
 
     // ========== USER PROFILES ==========
     match /users/{uid} {
-      allow read: if isAuth();
-      allow write: if isOwner(uid) || isAdmin();
+      allow get: if isOwner(uid) || isAcceptedCoach(uid) || isAdmin();
+      allow list: if isAdmin();
+      allow create: if isAdmin() || (
+        isOwner(uid)
+        && identityFieldsAreValidOnCreate(uid)
+        && profileRoleIsValidOnCreate()
+        && subscriptionFieldsAreDefaultOnCreate()
+        && marketingFieldsAreDefaultOnCreate()
+      );
+      allow delete: if false;
+      allow update: if isAdmin() || (
+        isOwner(uid)
+        && identityFieldsAreUnchanged()
+        && serverManagedProfileFieldsAreUnchanged()
+        && subscriptionFieldsAreUnchanged()
+        && marketingFieldsAreUnchanged()
+      );
     }
 
     // ========== USER DATA (videos, plans, records) ==========
     match /userdata/{uid} {
       allow read: if isOwner(uid) || isAcceptedCoach(uid) || isAdmin();
-      allow write: if isOwner(uid) || isAcceptedCoach(uid) || isAdmin();
+      allow create: if (isOwner(uid) || isAcceptedCoach(uid) || isAdmin())
+        && isEmptyAssetList('videos')
+        && isEmptyAssetList('plans');
+      allow update: if (isOwner(uid) || isAcceptedCoach(uid) || isAdmin())
+        && assetListsAreUnchanged();
+      allow delete: if isOwner(uid) || isAdmin();
 
       // Video subcollection
       match /videos/{videoId} {
         allow read: if isOwner(uid) || isAcceptedCoach(uid) || isAdmin();
-        allow write: if isOwner(uid) || isAcceptedCoach(uid) || isAdmin();
+        allow write: if false;
       }
 
       // Plans subcollection
       match /plans/{planId} {
         allow read: if isOwner(uid) || isAcceptedCoach(uid) || isAdmin();
-        allow write: if isOwner(uid) || isAcceptedCoach(uid) || isAdmin();
+        allow write: if false;
       }
 
       // Video intelligence context generated by backend
@@ -73,15 +253,20 @@ service cloud.firestore {
 
     // ========== COACH-ATHLETE REQUESTS (canonical relationship) ==========
     match /requests/{requestId} {
-      // Anyone authenticated can read requests they are involved in
-      allow read: if isAuth();
-      // Coach can create/update requests where they are the coach
-      allow create: if isAuth() && request.resource.data.coachId == request.auth.uid;
-      // Coach or athlete can update status (accept/reject)
-      allow update: if isAuth() && (
-        resource.data.coachId == request.auth.uid ||
-        resource.data.athleteId == request.auth.uid
+      allow read: if isAuth() && (
+        resource.data.coachId == request.auth.uid
+        || resource.data.athleteId == request.auth.uid
+        || isAdmin()
       );
+      // Relationship creation and status transitions are server-authoritative.
+      allow create, update, delete: if false;
+    }
+
+    // Short-lived, server-created upload grants. Storage Rules consume these
+    // documents so a client cannot bypass quota validation with the Storage SDK.
+    match /upload_authorizations/{authorizationId} {
+      allow read: if isAuth() && resource.data.uploaderId == request.auth.uid;
+      allow write: if false;
     }
 
     // ========== QUOTA COUNTERS (server-managed, read-only for clients) ==========
@@ -95,11 +280,27 @@ service cloud.firestore {
     // ========== SUBSCRIPTION & STRIPE (managed by extension + Cloud Functions) ==========
     match /customers/{uid} {
       allow read: if isOwner(uid) || isAdmin();
-      allow write: if isOwner(uid) || isAdmin();
+      allow write: if false;
+
+      match /checkout_sessions/{sessionId} {
+        allow read: if isOwner(uid) || isAdmin();
+        allow create: if isOwner(uid) && checkoutPayloadIsValid(uid);
+        allow update, delete: if false;
+      }
+
+      match /subscriptions/{subscriptionId} {
+        allow read: if isOwner(uid) || isAdmin();
+        allow write: if false;
+      }
+
+      match /payments/{paymentId} {
+        allow read: if isOwner(uid) || isAdmin();
+        allow write: if false;
+      }
 
       match /{subcollection=**} {
         allow read: if isOwner(uid) || isAdmin();
-        allow write: if isOwner(uid) || isAdmin();
+        allow write: if false;
       }
     }
 
@@ -112,7 +313,11 @@ service cloud.firestore {
     // ========== NOTIFICATIONS ==========
     match /notifications/{notifId} {
       allow read: if isAuth() && resource.data.userId == request.auth.uid;
-      allow update: if isAuth() && resource.data.userId == request.auth.uid;
+      allow update: if isAuth()
+        && resource.data.userId == request.auth.uid
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])
+        && request.resource.data.read is bool;
       allow create: if false; // Only Cloud Functions
     }
 

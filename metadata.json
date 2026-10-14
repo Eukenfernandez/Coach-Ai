@@ -1,6 +1,6 @@
 {
   "name": "pruebak Coach AI",
-  "description": "Slow-motion video analysis tool for sports with Gemini 3 Pro integration for technique feedback.",
+  "description": "Slow-motion sports analysis with subscription-based Gemini Flash-Lite, Flash and Pro coaching.",
   "requestFramePermissions": [
     "microphone",
     "camera"

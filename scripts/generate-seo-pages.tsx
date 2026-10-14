@@ -28,6 +28,11 @@ type ManifestEntry = {
 };
 
 const distDir = path.resolve(process.cwd(), "dist");
+const CONTENT_SECURITY_POLICY = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net https://www.google.com/recaptcha/ https://www.gstatic.com/recaptcha/; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob: https://images.unsplash.com https://www.transparenttextures.com https://firebasestorage.googleapis.com https://storage.googleapis.com; media-src 'self' blob: https://firebasestorage.googleapis.com https://storage.googleapis.com; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://*.cloudfunctions.net https://*.firebaseapp.com https://*.firebasestorage.app https://firebasestorage.googleapis.com https://storage.googleapis.com https://cdn.jsdelivr.net https://www.google.com/recaptcha/; worker-src 'self' blob: https://cdn.jsdelivr.net; frame-src https://*.firebaseapp.com https://www.google.com/recaptcha/; object-src 'none'; base-uri 'self'; form-action 'self';";
+
+function buildCspMeta() {
+  return `<meta http-equiv="Content-Security-Policy" content="${CONTENT_SECURITY_POLICY}" />`;
+}
 
 function escapeHtml(value: string) {
   return value
@@ -47,44 +52,12 @@ function toOutputFile(pagePath: string) {
   return path.join(distDir, `${pagePath.replace(/^\//, "")}.html`);
 }
 
-function buildAnalyticsScript(page: PublicPageContent) {
-  return `
-<script>
-window.dataLayer = window.dataLayer || [];
-document.addEventListener('click', function (event) {
-  var target = event.target && event.target.closest ? event.target.closest('[data-cta-event]') : null;
-  if (!target) return;
-  window.dataLayer.push({
-    event: 'coachai_cta_click',
-    cta_name: target.getAttribute('data-cta-event'),
-    page_path: '${page.path}',
-    page_locale: '${page.locale}'
-  });
-});
-</script>`.trim();
+function buildServiceWorkerScript() {
+  return '<script src="/register-sw.js" defer></script>';
 }
 
-function buildServiceWorkerScript() {
-  return `
-<script>
-if ('serviceWorker' in navigator && (window.location.protocol === 'http:' || window.location.protocol === 'https:')) {
-  var isLocalHost = ['localhost', '127.0.0.1', '::1'].indexOf(window.location.hostname) !== -1;
-  window.addEventListener('load', function () {
-    if (isLocalHost) {
-      navigator.serviceWorker.getRegistrations().then(function (registrations) {
-        registrations.forEach(function (registration) { registration.unregister(); });
-      }).catch(function () {});
-      if ('caches' in window) {
-        caches.keys().then(function (keys) {
-          keys.filter(function (key) { return key.indexOf('coach-ai') === 0; }).forEach(function (key) { caches.delete(key); });
-        }).catch(function () {});
-      }
-      return;
-    }
-    navigator.serviceWorker.register('/sw.js').catch(function () {});
-  });
-}
-</script>`.trim();
+function buildPublicRuntimeScript() {
+  return '<script src="/public-page.js" defer></script>';
 }
 
 function buildPreloadLinks(page: PublicPageContent) {
@@ -107,6 +80,7 @@ function buildHead(page: PublicPageContent, cssHrefs: string[]) {
   return `
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+${buildCspMeta()}
 <title>${escapeHtml(page.metaTitle)}</title>
 <meta name="description" content="${escapeHtml(page.metaDescription)}" />
 <meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1" />
@@ -137,7 +111,7 @@ ${structuredDataScripts}`.trim();
 }
 
 function renderDocument(page: PublicPageContent, bodyMarkup: string, cssHrefs: string[], scriptHref?: string) {
-  const scripts = [buildAnalyticsScript(page), buildServiceWorkerScript()];
+  const scripts = [buildPublicRuntimeScript(), buildServiceWorkerScript()];
   if (scriptHref) {
     scripts.push(`<script type="module" src="${scriptHref}"></script>`);
   }
@@ -217,6 +191,7 @@ async function writeLoginEntry(cssHrefs: string[], scriptHref: string) {
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+${buildCspMeta()}
 <title>Acceso a CoachAI</title>
 <meta name="description" content="Área autenticada de CoachAI. Esta experiencia no debe indexarse." />
 <meta name="robots" content="noindex,nofollow,noarchive" />
@@ -295,6 +270,7 @@ async function writeNotFound(cssHrefs: string[]) {
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+${buildCspMeta()}
 <title>404 | CoachAI</title>
 <meta name="description" content="Página no encontrada en CoachAI." />
 <meta name="robots" content="noindex,follow" />
@@ -306,7 +282,8 @@ ${cssHrefs.map((href) => `<link rel="stylesheet" href="${href}" />`).join("\n")}
 </head>
 <body class="bg-gray-100 text-neutral-900 dark:bg-neutral-950 dark:text-white min-h-[100dvh] w-full transition-colors duration-300">
 ${page}
-${buildAnalyticsScript(getPageContent("home", "es"))}
+${buildPublicRuntimeScript()}
+${buildServiceWorkerScript()}
 </body>
 </html>`;
   await fs.writeFile(path.join(distDir, "404.html"), html, "utf8");

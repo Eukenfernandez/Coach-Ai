@@ -1,7 +1,7 @@
 
 export type Language = 'es' | 'ing' | 'eus';
 
-export type SubscriptionTier = 'FREE' | 'PRO_ATHLETE' | 'PRO_COACH' | 'PREMIUM';
+export type SubscriptionTier = 'FREE' | 'PRO_ATHLETE' | 'PREMIUM_ATHLETE' | 'PRO_COACH' | 'PREMIUM';
 
 export type AssetStatus = 'uploading' | 'ready' | 'error';
 
@@ -22,14 +22,19 @@ export interface StoredAssetMetadata {
 
 export interface UserLimits {
   tier: SubscriptionTier;
+  maxVideoUploadsPerMonth: number;
   maxAnalysisPerMonth: number;
+  maxPdfUploadsPerMonth: number;
   maxPdfUploads: number;
   maxVideoDurationSeconds: number;
-  maxStoredVideos: number; // New: Limit of videos in gallery
+  maxStoredVideos: number;
+  maxStoredPdfs: number;
   maxChatMessagesPerMonth: number | 'unlimited';
   maxManagedAthletes: number | 'unlimited';
-  canCompareVideos: boolean; // New: Limit comparison
-  canUseDeepAnalysis: boolean; // New: For Premium Gemini 3 Pro
+  canCompareVideos: boolean;
+  canUseDeepAnalysis: boolean;
+  aiModel: 'gemini-2.5-flash-lite' | 'gemini-2.5-flash' | 'gemini-2.5-pro';
+  aiQualityLabel: 'Esencial' | 'Avanzada' | 'Élite';
 }
 
 export interface VideoAnalysisResult {
@@ -424,4 +429,4 @@ export interface UserData {
   usage: UserUsage;
 }
 
-export type Screen = 'login' | 'onboarding' | 'dashboard' | 'gallery' | 'analyzer' | 'strength' | 'competition' | 'training' | 'matches' | 'planning' | 'planViewer' | 'coach' | 'calculator' | 'supplements' | 'admin_panel' | 'team_management' | 'pricing' | 'profile' | 'app_downloads';
+export type Screen = 'login' | 'onboarding' | 'dashboard' | 'gallery' | 'analyzer' | 'strength' | 'competition' | 'training' | 'matches' | 'planning' | 'planViewer' | 'coach' | 'supplements' | 'admin_panel' | 'team_management' | 'pricing' | 'profile' | 'app_downloads';

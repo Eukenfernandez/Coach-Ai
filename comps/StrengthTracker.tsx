@@ -32,7 +32,8 @@ const TEXTS = {
     unit: 'Unidad de Medida',
     addEx: 'Añadir Ejercicio',
     emptyList: 'La lista está vacía.',
-    close: 'Cerrar'
+    close: 'Cerrar',
+    exercisePlaceholder: 'Ej. Salto Profundo'
   },
   ing: {
     title: 'Strength Records',
@@ -52,7 +53,8 @@ const TEXTS = {
     unit: 'Measurement Unit',
     addEx: 'Add Exercise',
     emptyList: 'List is empty.',
-    close: 'Close'
+    close: 'Close',
+    exercisePlaceholder: 'e.g. Depth Jump'
   },
   eus: {
     title: 'Indar Markak',
@@ -72,7 +74,8 @@ const TEXTS = {
     unit: 'Neurketa Unitatea',
     addEx: 'Ariketa Gehitu',
     emptyList: 'Zerrenda hutsik dago.',
-    close: 'Itxi'
+    close: 'Itxi',
+    exercisePlaceholder: 'Adib. Sakonera Jauzia'
   }
 };
 
@@ -313,7 +316,7 @@ export const StrengthTracker: React.FC<StrengthTrackerProps> = ({
                   type="text"
                   value={newExerciseName}
                   onChange={(e) => setNewExerciseName(e.target.value)}
-                  placeholder="Ej. Salto Profundo"
+                  placeholder={t.exercisePlaceholder}
                   className="w-full bg-gray-50 dark:bg-neutral-950 border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 text-neutral-900 dark:text-white focus:border-orange-500 focus:outline-none text-sm"
                 />
               </div>

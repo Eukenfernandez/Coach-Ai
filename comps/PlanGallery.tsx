@@ -31,9 +31,11 @@ const TEXTS = {
     deleteTitle: '¿Eliminar documento?',
     deleteDesc: 'Se borrará permanentemente de tu equipo y de la nube.',
     limitReached: 'Límite de Planes Alcanzado',
-    limitDesc: 'Has alcanzado el límite mensual de PDFs de tu suscripción. Mejora tu plan para subir más.',
+    limitDesc: 'Has alcanzado las subidas de PDF del ciclo o la capacidad de tu galería. Borrar un PDF libera espacio, pero no devuelve una subida ya consumida.',
     upgradeBtn: 'Mejorar Plan',
-    syncingQuota: 'Sincronizando cuota...'
+    syncingQuota: 'Sincronizando cuota...',
+    cycleUploads: 'Subidas del ciclo',
+    storedFiles: 'En galería',
   },
   ing: {
     title: 'Training Plans',
@@ -49,9 +51,11 @@ const TEXTS = {
     deleteTitle: 'Delete document?',
     deleteDesc: 'It will be permanently deleted from your device and the cloud.',
     limitReached: 'Plan Limit Reached',
-    limitDesc: 'You have reached your subscription monthly PDF limit. Upgrade your plan to upload more.',
+    limitDesc: 'You reached the PDF upload quota for this cycle or the gallery capacity. Deleting a PDF frees space but does not restore a used upload.',
     upgradeBtn: 'Upgrade Plan',
-    syncingQuota: 'Syncing quota...'
+    syncingQuota: 'Syncing quota...',
+    cycleUploads: 'Cycle uploads',
+    storedFiles: 'In gallery',
   },
   eus: {
     title: 'Entrenamenduak',
@@ -67,9 +71,11 @@ const TEXTS = {
     deleteTitle: 'Dokumentua ezabatu?',
     deleteDesc: 'Betiereko ezabatuko da zure gailutik eta hodeitik.',
     limitReached: 'Plan Muga Gaindituta',
-    limitDesc: 'Zure harpidetzaren hileko PDF muga gainditu duzu. Hobetu plana gehiago igotzeko.',
+    limitDesc: 'Zikloko PDF igoera-mugara edo galeriaren edukierara iritsi zara. PDF bat ezabatzeak tokia askatzen du, baina ez du erabilitako igoera berreskuratzen.',
     upgradeBtn: 'Plana Hobetu',
-    syncingQuota: 'Kuota sinkronizatzen...'
+    syncingQuota: 'Kuota sinkronizatzen...',
+    cycleUploads: 'Zikloko igoerak',
+    storedFiles: 'Galerian',
   }
 };
 
@@ -79,8 +85,11 @@ export const PlanGallery: React.FC<PlanGalleryProps> = ({ plans, onSelectPlan, o
   const [showDeleteId, setShowDeleteId] = useState<string | null>(null);
   const [showLimitModal, setShowLimitModal] = useState(false);
 
-  const currentCount = overrideCount !== undefined ? overrideCount : (usage?.plansCount || 0);
-  const isLimitReached = !quotaPending && currentCount >= limits.maxPdfUploads;
+  const monthlyLimit = limits.maxPdfUploadsPerMonth || limits.maxPdfUploads;
+  const monthlyCount = overrideCount !== undefined ? overrideCount : (usage?.plansCount || 0);
+  const storedLimit = limits.maxStoredPdfs;
+  const storedCount = plans.length;
+  const isLimitReached = (!quotaPending && monthlyCount >= monthlyLimit) || storedCount >= storedLimit;
 
   const handleUploadClick = () => {
     if (isLimitReached) {
@@ -110,7 +119,9 @@ export const PlanGallery: React.FC<PlanGalleryProps> = ({ plans, onSelectPlan, o
         
         {usage && (
            <div className="mt-2 text-xs font-mono text-neutral-500 bg-neutral-200 dark:bg-neutral-900 px-2 py-1 rounded">
-              Límite PDF: {quotaPending ? t.syncingQuota : `${currentCount} / ${limits.maxPdfUploads}`}
+              {quotaPending
+                ? t.syncingQuota
+                : `${t.cycleUploads}: ${monthlyCount}/${monthlyLimit} · ${t.storedFiles}: ${storedCount}/${storedLimit}`}
            </div>
         )}
       </div>

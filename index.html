@@ -14,6 +14,10 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="CoachAI" />
     <meta name="mobile-web-app-capable" content="yes" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net https://www.google.com/recaptcha/ https://www.gstatic.com/recaptcha/; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob: https://images.unsplash.com https://www.transparenttextures.com https://firebasestorage.googleapis.com https://storage.googleapis.com; media-src 'self' blob: https://firebasestorage.googleapis.com https://storage.googleapis.com; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://*.cloudfunctions.net https://*.firebaseapp.com https://*.firebasestorage.app https://firebasestorage.googleapis.com https://storage.googleapis.com https://cdn.jsdelivr.net https://www.google.com/recaptcha/; worker-src 'self' blob: https://cdn.jsdelivr.net; frame-src https://*.firebaseapp.com https://www.google.com/recaptcha/; object-src 'none'; base-uri 'self'; form-action 'self';"
+    />
     <link rel="manifest" href="/manifest.json" />
     <link rel="apple-touch-icon" href="/icons/icon-192.svg" />
     <link rel="icon" href="/favicon.ico" sizes="any" />
@@ -21,24 +25,6 @@
   <body class="bg-gray-100 text-neutral-900 dark:bg-neutral-950 dark:text-white min-h-[100dvh] w-full transition-colors duration-300">
     <div id="root" class="h-full w-full"></div>
     <script type="module" src="/index.tsx"></script>
-    <script>
-      if ("serviceWorker" in navigator && (window.location.protocol === "http:" || window.location.protocol === "https:")) {
-        var isLocalHost = ["localhost", "127.0.0.1", "::1"].indexOf(window.location.hostname) !== -1;
-        window.addEventListener("load", function () {
-          if (isLocalHost) {
-            navigator.serviceWorker.getRegistrations().then(function (registrations) {
-              registrations.forEach(function (registration) { registration.unregister(); });
-            }).catch(function () {});
-            if ("caches" in window) {
-              caches.keys().then(function (keys) {
-                keys.filter(function (key) { return key.indexOf("coach-ai") === 0; }).forEach(function (key) { caches.delete(key); });
-              }).catch(function () {});
-            }
-            return;
-          }
-          navigator.serviceWorker.register("/sw.js").catch(function () {});
-        });
-      }
-    </script>
+    <script src="/register-sw.js" defer></script>
   </body>
 </html>

@@ -14,83 +14,148 @@ export const CAMERA_CONSTRAINTS: MediaStreamConstraints = {
 };
 
 /**
- * Generates a thumbnail from the first frame (0.5s) of a video file.
- * Enhanced for mobile compatibility (iOS requires muted/playsInline).
- * Returns a placeholder if generation fails.
+ * Generates a compact thumbnail from an early visible frame of a video file.
+ * It retries later positions when intros/first frames are effectively black.
  */
 export const generateVideoThumbnail = (file: File): Promise<string> => {
   return new Promise((resolve) => {
     const video = document.createElement('video');
-    
-    // Critical attributes for mobile (iOS) background loading
+
+    // Critical attributes for mobile (iOS/Safari) background loading.
     video.preload = 'metadata';
     video.muted = true;
     video.playsInline = true;
-    
+
     const objectUrl = URL.createObjectURL(file);
     video.src = objectUrl;
-    
+
     // Default placeholder in case of failure (Dark gray with Orange chevron)
     const fallback = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='180' viewBox='0 0 320 180'%3E%3Crect width='320' height='180' fill='%231f1f1f'/%3E%3Cpath d='M140 70 L180 90 L140 110 Z' fill='%23ea580c'/%3E%3C/svg%3E";
 
     let isResolved = false;
+    let seekTargets: number[] = [];
+    let seekIndex = 0;
+    let bestCandidate = '';
 
     const safeResolve = (val: string) => {
       if (isResolved) return;
       isResolved = true;
+      window.clearTimeout(timeoutId);
       resolve(val);
       try {
         URL.revokeObjectURL(objectUrl);
-        // Clean up video element
+        video.onloadedmetadata = null;
         video.onseeked = null;
-        video.onloadeddata = null;
         video.onerror = null;
-        video.src = "";
+        video.removeAttribute('src');
         video.load();
-      } catch (e) {
+      } catch {
         // ignore cleanup errors
       }
     };
 
-    // Safety timeout (3s) - If video is huge or codec unsupported, fail gracefully
-    const timeoutId = setTimeout(() => {
-        console.warn("Thumbnail generation timed out for:", file.name);
-        safeResolve(fallback);
-    }, 3000);
+    const isFrameEffectivelyBlack = () => {
+      const sample = document.createElement('canvas');
+      sample.width = 24;
+      sample.height = 24;
+      const context = sample.getContext('2d', { willReadFrequently: true });
+      if (!context) return false;
 
-    video.onloadeddata = () => {
-       // Once metadata/data is loaded, seek to 0.5s
-       video.currentTime = 0.5;
+      context.drawImage(video, 0, 0, sample.width, sample.height);
+      const pixels = context.getImageData(0, 0, sample.width, sample.height).data;
+      let luminance = 0;
+      let detailedPixels = 0;
+      const pixelCount = pixels.length / 4;
+
+      for (let index = 0; index < pixels.length; index += 4) {
+        const value = (pixels[index] * 0.2126) + (pixels[index + 1] * 0.7152) + (pixels[index + 2] * 0.0722);
+        luminance += value;
+        if (value > 28) detailedPixels += 1;
+      }
+
+      return luminance / pixelCount < 11 && detailedPixels / pixelCount < 0.02;
+    };
+
+    const captureCurrentFrame = () => {
+      try {
+        if (video.videoWidth <= 0 || video.videoHeight <= 0) return '';
+
+        const maxWidth = 480;
+        const scale = Math.min(1, maxWidth / video.videoWidth);
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+        canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return '';
+
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        return canvas.toDataURL('image/jpeg', 0.72);
+      } catch (error) {
+        console.error('Canvas draw error', error);
+        return '';
+      }
+    };
+
+    const seekNextFrame = () => {
+      const target = seekTargets[seekIndex];
+      if (target === undefined) {
+        safeResolve(bestCandidate || fallback);
+        return;
+      }
+
+      try {
+        video.currentTime = target;
+      } catch {
+        seekIndex += 1;
+        seekNextFrame();
+      }
+    };
+
+    video.onloadedmetadata = () => {
+      const duration = Number.isFinite(video.duration) ? video.duration : 0;
+      if (duration <= 0) {
+        safeResolve(fallback);
+        return;
+      }
+
+      const lastSafeFrame = Math.max(0, duration - 0.05);
+      const candidates = [
+        Math.min(Math.max(duration * 0.12, 0.2), 3, lastSafeFrame),
+        Math.min(Math.max(duration * 0.4, 0.35), 6, lastSafeFrame),
+        Math.min(Math.max(duration * 0.7, 0.5), 10, lastSafeFrame),
+      ];
+
+      seekTargets = candidates.filter((target, index) => (
+        target >= 0 && candidates.findIndex((candidate) => Math.abs(candidate - target) < 0.04) === index
+      ));
+      seekIndex = 0;
+      seekNextFrame();
     };
 
     video.onseeked = () => {
-      clearTimeout(timeoutId);
-      try {
-        const canvas = document.createElement('canvas');
-        canvas.width = video.videoWidth || 320;
-        canvas.height = video.videoHeight || 180;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            // Compress to 0.6 to save memory on mobile
-            const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
-            safeResolve(dataUrl);
-        } else {
-            safeResolve(fallback);
-        }
-      } catch (e) {
-        console.error("Canvas draw error", e);
-        safeResolve(fallback);
+      const candidate = captureCurrentFrame();
+      if (candidate) bestCandidate = candidate;
+
+      if (candidate && !isFrameEffectivelyBlack()) {
+        safeResolve(candidate);
+        return;
       }
+
+      seekIndex += 1;
+      seekNextFrame();
     };
-    
-    video.onerror = (e) => {
-        clearTimeout(timeoutId);
-        // Clean log to avoid [object Event]
-        console.warn("Thumbnail generation failed: Video could not be loaded.");
-        safeResolve(fallback); 
+
+    video.onerror = () => {
+      console.warn('Thumbnail generation failed: Video could not be loaded.');
+      safeResolve(bestCandidate || fallback);
     };
-    
+
+    // Large mobile recordings can take a moment to expose a seekable frame.
+    const timeoutId = window.setTimeout(() => {
+      console.warn('Thumbnail generation timed out for:', file.name);
+      safeResolve(bestCandidate || fallback);
+    }, 8000);
+
     // Trigger load
     video.load();
   });

@@ -3,12 +3,16 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=20.19.0"
+  },
   "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite",
     "build": "tsx scripts/generate-public-media.ts && vite build && tsx scripts/generate-seo-pages.tsx",
     "preview": "vite preview",
-    "test": "npm --prefix fns test",
+    "test": "npm --prefix fns test && npm run test:performance",
+    "test:performance": "tsx --test test/performance-chart.test.mjs",
     "electron:dev": "vite build && electron .",
     "electron:build": "vite build && npx electron-builder --win --x64",
     "cap:add:ios": "npx cap add ios",
@@ -55,35 +59,39 @@
     }
   },
   "dependencies": {
-    "@capacitor/android": "^8.3.0",
-    "@capacitor/app": "^8.1.0",
-    "@capacitor/browser": "^8.0.3",
-    "@capacitor/cli": "^8.3.0",
-    "@capacitor/core": "^8.3.0",
-    "@capacitor/ios": "^8.3.0",
-    "@google/genai": "^0.2.0",
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/app": "^8.1.1",
+    "@capacitor/browser": "^8.0.4",
+    "@capacitor/core": "^8.5.0",
+    "@capacitor/ios": "^8.5.0",
     "@mediapipe/tasks-vision": "^0.10.22-rc.20250304",
     "clsx": "^2.1.0",
-    "firebase": "^10.8.0",
+    "firebase": "^12.17.0",
     "lucide-react": "^0.344.0",
+    "pdfjs-dist": "5.4.624",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "tailwind-merge": "^2.2.1"
   },
   "devDependencies": {
-    "@electron/packager": "^19.0.5",
+    "@capacitor/cli": "^8.5.0",
+    "@electron/packager": "^19.1.1",
     "@types/react": "^18.2.56",
     "@types/react-dom": "^18.2.19",
-    "@vitejs/plugin-react": "^4.2.1",
+    "@vitejs/plugin-react": "^6.0.5",
     "autoprefixer": "^10.4.18",
-    "electron": "^40.6.0",
-    "electron-builder": "^26.8.1",
+    "electron": "^40.10.6",
+    "electron-builder": "^26.15.3",
     "postcss": "^8.4.35",
-    "sharp": "^0.34.5",
+    "sharp": "^0.35.3",
     "tailwindcss": "^3.4.1",
     "terser": "^5.44.1",
     "tsx": "^4.21.0",
     "typescript": "^5.2.2",
-    "vite": "^5.1.4"
+    "vite": "^8.2.0"
+  },
+  "overrides": {
+    "esbuild": "0.28.1",
+    "uuid": "11.1.1"
   }
 }

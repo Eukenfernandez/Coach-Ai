@@ -1,8 +1,8 @@
 
-import React, { useRef, useState, useEffect, useCallback } from 'react';
+import React, { useRef, useState, useEffect, useLayoutEffect, useCallback } from 'react';
 import { VideoContextDoc, VideoFile, ChatMessage, UserUsage, UserLimits, Language, UserProfile, Screen, VideoPoseSnapshot, VideoQuestionMode } from '../types';
 import { VideoIntelligenceService } from '../svcs/videoIntelligenceService';
-import { StorageService } from '../svcs/storageService';
+import { StorageService, VideoStorage } from '../svcs/storageService';
 import { usePoseDetection, drawPoseOnCanvas, drawPoseOnCanvasWithOffset, POSE_CONNECTIONS, BODY_KEYPOINTS } from '../hks/usePoseDetection';
 import { getBiomechanicalContext } from '../utl/biomechanics';
 import {
@@ -56,7 +56,16 @@ const ANALYZER_TEXTS = {
       viewPlans: 'Ver Planes',
       close: 'Cerrar',
       connectionError: 'Error de conexión.',
-      limitResponse: 'Has llegado al límite mensual de mensajes de IA de tu suscripción. Para seguir preguntando al entrenador, mejora tu plan o espera al próximo reseteo mensual.'
+      limitResponse: 'Has llegado al límite de mensajes de IA de tu ciclo de facturación. Para seguir preguntando al entrenador, mejora tu plan o espera a la próxima renovación.',
+      freehand: 'Lápiz libre',
+      straightLine: 'Línea recta',
+      eraser: 'Goma de borrar',
+      clearAll: 'Borrar todo',
+      drawingMode: 'Modo lápiz',
+      poseDetection: 'Detección corporal',
+      poseRetry: 'Reintentar detección corporal',
+      compareVideo: 'Comparar vídeo',
+      syncMovement: 'Sincronizar movimiento'
    },
    ing: {
       chatIntro: 'Hi, I\'m your AI coach. What do you want to analyze in this video?',
@@ -74,7 +83,16 @@ const ANALYZER_TEXTS = {
       viewPlans: 'View Plans',
       close: 'Close',
       connectionError: 'Connection error.',
-      limitResponse: 'You have reached your subscription monthly AI message limit. Upgrade your plan or wait for the next monthly reset to keep asking the coach.'
+      limitResponse: 'You have reached the AI message limit for your billing cycle. Upgrade your plan or wait for the next renewal to keep asking the coach.',
+      freehand: 'Freehand pencil',
+      straightLine: 'Straight line',
+      eraser: 'Eraser',
+      clearAll: 'Clear all',
+      drawingMode: 'Drawing mode',
+      poseDetection: 'Body detection',
+      poseRetry: 'Retry body detection',
+      compareVideo: 'Compare video',
+      syncMovement: 'Sync movement'
    },
    eus: {
       chatIntro: 'Kaixo, zure AI entrenatzailea naiz. Zer aztertu nahi duzu bideo honetan?',
@@ -92,7 +110,16 @@ const ANALYZER_TEXTS = {
       viewPlans: 'Ikusi Planak',
       close: 'Itxi',
       connectionError: 'Konexio errorea.',
-      limitResponse: 'Zure harpidetzaren hileko IA mezuen mugara iritsi zara. Jarraitzeko, hobetu plana edo itxaron hileko berrezarpenera.'
+      limitResponse: 'Fakturazio-zikloko IA mezuen mugara iritsi zara. Jarraitzeko, hobetu plana edo itxaron hurrengo berritzera.',
+      freehand: 'Arkatz librea',
+      straightLine: 'Lerro zuzena',
+      eraser: 'Borragoma',
+      clearAll: 'Ezabatu dena',
+      drawingMode: 'Marrazketa modua',
+      poseDetection: 'Gorputz detekzioa',
+      poseRetry: 'Saiatu berriro gorputza detektatzen',
+      compareVideo: 'Konparatu bideoa',
+      syncMovement: 'Sinkronizatu mugimendua'
    }
 };
 
@@ -280,9 +307,9 @@ const formatContextSourcesLabel = (sources: string[], language: Language) => {
 interface DualScrubberProps {
    curr: number;
    dur: number;
-   setTime: (t: number, isDragging?: boolean) => void;
+   setTime: (t: number, isDragging?: boolean, exact?: boolean) => void;
    onScrubStart: () => void;
-   onScrubEnd: () => void;
+   onScrubEnd: (finalTime: number) => void;
    label?: string;
    isSecondary?: boolean;
 }
@@ -335,7 +362,7 @@ const DualScrubber: React.FC<DualScrubberProps> = ({
       const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
       const t = pct * dur;
       setLocalTime(t);
-      setTime(t, true);
+      setTime(t, true, false);
    };
 
    const handlePointerDownSlow = (e: React.PointerEvent) => {
@@ -343,6 +370,23 @@ const DualScrubber: React.FC<DualScrubberProps> = ({
       dragState.current = { ...dragState.current, slow: true, startX: e.clientX, startTime: curr, activePointerId: e.pointerId };
       setLocalTime(curr);
       onScrubStart();
+   };
+
+   const getPointerTime = (clientX: number) => {
+      const state = dragState.current;
+
+      if (state.fast && fastRef.current && dur > 0) {
+         const rect = fastRef.current.getBoundingClientRect();
+         const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+         return pct * dur;
+      }
+
+      if (state.slow) {
+         const timeDelta = -(clientX - state.startX) / PIXELS_PER_SECOND;
+         return Math.max(0, Math.min(dur, state.startTime + timeDelta));
+      }
+
+      return Math.max(0, Math.min(dur, curr));
    };
 
    const handlePointerMove = (e: React.PointerEvent) => {
@@ -364,24 +408,20 @@ const DualScrubber: React.FC<DualScrubberProps> = ({
             const clientX = pendingClientX.current;
             if (clientX === null) return;
 
-            if (state.fast && fastRef.current && dur > 0) {
-               const rect = fastRef.current.getBoundingClientRect();
-               const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-               const t = pct * dur;
-               setLocalTime(t);
-               setTime(t, true);
-            } else if (state.slow) {
-               const timeDelta = -(clientX - state.startX) / PIXELS_PER_SECOND;
-               const newTime = Math.max(0, Math.min(dur, state.startTime + timeDelta));
-               setLocalTime(newTime);
-               setTime(newTime, true);
-            }
+            const nextTime = getPointerTime(clientX);
+            setLocalTime(nextTime);
+            setTime(nextTime, true, dragState.current.slow);
          });
       }
    };
 
    const handlePointerUp = (e: React.PointerEvent) => {
       if (dragState.current.activePointerId === e.pointerId) {
+         // Pointer-up can arrive before the final RAF. Resolve its coordinate
+         // synchronously so the last requested frame is never discarded.
+         const finalTime = getPointerTime(e.clientX);
+         setTime(finalTime, true, dragState.current.slow);
+
          if (e.currentTarget.hasPointerCapture(e.pointerId)) {
              e.currentTarget.releasePointerCapture(e.pointerId);
          }
@@ -392,7 +432,7 @@ const DualScrubber: React.FC<DualScrubberProps> = ({
          if (rafRef.current) cancelAnimationFrame(rafRef.current);
          rafRef.current = null;
          
-         onScrubEnd();
+         onScrubEnd(finalTime);
       }
    };
 
@@ -545,7 +585,6 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
    const primaryPendingSeekRef = useRef<number | null>(null);
    const primaryPendingSeekExactRef = useRef(false);
    const primarySeekInFlightRef = useRef(false);
-   const primaryLastDragSeekTargetRef = useRef<number | null>(null);
    const scrubResumePlaybackRef = useRef(false);
    const primaryDisplayedFrameTimeRef = useRef(0);
    const primaryFrameIntervalRef = useRef(1 / 30);
@@ -585,6 +624,8 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
   const isVideoLoaded = videoLoadState === 'ready';
   const [videoError, setVideoError] = useState<string | null>(null);
   const [resolvedRemoteUrl, setResolvedRemoteUrl] = useState<string>(video.downloadURL || video.remoteUrl || '');
+  const [primedPlayback, setPrimedPlayback] = useState<{ videoId: string; url: string } | null>(null);
+  const [remoteFallbackVideoId, setRemoteFallbackVideoId] = useState<string | null>(null);
   const [isRecoveringVideoSource, setIsRecoveringVideoSource] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef1 = useRef<HTMLCanvasElement>(null);
@@ -608,13 +649,35 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
    const poseCanvasRef2 = useRef<HTMLCanvasElement>(null); // For comparison video
    const [videoDimensions, setVideoDimensions] = useState({ width: 0, height: 0, left: 0, top: 0 });
    // Single pose detection hook that handles both videos sequentially
-   const { landmarks, landmarks2, isLoading: isPoseLoading, isReady: isPoseReady, error: poseError } = usePoseDetection(
+   const {
+      landmarks,
+      landmarks2,
+      isLoading: isPoseLoading,
+      isReady: isPoseReady,
+      error: poseError,
+      retry: retryPoseDetection,
+   } = usePoseDetection(
       videoRef,
       isPoseEnabled,
       compareVideo ? videoRef2 : null
    );
 
-  const activeUrl = video.url || resolvedRemoteUrl || video.downloadURL || video.remoteUrl || "";
+  const localSourceUrl = video.url?.startsWith('blob:') ? video.url : '';
+  const remoteSourceUrl = resolvedRemoteUrl
+     || video.downloadURL
+     || video.remoteUrl
+     || (/^https?:/i.test(video.url || '') ? (video.url || '') : '');
+  const primedPlaybackUrl = primedPlayback?.videoId === video.id ? primedPlayback.url : '';
+  const canUseRemoteFallback = remoteFallbackVideoId === video.id;
+  const isPreparingRemotePlayback = Boolean(
+     !localSourceUrl
+     && remoteSourceUrl
+     && !primedPlaybackUrl
+     && !canUseRemoteFallback
+  );
+  const activeUrl = localSourceUrl
+     || primedPlaybackUrl
+     || (canUseRemoteFallback ? remoteSourceUrl : '');
    const messagesUsed = usage?.chatCount || 0;
   const chatLimit = limits?.maxChatMessagesPerMonth === 'unlimited' ? Infinity : (limits?.maxChatMessagesPerMonth as number || 0);
   const isLimitReached = messagesUsed >= chatLimit;
@@ -745,6 +808,54 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
      videoRecoveryAttemptedRef.current = false;
   }, [video.id, video.downloadURL, video.remoteUrl, video.url]);
 
+  useEffect(() => {
+     if (localSourceUrl || !remoteSourceUrl) return;
+
+     const controller = new AbortController();
+     let objectUrl = '';
+     let cancelled = false;
+
+     setRemoteFallbackVideoId((current) => current === video.id ? null : current);
+     setVideoLoadState('loading');
+     setVideoError(null);
+
+     const primeRemotePlayback = async () => {
+        try {
+           const response = await fetch(remoteSourceUrl, {
+              cache: 'force-cache',
+              signal: controller.signal,
+           });
+           if (!response.ok) {
+              throw new Error(`Video preload failed with status ${response.status}.`);
+           }
+
+           const blob = await response.blob();
+           if (cancelled || blob.size <= 0) return;
+
+           objectUrl = URL.createObjectURL(blob);
+           setPrimedPlayback({ videoId: video.id, url: objectUrl });
+
+           // Reuse the fully downloaded file on later visits. The analyzer can
+           // start immediately next time instead of seeking over the network.
+           void VideoStorage.saveVideo(video.id, blob).catch((error) => {
+              console.warn('[video-playback] Could not persist the local playback cache.', error);
+           });
+        } catch (error) {
+           if (cancelled || controller.signal.aborted) return;
+           console.warn('[video-playback] Full preload failed; using remote streaming fallback.', error);
+           setRemoteFallbackVideoId(video.id);
+        }
+     };
+
+     void primeRemotePlayback();
+
+     return () => {
+        cancelled = true;
+        controller.abort();
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
+     };
+  }, [localSourceUrl, remoteSourceUrl, video.id]);
+
   const recoverVideoSource = useCallback(async () => {
      if (!targetUserId) return false;
 
@@ -778,7 +889,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
       setVideoContextError(null);
       setChatSessionId(null);
       contextBootstrapRef.current = false;
-      if (!activeUrl) {
+      if (!activeUrl && !isPreparingRemotePlayback) {
          setVideoError(getVideoErrorMessage(video.errorCode, video.errorMessage || 'Error: URL de video no encontrada.'));
          setVideoLoadState('error');
       }
@@ -789,7 +900,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
          setDuration(videoRef.current.duration);
          setIsVertical(videoRef.current.videoHeight > videoRef.current.videoWidth);
       }
-  }, [activeUrl, getVideoErrorMessage, video.errorCode, video.errorMessage, video.id]);
+  }, [activeUrl, getVideoErrorMessage, isPreparingRemotePlayback, video.errorCode, video.errorMessage, video.id]);
 
    const triggerVideoContextPreparation = useCallback((force: boolean = false) => {
       if (!targetUserId || !video.id) return;
@@ -830,11 +941,12 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
    }, [targetUserId, video.id]);
 
    useEffect(() => {
+      if (!isVideoLoaded || isPreparingRemotePlayback) return;
       if ((!activeUrl && !video.storagePath) || video.isUploading || video.status === 'error') return;
       if (!videoContext) {
          triggerVideoContextPreparation(false);
       }
-   }, [activeUrl, triggerVideoContextPreparation, video.isUploading, video.status, video.storagePath, videoContext]);
+   }, [activeUrl, isPreparingRemotePlayback, isVideoLoaded, triggerVideoContextPreparation, video.isUploading, video.status, video.storagePath, videoContext]);
 
    // ÚNICA FUENTE DE VERDAD PARA ESTADO DE CARGA
   const handleLoadStart = () => {
@@ -1169,7 +1281,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
       };
    }, [isVideoLoaded, compareVideo, zoom1, pan1, zoom2, pan2]);
 
-   useEffect(() => {
+   useLayoutEffect(() => {
       const poseCanvas = poseCanvasRef.current;
       const video = videoRef.current;
       if (!poseCanvas || !video) return;
@@ -1239,7 +1351,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
    }, [landmarks, isPoseEnabled, isVideoLoaded, currentTime, zoom1, pan1]);
 
    // --- POSE CANVAS DRAWING LOGIC FOR COMPARISON VIDEO ---
-   useEffect(() => {
+   useLayoutEffect(() => {
       const poseCanvas = poseCanvasRef2.current;
       const video = videoRef2.current;
       if (!poseCanvas || !video || !compareVideo) return;
@@ -1448,12 +1560,13 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
       const exactSeek = primaryPendingSeekExactRef.current;
       primaryPendingSeekExactRef.current = false;
       primarySeekInFlightRef.current = true;
-      applySeekInstant(el, next, { exact: exactSeek });
 
       let released = false;
+      let safetyTimeout: number | null = null;
       const release = () => {
          if (released) return;
          released = true;
+         if (safetyTimeout !== null) window.clearTimeout(safetyTimeout);
          primarySeekInFlightRef.current = false;
          el.removeEventListener('seeked', release);
          el.removeEventListener('error', release);
@@ -1465,13 +1578,13 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
          }
       };
 
-      if (exactSeek) {
-         requestAnimationFrame(release);
-      } else {
-         el.addEventListener('seeked', release, { once: true });
-         el.addEventListener('error', release, { once: true });
-         window.setTimeout(release, 40);
-      }
+      el.addEventListener('seeked', release, { once: true });
+      el.addEventListener('error', release, { once: true });
+      // Install listeners before assigning currentTime. Releasing this queue
+      // after only 40 ms caused remote seeks to continually cancel each other,
+      // so no frame was presented until the pointer stopped moving.
+      applySeekInstant(el, next, { exact: exactSeek });
+      safetyTimeout = window.setTimeout(release, 2_000);
    }, [applySeekInstant]);
 
    const seekSynced = useCallback((time: number, isDragging: boolean = false) => {
@@ -1543,59 +1656,8 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
       });
    }, []);
 
-   // Final seek when scrubbing ends to ensure we land exactly on the target time and sync global state
-   const flushPendingSeek = useCallback(() => {
-      if (compareVideo && isSynced && videoRef.current && videoRef2.current) {
-         if (syncedSeekQueueRafRef.current !== null) {
-            cancelAnimationFrame(syncedSeekQueueRafRef.current);
-            syncedSeekQueueRafRef.current = null;
-         }
-
-         const pendingPrimaryTime = syncedPendingSeekTimeRef.current;
-         if (pendingPrimaryTime !== null) {
-            const maxCompareTime = Number.isFinite(compareDuration) && compareDuration > 0
-               ? compareDuration
-               : videoRef2.current.duration || Number.MAX_SAFE_INTEGER;
-            const targetCompareTime = Math.max(0, Math.min(maxCompareTime, pendingPrimaryTime + syncOffset));
-
-            videoRef.current.currentTime = pendingPrimaryTime;
-            videoRef2.current.currentTime = targetCompareTime;
-            setCurrentTime(pendingPrimaryTime);
-            setCompareTime(targetCompareTime);
-         } else {
-            setCurrentTime(videoRef.current.currentTime);
-            setCompareTime(videoRef2.current.currentTime);
-         }
-
-         syncedPendingSeekTimeRef.current = null;
-         return;
-      }
-
-      if (videoRef.current) {
-         setCurrentTime(videoRef.current.currentTime);
-      }
-      if (videoRef2.current) {
-         if (secondarySeekQueueRafRef.current !== null) {
-            cancelAnimationFrame(secondarySeekQueueRafRef.current);
-            secondarySeekQueueRafRef.current = null;
-         }
-
-         const pendingSecondaryTime = secondaryPendingSeekTimeRef.current;
-         if (pendingSecondaryTime !== null && Math.abs(videoRef2.current.currentTime - pendingSecondaryTime) > 1 / 240) {
-            videoRef2.current.currentTime = pendingSecondaryTime;
-            setCompareTime(pendingSecondaryTime);
-         } else {
-            setCompareTime(videoRef2.current.currentTime);
-         }
-
-         secondaryPendingSeekTimeRef.current = null;
-         secondarySeekInFlightRef.current = false;
-      }
-    }, [compareDuration, compareVideo, isSynced, syncOffset]);
-
    const handleScrubStart = useCallback(() => {
       scrubResumePlaybackRef.current = isPlaying;
-      primaryLastDragSeekTargetRef.current = videoRef.current?.currentTime ?? null;
       setIsScrubbing(true);
       if (isPlaying) {
          videoRef.current?.pause();
@@ -1604,13 +1666,8 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
       }
    }, [isPlaying]);
 
-   const handleScrubEnd = useCallback(() => {
+   const resumeAfterScrub = useCallback(() => {
       setIsScrubbing(false);
-      primaryPendingSeekRef.current = null;
-      primaryPendingSeekExactRef.current = false;
-      primarySeekInFlightRef.current = false;
-      primaryLastDragSeekTargetRef.current = null;
-      flushPendingSeek();
 
       if (scrubResumePlaybackRef.current) {
          videoRef.current?.play();
@@ -1618,9 +1675,56 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
          setIsPlaying(true);
       }
       scrubResumePlaybackRef.current = false;
-   }, [compareVideo, flushPendingSeek]);
+   }, [compareVideo]);
 
-   const seek = (time: number, isDragging: boolean = false) => {
+   const handlePrimaryScrubEnd = useCallback((requestedTime: number) => {
+      const primaryVideo = videoRef.current;
+      const finalTime = primaryVideo
+         ? clampMediaTime(requestedTime, primaryVideo.duration)
+         : Math.max(0, requestedTime);
+
+      primaryPendingSeekRef.current = null;
+      primaryPendingSeekExactRef.current = false;
+      primarySeekInFlightRef.current = false;
+
+      if (primaryVideo) {
+         // Settle on the precise frame only once, after responsive scrubbing.
+         applySeekInstant(primaryVideo, finalTime, { exact: true });
+         primaryDisplayedFrameTimeRef.current = finalTime;
+      }
+      setCurrentTime(finalTime);
+
+      if (compareVideo && isSynced && videoRef2.current) {
+         const secondaryVideo = videoRef2.current;
+         const targetCompareTime = clampMediaTime(finalTime + syncOffset, secondaryVideo.duration);
+         applySeekInstant(secondaryVideo, targetCompareTime, { exact: true });
+         setCompareTime(targetCompareTime);
+      }
+
+      resumeAfterScrub();
+   }, [applySeekInstant, compareVideo, isSynced, resumeAfterScrub, syncOffset]);
+
+   const handleSecondaryScrubEnd = useCallback((requestedTime: number) => {
+      const secondaryVideo = videoRef2.current;
+      const finalTime = secondaryVideo
+         ? clampMediaTime(requestedTime, secondaryVideo.duration)
+         : Math.max(0, requestedTime);
+
+      if (secondarySeekQueueRafRef.current !== null) {
+         cancelAnimationFrame(secondarySeekQueueRafRef.current);
+         secondarySeekQueueRafRef.current = null;
+      }
+      secondaryPendingSeekTimeRef.current = null;
+      secondarySeekInFlightRef.current = false;
+
+      if (secondaryVideo) {
+         secondaryVideo.currentTime = finalTime;
+      }
+      setCompareTime(finalTime);
+      resumeAfterScrub();
+   }, [resumeAfterScrub]);
+
+   const seek = (time: number, isDragging: boolean = false, exactDuringDrag: boolean = false) => {
       // Solo actualizamos el estado completo (con rerenders pesados) fuera del scrubbing rápido
       if (!isDragging) {
          setCurrentTime(time);
@@ -1628,23 +1732,17 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
 
       if (!videoRef.current) return;
 
-      let exactSeek = false;
       if (isDragging) {
          // Cola durante arrastre: evita bombardear el decoder con seeks superpuestos.
-         const previousTarget = primaryLastDragSeekTargetRef.current ?? videoRef.current.currentTime;
-         const isBackwardScrub = time < previousTarget - 1 / 240;
-         exactSeek = isBackwardScrub;
-         primaryLastDragSeekTargetRef.current = time;
          primaryPendingSeekRef.current = time;
-         primaryPendingSeekExactRef.current = isBackwardScrub;
+         primaryPendingSeekExactRef.current = exactDuringDrag;
          drainPrimarySeekQueue();
       } else {
-         primaryLastDragSeekTargetRef.current = null;
          primaryPendingSeekExactRef.current = false;
          applySeekInstant(videoRef.current, time);
       }
       if (compareVideo && isSynced && videoRef2.current) {
-         applySeekInstant(videoRef2.current, time + syncOffset, { exact: exactSeek });
+         applySeekInstant(videoRef2.current, time + syncOffset, { exact: exactDuringDrag });
       }
    };
 
@@ -1875,21 +1973,21 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
                            <button
                               onClick={() => { setActiveTool('pen'); setDrawShape('free'); }}
                               className={`p-1.5 rounded-full transition-colors ${activeTool === 'pen' && drawShape === 'free' ? 'bg-white/20 text-white' : 'text-neutral-400 hover:text-white'}`}
-                              title="Lápiz Libre"
+                              title={t.freehand}
                            >
                               <PenTool size={14} />
                            </button>
                            <button
                               onClick={() => { setActiveTool('pen'); setDrawShape('line'); }}
                               className={`p-1.5 rounded-full transition-colors ${activeTool === 'pen' && drawShape === 'line' ? 'bg-white/20 text-white' : 'text-neutral-400 hover:text-white'}`}
-                              title="Línea Recta"
+                              title={t.straightLine}
                            >
                               <Minus size={14} className="-rotate-45" />
                            </button>
                            <button
                               onClick={() => setActiveTool('eraser')}
                               className={`p-1.5 rounded-full transition-colors ${activeTool === 'eraser' ? 'bg-white/20 text-white' : 'text-neutral-400 hover:text-white'}`}
-                              title="Goma de Borrar"
+                              title={t.eraser}
                            >
                               <Eraser size={14} />
                            </button>
@@ -1897,7 +1995,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
                            <button
                               onClick={() => { setDrawings1([]); setDrawings2([]); }}
                               className="p-1.5 text-red-400 hover:bg-red-900/30 rounded-full transition-colors"
-                              title="Borrar Todo"
+                              title={t.clearAll}
                            >
                               <Trash2 size={14} />
                            </button>
@@ -1908,21 +2006,29 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
                   <button
                      onClick={() => setIsDrawingMode(!isDrawingMode)}
                      className={`p-3 rounded-full border transition-all ${isDrawingMode ? 'bg-orange-600 border-orange-500 text-white' : 'bg-black/40 border-white/10 text-white hover:bg-white/10'}`}
-                     title="Modo Lápiz"
+                     title={t.drawingMode}
                   >
                      <PenTool size={20} />
                   </button>
 
                   {/* Pose Detection Toggle */}
                   <button
-                     onClick={() => setIsPoseEnabled(!isPoseEnabled)}
+                     onClick={() => {
+                        if (poseError) {
+                           setIsPoseEnabled(true);
+                           void retryPoseDetection();
+                           return;
+                        }
+                        setIsPoseEnabled(!isPoseEnabled);
+                     }}
                      className={`p-3 rounded-full border transition-all relative ${poseError
                         ? 'bg-red-600 border-red-500 text-white'
                         : isPoseEnabled
                            ? 'bg-green-600 border-green-500 text-white'
                            : 'bg-black/40 border-white/10 text-white hover:bg-white/10'
                         }`}
-                     title={poseError ? `Error: ${poseError}` : "Detección de Postura"}
+                     title={poseError ? t.poseRetry : t.poseDetection}
+                     aria-label={poseError ? t.poseRetry : t.poseDetection}
                      disabled={isPoseLoading}
                   >
                      {isPoseLoading ? (
@@ -1952,7 +2058,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
                               ? 'bg-black/40 border-white/10 text-white hover:bg-white/10'
                               : 'bg-neutral-800/60 border-neutral-700 text-neutral-500 cursor-pointer'
                            }`}
-                        title={canCompare ? "Comparar Vídeo" : "Función Pro/Premium"}
+                        title={canCompare ? t.compareVideo : t.upgradeTitle}
                      >
                         <Split size={20} />
                         {/* Lock badge for free users */}
@@ -1990,7 +2096,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
                         <button
                            onClick={toggleSync}
                            className={`p-3 rounded-full border transition-all ${isSynced ? 'bg-green-600 border-green-500 text-white' : 'bg-black/40 border-white/10 text-white hover:bg-white/10'}`}
-                           title="Sincronizar movimiento"
+                           title={t.syncMovement}
                         >
                            {isSynced ? <Link2 size={20} /> : <Unlink size={20} />}
                         </button>
@@ -2091,7 +2197,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
                         transform: `scale(${zoom1}) translate(${pan1.x}px, ${pan1.y}px)`,
                      }}
                   >
-                     {(videoLoadState === 'error' || (!activeUrl && !isRecoveringVideoSource)) && (
+                     {(videoLoadState === 'error' || (!activeUrl && !isRecoveringVideoSource && !isPreparingRemotePlayback)) && (
                         <div className="absolute inset-0 flex items-center justify-center px-4">
                            <div className="max-w-md rounded-2xl border border-red-500/20 bg-red-950/30 px-6 py-5 text-center shadow-2xl">
                               <p className="text-sm leading-6 text-red-100">
@@ -2170,7 +2276,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
                            dur={duration}
                            setTime={seek}
                            onScrubStart={handleScrubStart}
-                           onScrubEnd={handleScrubEnd}
+                           onScrubEnd={handlePrimaryScrubEnd}
                            label="CAM A"
                         />
                      </div>
@@ -2239,7 +2345,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
                               dur={compareDuration}
                               setTime={seek2}
                               onScrubStart={handleScrubStart}
-                              onScrubEnd={handleScrubEnd}
+                              onScrubEnd={handleSecondaryScrubEnd}
                               isSecondary
                               label="CAM B"
                            />
@@ -2262,7 +2368,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
                         dur={duration}
                         setTime={seek}
                         onScrubStart={handleScrubStart}
-                        onScrubEnd={handleScrubEnd}
+                        onScrubEnd={handlePrimaryScrubEnd}
                         label="CAM A"
                      />
                   ) : (
@@ -2272,7 +2378,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
                            dur={duration}
                            setTime={seek}
                            onScrubStart={handleScrubStart}
-                           onScrubEnd={handleScrubEnd}
+                           onScrubEnd={handlePrimaryScrubEnd}
                            label="CAM A"
                         />
                         {!isSynced && (
@@ -2281,7 +2387,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
                               dur={compareDuration}
                               setTime={seek2}
                               onScrubStart={handleScrubStart}
-                              onScrubEnd={handleScrubEnd}
+                              onScrubEnd={handleSecondaryScrubEnd}
                               isSecondary
                               label="CAM B"
                            />

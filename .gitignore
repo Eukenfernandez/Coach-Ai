@@ -30,3 +30,4 @@ fns/output/
 *.sw?
 
 .vercel
+.env*

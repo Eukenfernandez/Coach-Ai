@@ -5,6 +5,8 @@ import 'firebase/compat/auth';
 import 'firebase/compat/firestore';
 import 'firebase/compat/storage';
 import 'firebase/compat/functions'; // Required to call Cloud Functions
+import 'firebase/compat/app-check';
+import { persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore';
 
 export type FirestoreDataSource = 'memory' | 'local' | 'server' | 'cache';
 
@@ -44,27 +46,6 @@ const USERDATA_CACHE_TTL_MS = 30000;
 const PENDING_REQUESTS_CACHE_TTL_MS = 15000;
 
 const isBrowserOnline = () => typeof navigator === 'undefined' ? true : navigator.onLine;
-
-const getUtcMonthKeyFromDate = (date = new Date()) =>
-  `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
-
-const getUtcMonthKeyFromValue = (value: unknown): string | null => {
-  if (!value) return null;
-  const parsed = value instanceof Date ? value : new Date(String(value));
-  if (Number.isNaN(parsed.getTime())) return null;
-  return getUtcMonthKeyFromDate(parsed);
-};
-
-const isLegacyUsageInPeriod = (legacyUsage: any, period?: string | null) => {
-  // Older deployed quota functions did not return a monthly period. In that
-  // case, the legacy cloud usage counter is the best available upload counter
-  // until the new server-side monthly quota functions are deployed.
-  if (!period) return true;
-  const explicitPeriod = legacyUsage?.period || legacyUsage?.monthKey || legacyUsage?.monthlyPeriod;
-  if (explicitPeriod) return String(explicitPeriod) === period;
-  const resetPeriod = getUtcMonthKeyFromValue(legacyUsage?.lastAnalysisReset || legacyUsage?.lastChatReset);
-  return resetPeriod === period;
-};
 
 const waitForAuthReady = (timeoutMs = 3000): Promise<firebase.User | null> => {
   if (!auth) return Promise.resolve(null);
@@ -323,11 +304,26 @@ try {
   const app = firebase.app();
   auth = app.auth();
 
+  const appCheckSiteKey = typeof import.meta !== 'undefined'
+    ? import.meta.env?.VITE_FIREBASE_APPCHECK_SITE_KEY
+    : undefined;
+  if (
+    appCheckSiteKey
+    && typeof window !== 'undefined'
+    && (window.location.protocol === 'https:' || window.location.hostname === 'localhost')
+  ) {
+    app.appCheck().activate(appCheckSiteKey, true);
+  }
+
   // COMPAT FIRESTORE INITIALIZATION
   db = app.firestore();
   try {
     db.settings({
+      merge: true,
       ignoreUndefinedProperties: true,
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager(),
+      }),
       experimentalAutoDetectLongPolling:
         typeof window !== 'undefined' &&
         (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'),
@@ -335,11 +331,6 @@ try {
   } catch (settingsError) {
     console.warn("Firestore settings were already locked; reusing existing instance.", settingsError);
   }
-
-  // Enable persistence (equivalent to persistentLocalCache + persistentMultipleTabManager)
-  db.enablePersistence({ synchronizeTabs: true }).catch((err) => {
-    console.warn("Persistence could not be enabled:", err);
-  });
 
   storage = app.storage();
   isFirebaseConfigured = true;
@@ -559,12 +550,37 @@ const fetchAssetSubcollection = async <T>(path: string): Promise<T[]> => {
 
 const DB_NAME = 'CoachAI_StorageV2';
 const STORES = { VIDEOS: 'videos', PLANS: 'plans' };
+const INDEXED_DB_OPEN_TIMEOUT_MS = 5000;
+const INDEXED_DB_OPERATION_TIMEOUT_MS = 5000;
 
 const openDB = (): Promise<IDBDatabase> => {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, 2);
-    request.onerror = () => reject(request.error);
-    request.onsuccess = () => resolve(request.result);
+    let settled = false;
+    const timeoutId = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error('La base de datos local ha tardado demasiado en responder.'));
+    }, INDEXED_DB_OPEN_TIMEOUT_MS);
+
+    const fail = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      reject(error instanceof Error ? error : new Error('No se ha podido abrir la base de datos local.'));
+    };
+
+    request.onerror = () => fail(request.error);
+    request.onblocked = () => fail(new Error('La base de datos local está bloqueada por otra pestaña.'));
+    request.onsuccess = () => {
+      if (settled) {
+        request.result.close();
+        return;
+      }
+      settled = true;
+      clearTimeout(timeoutId);
+      resolve(request.result);
+    };
     request.onupgradeneeded = (e) => {
       const db = (e.target as IDBOpenDBRequest).result;
       if (!db.objectStoreNames.contains(STORES.VIDEOS)) db.createObjectStore(STORES.VIDEOS);
@@ -573,61 +589,107 @@ const openDB = (): Promise<IDBDatabase> => {
   });
 };
 
+const readStoredBlob = async (storeName: string, id: string): Promise<Blob | null> => {
+  const db = await openDB();
+
+  return new Promise<Blob | null>((resolve, reject) => {
+    let settled = false;
+    let storedBlob: Blob | null = null;
+    let timeoutId: ReturnType<typeof setTimeout>;
+
+    const finish = (error?: unknown) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      db.close();
+
+      if (error) {
+        reject(error instanceof Error ? error : new Error('No se ha podido leer el archivo local.'));
+        return;
+      }
+
+      resolve(storedBlob);
+    };
+
+    timeoutId = setTimeout(() => {
+      finish(new Error('La lectura del archivo local ha tardado demasiado en responder.'));
+    }, INDEXED_DB_OPERATION_TIMEOUT_MS);
+
+    try {
+      const tx = db.transaction(storeName, 'readonly');
+      const request = tx.objectStore(storeName).get(id);
+
+      request.onsuccess = () => {
+        storedBlob = request.result instanceof Blob ? request.result : null;
+      };
+      request.onerror = () => finish(request.error);
+      tx.oncomplete = () => finish();
+      tx.onerror = () => finish(tx.error);
+      tx.onabort = () => finish(tx.error || new Error('La lectura del archivo local se ha cancelado.'));
+    } catch (error) {
+      finish(error);
+    }
+  });
+};
+
+const writeStoredBlob = async (
+  storeName: string,
+  id: string,
+  operation: 'put' | 'delete',
+  blob?: Blob,
+): Promise<void> => {
+  const db = await openDB();
+
+  return new Promise<void>((resolve, reject) => {
+    let settled = false;
+    let timeoutId: ReturnType<typeof setTimeout>;
+
+    const finish = (error?: unknown) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      db.close();
+
+      if (error) {
+        reject(error instanceof Error ? error : new Error('No se ha podido guardar el archivo local.'));
+        return;
+      }
+
+      resolve();
+    };
+
+    timeoutId = setTimeout(() => {
+      finish(new Error('La escritura del archivo local ha tardado demasiado en responder.'));
+    }, INDEXED_DB_OPERATION_TIMEOUT_MS);
+
+    try {
+      const tx = db.transaction(storeName, 'readwrite');
+      const store = tx.objectStore(storeName);
+      if (operation === 'put') {
+        if (!blob) throw new Error('Falta el archivo que se debe guardar localmente.');
+        store.put(blob, id);
+      } else {
+        store.delete(id);
+      }
+      tx.oncomplete = () => finish();
+      tx.onerror = () => finish(tx.error);
+      tx.onabort = () => finish(tx.error || new Error('La escritura del archivo local se ha cancelado.'));
+    } catch (error) {
+      finish(error);
+    }
+  });
+};
+
 export const VideoStorage = {
-  saveVideo: async (id: string, blob: Blob) => {
-    const db = await openDB();
-    const tx = db.transaction(STORES.VIDEOS, 'readwrite');
-    tx.objectStore(STORES.VIDEOS).put(blob, id);
-    return new Promise<void>((res, rej) => {
-      tx.oncomplete = () => res();
-      tx.onerror = () => rej(tx.error);
-      tx.onabort = () => rej(tx.error);
-    });
-  },
-  getVideo: async (id: string) => {
-    const db = await openDB();
-    const tx = db.transaction(STORES.VIDEOS, 'readonly');
-    const req = tx.objectStore(STORES.VIDEOS).get(id);
-    return new Promise<Blob | null>((res) => req.onsuccess = () => res(req.result || null));
-  },
-  deleteVideo: async (id: string) => {
-    const db = await openDB();
-    const tx = db.transaction(STORES.VIDEOS, 'readwrite');
-    tx.objectStore(STORES.VIDEOS).delete(id);
-    return new Promise<void>((res, rej) => {
-      tx.oncomplete = () => res();
-      tx.onerror = () => rej(tx.error);
-      tx.onabort = () => rej(tx.error);
-    });
-  }
+  saveVideo: (id: string, blob: Blob) => writeStoredBlob(STORES.VIDEOS, id, 'put', blob),
+  getVideo: (id: string) => readStoredBlob(STORES.VIDEOS, id),
+  deleteVideo: (id: string) => writeStoredBlob(STORES.VIDEOS, id, 'delete'),
 };
 
 export const PlanStorage = {
-  savePlan: async (id: string, blob: Blob) => {
-    const db = await openDB();
-    const tx = db.transaction(STORES.PLANS, 'readwrite');
-    tx.objectStore(STORES.PLANS).put(blob, id);
-    return new Promise<void>((res, rej) => {
-      tx.oncomplete = () => res();
-      tx.onerror = () => rej(tx.error);
-      tx.onabort = () => rej(tx.error);
-    });
-  },
-  getPlan: async (id: string) => {
-    const db = await openDB();
-    const req = db.transaction(STORES.PLANS, 'readonly').objectStore(STORES.PLANS).get(id);
-    return new Promise<Blob | null>((res) => req.onsuccess = () => res(req.result || null));
-  },
-  deletePlan: async (id: string) => {
-    const db = await openDB();
-    const tx = db.transaction(STORES.PLANS, 'readwrite');
-    tx.objectStore(STORES.PLANS).delete(id);
-    return new Promise<void>((res, rej) => {
-      tx.oncomplete = () => res();
-      tx.onerror = () => rej(tx.error);
-      tx.onabort = () => rej(tx.error);
-    });
-  }
+  savePlan: (id: string, blob: Blob) => writeStoredBlob(STORES.PLANS, id, 'put', blob),
+  getPlan: (id: string) => readStoredBlob(STORES.PLANS, id),
+  deletePlan: (id: string) => writeStoredBlob(STORES.PLANS, id, 'delete'),
 };
 
 const _getLocalRequests = (): CoachRequest[] => {
@@ -675,12 +737,6 @@ const upsertAssetInUserDataSection = async <T extends { id: string; uploadedAt?:
   const currentSection = (getLocalUserDataSnapshot(userId)[section] || []) as unknown as T[];
   const nextSection = mergeAssetsById([cleanDataForStorage(asset)], currentSection);
 
-  if (canUseCloudPersistence(userId)) {
-    await db.collection("userdata").doc(userId).set({
-      [section]: sanitizeForFirestore(nextSection)
-    }, { merge: true });
-  }
-
   writeUserDataSectionLocally(userId, section, nextSection);
   return nextSection;
 };
@@ -692,12 +748,6 @@ const removeAssetFromUserDataSection = async (
 ) => {
   const currentSection = getLocalUserDataSnapshot(userId)[section] || [];
   const nextSection = currentSection.filter((asset: any) => asset?.id !== assetId);
-
-  if (canUseCloudPersistence(userId)) {
-    await db.collection("userdata").doc(userId).set({
-      [section]: sanitizeForFirestore(nextSection)
-    }, { merge: true });
-  }
 
   writeUserDataSectionLocally(userId, section, nextSection);
   return nextSection;
@@ -726,23 +776,32 @@ type QuotaRegistrationResult = {
   success: boolean;
   count?: number;
   limit?: number | 'unlimited';
+  storedCount?: number;
+  storedLimit?: number;
   period?: string;
+  periodStartMs?: number;
+  periodEndMs?: number;
   tier?: string;
 };
 
 type CloudQuotaUsage = {
   videosUsed: number;
   videosLimit: number;
+  videosStoredLimit?: number;
   pdfsUsed: number;
   pdfsLimit: number;
+  pdfsStoredLimit?: number;
   chatsUsed: number;
   chatsLimit: number | 'unlimited';
   period: string;
+  periodStartMs?: number;
+  periodEndMs?: number;
   tier: string;
 };
 
 const DEV_STORAGE_LOGS = typeof import.meta !== 'undefined' && Boolean(import.meta.env?.DEV);
 const MAX_VIDEO_FILE_SIZE_BYTES = 512 * 1024 * 1024;
+const MAX_PDF_FILE_SIZE_BYTES = 50 * 1024 * 1024;
 
 const logStorageDebug = (event: string, payload?: Record<string, unknown>) => {
   if (!DEV_STORAGE_LOGS) return;
@@ -754,6 +813,40 @@ const sanitizeStorageFileName = (fileName: string) =>
 
 const buildUserAssetPath = (folder: 'videos' | 'plans', userId: string, assetId: string, fileName: string) =>
   `${folder}/${userId}/${assetId}_${sanitizeStorageFileName(fileName)}`;
+
+const getEffectiveUploadContentType = (file: File, folder: 'videos' | 'plans') => {
+  if (folder === 'plans') return 'application/pdf';
+  if (file.type?.startsWith('video/')) return file.type.toLowerCase();
+  if (/\.mov$/i.test(file.name)) return 'video/quicktime';
+  if (/\.webm$/i.test(file.name)) return 'video/webm';
+  return 'video/mp4';
+};
+
+const getAssetIdFromStoragePath = (path: string, folder: 'videos' | 'plans', userId: string) => {
+  const prefix = `${folder}/${userId}/`;
+  if (!path.startsWith(prefix)) throw new Error('La ruta de subida no corresponde al usuario.');
+  const fileName = path.slice(prefix.length);
+  const separatorIndex = fileName.indexOf('_');
+  const assetId = separatorIndex > 0 ? fileName.slice(0, separatorIndex) : '';
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(assetId) || fileName.includes('/')) {
+    throw new Error('La ruta de subida no contiene un identificador válido.');
+  }
+  return assetId;
+};
+
+const cancelAuthorizedAssetUpload = async (folder: 'videos' | 'plans', storagePath: string) => {
+  if (!isFirebaseConfigured || !auth?.currentUser || !storagePath) return;
+  try {
+    const callable = firebase.app().functions('europe-west1').httpsCallable('cancelAssetUpload');
+    await callable({ kind: folder, storagePath });
+  } catch (error) {
+    logStorageDebug('cancel-upload-authorization-failed', {
+      folder,
+      storagePath,
+      error: getErrorMessage(error),
+    });
+  }
+};
 
 const extractPersistedAssetUrl = (asset: { downloadURL?: string; remoteUrl?: string; url?: string }) => {
   if (asset.downloadURL) return asset.downloadURL;
@@ -860,9 +953,9 @@ const getStorageUploadFailureMessage = (
   if (code === 'resource-exhausted' || code === 'functions/resource-exhausted') {
     const rawMessage = getStorageErrorMessage(error, '');
     if (rawMessage) return rawMessage;
-    if (language === 'ing') return `You have reached the monthly ${isVideo ? 'video' : 'PDF'} limit for your subscription.`;
-    if (language === 'eus') return `Zure harpidetzaren hileko ${isVideo ? 'bideo' : 'PDF'} muga gainditu duzu.`;
-    return `Has alcanzado el límite mensual de ${isVideo ? 'vídeos' : 'PDFs'} de tu suscripción.`;
+    if (language === 'ing') return `You have reached the ${isVideo ? 'video' : 'PDF'} upload limit for your current billing cycle.`;
+    if (language === 'eus') return `Uneko zikloko ${isVideo ? 'bideo' : 'PDF'} igoera-mugara iritsi zara.`;
+    return `Has alcanzado el límite de subidas de ${isVideo ? 'vídeos' : 'PDFs'} de tu ciclo actual.`;
   }
 
   if (code === 'failed-precondition' || code === 'functions/failed-precondition') {
@@ -1037,16 +1130,8 @@ export const StorageService = {
 
       localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(newUser));
       return newUser;
-    } else {
-      const users = StorageService._getLocalUsers();
-      if (users.find(u => u.username === cleanUsername)) throw new Error('Usuario ya existe.');
-      const newUser: User = { id: Date.now().toString(), username: cleanUsername, password: cleanPassword, createdAt: new Date().toISOString() };
-      users.push(newUser);
-      localStorage.setItem(USERS_KEY, JSON.stringify(users));
-      StorageService._saveLocalUserData(newUser.id, initialData);
-      localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(newUser));
-      return newUser;
     }
+    throw new Error('El servicio de autenticación no está disponible. Inténtalo de nuevo en unos segundos.');
   },
 
   login: async (username: string, password: string): Promise<User> => {
@@ -1063,13 +1148,8 @@ export const StorageService = {
       const user: User = { id: fbUser.uid, username: fbUser.email?.toLowerCase() || 'user', email: fbUser.email?.toLowerCase(), profile: (userData as any).profile, createdAt: new Date().toISOString() };
       localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(user));
       return user;
-    } else {
-      const users = StorageService._getLocalUsers();
-      const user = users.find(u => u.username === cleanUsername);
-      if (!user || user.password !== cleanPassword) throw new Error('Credenciales incorrectas.');
-      localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(user));
-      return user;
     }
+    throw new Error('El servicio de autenticación no está disponible. Inténtalo de nuevo en unos segundos.');
   },
 
   logout: async () => {
@@ -1079,6 +1159,39 @@ export const StorageService = {
 
   getCurrentUser: (): User | null => {
     try { return JSON.parse(localStorage.getItem(CURRENT_USER_KEY) || 'null'); } catch { return null; }
+  },
+
+  restoreCurrentUser: async (): Promise<User | null> => {
+    const cachedUser = StorageService.getCurrentUser();
+    if (!isFirebaseConfigured || !auth) {
+      localStorage.removeItem(CURRENT_USER_KEY);
+      return null;
+    }
+
+    const authenticatedUser = await waitForAuthReady(5000);
+    if (!authenticatedUser || (cachedUser && cachedUser.id !== authenticatedUser.uid)) {
+      localStorage.removeItem(CURRENT_USER_KEY);
+      return null;
+    }
+
+    let userData: any = {};
+    try {
+      const userSnapshot = await db.collection('users').doc(authenticatedUser.uid).get({ source: 'server' as any });
+      userData = userSnapshot.exists ? userSnapshot.data() || {} : {};
+    } catch (error) {
+      if (!cachedUser) throw error;
+      userData = cachedUser;
+    }
+
+    const restoredUser: User = {
+      id: authenticatedUser.uid,
+      username: authenticatedUser.email?.toLowerCase() || userData.username || cachedUser?.username || 'user',
+      email: authenticatedUser.email?.toLowerCase() || userData.email || cachedUser?.email,
+      profile: userData.profile || cachedUser?.profile,
+      createdAt: toIsoStringMaybe(userData.createdAt) || cachedUser?.createdAt || new Date().toISOString(),
+    };
+    localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(restoredUser));
+    return restoredUser;
   },
 
   updateUserProfile: async (userId: string, profile: UserProfile): Promise<User> => {
@@ -1234,7 +1347,7 @@ export const StorageService = {
     writeUserDataSectionLocally(userId, section, cleanedValue);
 
     let syncedToServer = false;
-    if (canUseCloudPersistence(userId)) {
+    if (canUseCloudPersistence(userId) && section !== 'videos' && section !== 'plans' && section !== 'usage') {
       try {
         syncedToServer = await queueCloudSectionWrite(userId, section, cleanedValue);
       } catch (err) {
@@ -1294,6 +1407,9 @@ export const StorageService = {
       return { ...registration, success: true };
     } catch (callableError) {
       console.warn("registerVideoInGallery failed", callableError);
+      if (cleanedVideo.storagePath) {
+        await cancelAuthorizedAssetUpload('videos', cleanedVideo.storagePath);
+      }
       throw callableError;
     }
   },
@@ -1324,6 +1440,9 @@ export const StorageService = {
       return { ...registration, success: true };
     } catch (callableError) {
       console.warn("registerPdfInGallery failed", callableError);
+      if (cleanedPlan.storagePath) {
+        await cancelAuthorizedAssetUpload('plans', cleanedPlan.storagePath);
+      }
       throw callableError;
     }
   },
@@ -1336,35 +1455,14 @@ export const StorageService = {
 
     const callableFunc = firebase.app().functions('europe-west1').httpsCallable('getCoachQuotaUsage');
     const result = await callableFunc();
-    const cloudUsage = result.data as CloudQuotaUsage;
-
-    try {
-      const userDataSnap = await db.collection("userdata").doc(currentAuthUser.uid).get({ source: 'server' } as any);
-      const legacyUsage = userDataSnap.exists ? (userDataSnap.data()?.usage || {}) : {};
-      const shouldMergeLegacy = isLegacyUsageInPeriod(legacyUsage, cloudUsage.period);
-      const legacyVideos = shouldMergeLegacy ? Number(legacyUsage.analysisCount || 0) || 0 : 0;
-      const legacyPdfs = shouldMergeLegacy ? Number(legacyUsage.plansCount || 0) || 0 : 0;
-      const legacyChats = shouldMergeLegacy ? Number(legacyUsage.chatCount || 0) || 0 : 0;
-      return {
-        ...cloudUsage,
-        videosUsed: Math.max(Number(cloudUsage.videosUsed || 0), legacyVideos),
-        pdfsUsed: Math.max(Number(cloudUsage.pdfsUsed || 0), legacyPdfs),
-        chatsUsed: Math.max(Number(cloudUsage.chatsUsed || 0), legacyChats),
-      };
-    } catch (legacyError) {
-      console.warn("Could not merge legacy cloud quota usage", legacyError);
-      return cloudUsage;
-    }
+    return result.data as CloudQuotaUsage;
   },
 
   // V3 Authoritative Video Storage Delete
   deleteVideoSafe: async (userId: string, videoId: string): Promise<void> => {
     if (canUseCloudPersistence(userId)) {
-      try {
-        await db.collection(`userdata/${userId}/videos`).doc(videoId).delete();
-      } catch (err) {
-        console.error("Failed deleting video metadata from subcollection", err);
-      }
+      const callableFunc = firebase.app().functions('europe-west1').httpsCallable('deleteVideoFromGallery');
+      await callableFunc({ targetUserId: userId, assetId: videoId });
     }
 
     await removeAssetFromUserDataSection(userId, 'videos', videoId);
@@ -1372,11 +1470,8 @@ export const StorageService = {
 
   deletePlanSafe: async (userId: string, planId: string): Promise<void> => {
     if (canUseCloudPersistence(userId)) {
-      try {
-        await db.collection(`userdata/${userId}/plans`).doc(planId).delete();
-      } catch (err) {
-        console.error("Failed deleting plan metadata from subcollection", err);
-      }
+      const callableFunc = firebase.app().functions('europe-west1').httpsCallable('deletePdfFromGallery');
+      await callableFunc({ targetUserId: userId, assetId: planId });
     }
 
     await removeAssetFromUserDataSection(userId, 'plans', planId);
@@ -1423,11 +1518,32 @@ export const StorageService = {
       throw new Error('No hay una sesion autenticada valida para subir archivos a Firebase Storage.');
     }
 
+    const generatedAssetId = Date.now().toString();
+    const path = customPath || buildUserAssetPath(folder, userId, generatedAssetId, file.name);
+    const assetId = customPath
+      ? getAssetIdFromStoragePath(path, folder, userId)
+      : generatedAssetId;
+    const contentType = getEffectiveUploadContentType(file, folder);
+    if (folder === 'plans' && file.size > MAX_PDF_FILE_SIZE_BYTES) {
+      throw new StorageUploadError('storage/file-too-large', 'El PDF supera el límite permitido de 50 MB.', null);
+    }
+
+    let uploadAuthorized = false;
     try {
-      const path = customPath || `${folder}/${userId}/${Date.now()}_${sanitizeStorageFileName(file.name)}`;
+      const authorizeUpload = firebase.app().functions('europe-west1').httpsCallable('authorizeAssetUpload');
+      await authorizeUpload({
+        kind: folder,
+        targetUserId: userId,
+        assetId,
+        storagePath: path,
+        size: file.size,
+        contentType,
+      });
+      uploadAuthorized = true;
+
       const ref = storage.ref(path);
       const snapshot = await ref.put(file, {
-        contentType: file.type || undefined,
+        contentType,
         customMetadata: {
           ownerId: userId,
           uploadedBy: authenticatedUser.uid,
@@ -1442,7 +1558,7 @@ export const StorageService = {
       const result: UploadedAssetResult = {
         storagePath: snapshot.ref.fullPath,
         downloadURL,
-        contentType: metadata.contentType || file.type || undefined,
+        contentType: metadata.contentType || contentType,
         size: toNumberMaybe(metadata.size) || file.size,
         createdAt: metadata.timeCreated || new Date().toISOString(),
         ownerId: userId,
@@ -1458,6 +1574,9 @@ export const StorageService = {
 
       return result;
     } catch (error) {
+      if (uploadAuthorized) {
+        await cancelAuthorizedAssetUpload(folder, path);
+      }
       console.error('Upload failed:', error);
       throw new StorageUploadError(
         getStorageErrorCode(error),
@@ -1541,13 +1660,26 @@ export const StorageService = {
 
   deleteFileFromCloud: async (url: string) => {
     if (isFirebaseConfigured && url?.startsWith('http')) {
-      try { await storage.refFromURL(url).delete(); } catch { }
+      try {
+        const reference = storage.refFromURL(url);
+        const folder = reference.fullPath.startsWith('videos/')
+          ? 'videos'
+          : reference.fullPath.startsWith('plans/')
+            ? 'plans'
+            : null;
+        if (folder) await cancelAuthorizedAssetUpload(folder, reference.fullPath);
+        await reference.delete();
+      } catch { }
     }
   },
 
   deleteFileByPath: async (path: string) => {
     if (isFirebaseConfigured && path) {
-      try { await storage.ref(path).delete(); } catch { }
+      try {
+        const folder = path.startsWith('videos/') ? 'videos' : path.startsWith('plans/') ? 'plans' : null;
+        if (folder) await cancelAuthorizedAssetUpload(folder, path);
+        await storage.ref(path).delete();
+      } catch { }
     }
   },
 
@@ -1590,8 +1722,12 @@ export const StorageService = {
         return localResult;
       }
 
+      const authenticatedUser = await waitForAuthReady();
+      if (!authenticatedUser) {
+        throw new Error('Debes iniciar sesión para consultar las solicitudes.');
+      }
       const query = db.collection("requests")
-        .where("athleteEmail", "==", normalizedEmail)
+        .where("athleteId", "==", authenticatedUser.uid)
         .where("status", "==", "pending");
 
       try {
@@ -1655,52 +1791,27 @@ export const StorageService = {
 
   respondToCoachRequest: async (request: CoachRequest, accept: boolean, athleteUser: User) => {
     if (!isFirebaseConfigured || !isBrowserOnline()) return;
-    await db.collection("requests").doc(request.id).update({ status: accept ? 'accepted' : 'rejected' });
+    const callableFunc = firebase.app().functions('europe-west1').httpsCallable('respondToCoachRequest');
+    await callableFunc({ requestId: request.id, accept });
     const athleteEmail = request.athleteEmail.toLowerCase();
     const remainingRequests = getCachedPendingRequestsForEmail(athleteEmail)
       .filter((cachedRequest) => cachedRequest.id !== request.id);
     saveCachedPendingRequestsForEmail(athleteEmail, remainingRequests);
     pendingRequestsMemoryCache.delete(athleteEmail);
-
-    if (accept) {
-      await db.collection("users").doc(request.coachId).update({ "profile.managedAthletes": firebase.firestore.FieldValue.arrayUnion(athleteUser.id) });
-      const current = athleteUser.profile?.coaches || [];
-      await StorageService.updateUserProfile(athleteUser.id, { ...athleteUser.profile!, coaches: [...current, request.coachId] });
-    }
   },
 
   sendCoachRequest: async (coach: User, athleteEmail: string) => {
     if (!isFirebaseConfigured) throw new Error("Solo disponible en modo nube.");
     if (!isBrowserOnline()) throw new Error("Sin conexión. Inténtalo de nuevo cuando vuelva Internet.");
-    const snap = await db.collection("users").where("username", "==", athleteEmail.toLowerCase()).get();
-    if (snap.empty) throw new Error("Atleta no encontrado.");
-    const athleteDoc = snap.docs[0];
-    const athleteId = athleteDoc.id;
-    const athleteData = athleteDoc.data() as any;
-
-    // Use canonical composite ID for authorization lookups
-    const reqId = `${coach.id}_${athleteId}`;
-
-    await db.collection("requests").doc(reqId).set({
-      coachId: coach.id,
-      coachName: `${coach.profile?.firstName} ${coach.profile?.lastName}`,
-      athleteId: athleteId,
-      athleteEmail: athleteEmail.toLowerCase(),
-      athleteName: `${athleteData.profile?.firstName} ${athleteData.profile?.lastName}`,
-      athleteDiscipline: athleteData.profile?.discipline || 'Atleta',
-      status: 'pending',
-      createdAt: new Date().toISOString()
-    }, { merge: true });
+    const callable = firebase.app().functions('europe-west1').httpsCallable('sendCoachRequest');
+    await callable({ athleteEmail: athleteEmail.trim().toLowerCase() });
   },
 
   removeAthleteFromCoach: async (coachId: string, athleteId: string) => {
     if (isFirebaseConfigured) {
       try {
-        await db.collection("users").doc(coachId).update({ "profile.managedAthletes": firebase.firestore.FieldValue.arrayRemove(athleteId) });
-        await db.collection("users").doc(athleteId).update({ "profile.coaches": firebase.firestore.FieldValue.arrayRemove(coachId) });
-        
-        const reqId = `${coachId}_${athleteId}`;
-        await db.collection("requests").doc(reqId).update({ status: 'rejected' }).catch(() => {});
+        const callableFunc = firebase.app().functions('europe-west1').httpsCallable('removeAthleteFromCoach');
+        await callableFunc({ athleteId });
         
         console.log("Successfully removed athlete from coach:", { coachId, athleteId });
       } catch (e) {
@@ -1712,18 +1823,25 @@ export const StorageService = {
 
   deleteUser: async (userId: string) => {
     if (isFirebaseConfigured) {
-      await db.collection("userdata").doc(userId).delete();
-      await db.collection("users").doc(userId).delete();
+      const callable = firebase.app().functions('europe-west1').httpsCallable('adminDeleteUser');
+      await callable({ userId });
     }
     localStorage.removeItem(`${DATA_PREFIX}${userId}`);
   },
 
   deleteCurrentAccount: async () => {
-    const user = StorageService.getCurrentUser();
-    if (user) {
-      await StorageService.deleteUser(user.id);
-      if (isFirebaseConfigured && auth.currentUser) await auth.currentUser.delete();
-    }
+    const authenticatedUser = await waitForAuthReady();
+    if (!authenticatedUser) throw new Error('Debes iniciar sesión para eliminar la cuenta.');
+    const localData = getLocalUserDataSnapshot(authenticatedUser.uid);
+    const callable = firebase.app().functions('europe-west1').httpsCallable('deleteCurrentAccount');
+    await callable();
+    await Promise.allSettled([
+      ...localData.videos.map((video) => VideoStorage.deleteVideo(video.id)),
+      ...localData.plans.map((plan) => PlanStorage.deletePlan(plan.id)),
+    ]);
+    invalidateCache(authenticatedUser.uid);
+    localStorage.removeItem(`${DATA_PREFIX}${authenticatedUser.uid}`);
+    localStorage.removeItem(CURRENT_USER_KEY);
   },
 
   getSystemReport: async (): Promise<any[]> => {

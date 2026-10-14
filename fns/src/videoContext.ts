@@ -24,6 +24,12 @@ import {
   VIDEO_ANSWER_SCHEMA,
   VIDEO_CONTEXT_SCHEMA,
 } from './video-intelligence/prompts.js';
+import {
+  getPlanLimits,
+  resolveAllowedModelForTier,
+  resolveSubscriptionContext,
+  toMillis,
+} from './subscriptionPolicy.js';
 
 if (!getApps().length) {
   initializeApp();
@@ -32,6 +38,9 @@ if (!getApps().length) {
 const db = getFirestore();
 const storage = getStorage();
 const geminiApiKey = defineSecret('GEMINI_API_KEY');
+const callableSecurityOptions = {
+  enforceAppCheck: process.env.ENFORCE_APP_CHECK === 'true',
+};
 
 type AppLanguage = 'es' | 'ing' | 'eus';
 type VideoContextStatus =
@@ -72,8 +81,8 @@ interface MetadataPayload {
   frameCountEstimate?: number | null;
   aspectRatio?: number | null;
   orientation?: 'landscape' | 'portrait' | 'square';
-  mimeType?: string;
-  sizeBytes?: number;
+  mimeType?: string | null;
+  sizeBytes?: number | null;
 }
 
 interface HistoryEntry {
@@ -153,113 +162,58 @@ interface StorageObjectVerification {
   updated: string | null;
 }
 
-const PREMIUM_EMAILS = [
-  'alejandrosanchez@gmail.com',
-  'peioetxabe@hotmail.com',
-  'fernandezeuken@gmail.com',
-  'julianweber@gmail.com',
-];
-
-const STRIPE_PRICE_TO_TIER: Record<string, string> = {
-  price_1Shp2GRpDniZdTBe8jaP3rKT: 'PRO_ATHLETE',
-  price_1Shp77RpDniZdTBeN9KYx4oM: 'PRO_COACH',
-  price_1Sj8emRpDniZdTBeCxkGvGnO: 'PREMIUM',
-};
-
-const PLAN_CHAT_LIMITS: Record<string, number | 'unlimited'> = {
-  FREE: 10,
-  PRO_ATHLETE: 100,
-  PRO_COACH: 200,
-  PREMIUM: 500,
-};
-
 const PROCESSING_VERSION = 'video-context-v1';
 const MAX_SAMPLE_FRAMES = 12;
 const MAX_QUERY_FRAMES = 7;
+const MAX_FRAME_BASE64_LENGTH = 2_500_000;
+const MAX_TOTAL_FRAME_BASE64_LENGTH = 18_000_000;
 const UPLOAD_IN_PROGRESS_STAGE = 'waiting_for_video';
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 
-const resolveUserTierFromData = (uid: string, userEmail: string | undefined, userData: any): string => {
-  if (userEmail && PREMIUM_EMAILS.includes(String(userEmail).toLowerCase())) return 'PREMIUM';
-  if (uid.startsWith('test-')) {
-    if (uid.includes('premium')) return 'PREMIUM';
-    if (uid.includes('coach')) return 'PRO_COACH';
-    if (uid.includes('pro')) return 'PRO_ATHLETE';
-    return 'FREE';
-  }
-  if (uid === 'MASTER_GOD_EUKEN') return 'PREMIUM';
-  return userData?.currentPlanId || userData?.profile?.subscriptionTier || 'FREE';
-};
-
-const extractSubscriptionPriceId = (subscriptionData: any): string | undefined => {
-  if (subscriptionData?.items?.data?.[0]?.price?.id) return subscriptionData.items.data[0].price.id;
-  if (subscriptionData?.items?.[0]?.price?.id) return subscriptionData.items[0].price.id;
-  if (subscriptionData?.price?.id) return subscriptionData.price.id;
-  return undefined;
-};
-
-const resolveUserTier = async (uid: string, userEmail?: string): Promise<string> => {
-  const userSnap = await db.collection('users').doc(uid).get();
-  const userData = userSnap.exists ? userSnap.data() : {};
-  const resolvedEmail = userEmail || userData?.email || userData?.username;
-  if (resolvedEmail && PREMIUM_EMAILS.includes(String(resolvedEmail).toLowerCase())) return 'PREMIUM';
-  if (uid.startsWith('test-') || uid === 'MASTER_GOD_EUKEN') {
-    return resolveUserTierFromData(uid, resolvedEmail, userData);
-  }
-
-  const subscriptionSnap = await db.collection('customers').doc(uid).collection('subscriptions')
-    .where('status', 'in', ['active', 'trialing'])
-    .get();
-
-  for (const doc of subscriptionSnap.docs) {
-    const priceId = extractSubscriptionPriceId(doc.data());
-    const tier = priceId ? STRIPE_PRICE_TO_TIER[priceId] : undefined;
-    if (tier) return tier;
-  }
-
-  return 'FREE';
+const resolveUserTier = async (uid: string, userEmail?: string, emailVerified = false): Promise<string> => {
+  return (await resolveSubscriptionContext({ db, uid, userEmail, emailVerified })).tier;
 };
 
 const getServerMonthKey = (date = new Date()) =>
   `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
 
-const getMonthKeyFromValue = (value: any): string | null => {
-  if (!value) return null;
-  const millis =
-    typeof value?.toMillis === 'function' ? value.toMillis() :
-    typeof value?.toDate === 'function' ? value.toDate().getTime() :
-    value instanceof Date ? value.getTime() :
-    typeof value === 'number' ? value :
-    typeof value === 'string' ? Date.parse(value) :
-    0;
-  if (!millis || Number.isNaN(millis)) return null;
-  return getServerMonthKey(new Date(millis));
-};
-
-const isLegacyUsageInPeriod = (legacyUsage: any, period: string) => {
+const isLegacyUsageInPeriod = (
+  legacyUsage: any,
+  period: string,
+  periodStartMs: number,
+  periodEndMs: number,
+) => {
   const explicitPeriod = legacyUsage?.period || legacyUsage?.monthKey || legacyUsage?.monthlyPeriod;
   if (explicitPeriod) return String(explicitPeriod) === period;
-  const resetPeriod = getMonthKeyFromValue(legacyUsage?.lastAnalysisReset || legacyUsage?.lastChatReset);
-  return resetPeriod === period;
+  const resetMs = toMillis(legacyUsage?.lastAnalysisReset || legacyUsage?.lastChatReset);
+  return resetMs >= periodStartMs && resetMs < periodEndMs;
 };
 
-const normalizeMonthlyChatCount = (rawCounters: any, period: string, legacyUsage?: any) => {
-  const legacyOrCurrent = !rawCounters?.period || rawCounters.period === period;
+const normalizeMonthlyChatCount = (
+  rawCounters: any,
+  period: string,
+  periodStartMs: number,
+  periodEndMs: number,
+  legacyUsage?: any,
+) => {
+  const legacyCalendarPeriod = typeof rawCounters?.period === 'string'
+    && /^\d{4}-\d{2}$/.test(rawCounters.period)
+    && rawCounters.period === getServerMonthKey();
+  const legacyOrCurrent = !rawCounters?.period || rawCounters.period === period || legacyCalendarPeriod;
   if (!legacyOrCurrent) return 0;
-  const legacyChats = (isLegacyUsageInPeriod(legacyUsage, period) || !rawCounters?.period)
+  const legacyChats = (isLegacyUsageInPeriod(legacyUsage, period, periodStartMs, periodEndMs) || !rawCounters?.period)
     ? Number(legacyUsage?.chatCount ?? 0) || 0
     : 0;
   return Math.max(Number(rawCounters?.chatsMonthly ?? rawCounters?.chatCount ?? 0) || 0, legacyChats);
 };
 
-const consumeMonthlyChatQuota = async (uid: string, userEmail?: string) => {
-  const period = getServerMonthKey();
-
+const consumeMonthlyChatQuota = async (uid: string, userEmail?: string, emailVerified = false) => {
   return db.runTransaction(async (transaction) => {
-    const tier = await resolveUserTier(uid, userEmail);
-    const limit = PLAN_CHAT_LIMITS[tier] ?? PLAN_CHAT_LIMITS.FREE;
+    const context = await resolveSubscriptionContext({ db, uid, userEmail, emailVerified, transaction });
+    const { tier, period, periodStartMs, periodEndMs } = context;
+    const limit = getPlanLimits(tier).monthlyAiMessages;
     const counterRef = db.collection('quota_counters').doc(uid);
     const userDataRef = db.collection('userdata').doc(uid);
     const [counterSnap, userDataSnap] = await Promise.all([
@@ -269,18 +223,22 @@ const consumeMonthlyChatQuota = async (uid: string, userEmail?: string) => {
     const current = normalizeMonthlyChatCount(
       counterSnap.exists ? counterSnap.data() : {},
       period,
+      periodStartMs,
+      periodEndMs,
       userDataSnap.exists ? userDataSnap.data()?.usage : undefined,
     );
 
     if (limit !== 'unlimited' && current >= limit) {
       throw new HttpsError(
         'resource-exhausted',
-        'Has alcanzado el límite mensual de mensajes de IA de tu suscripción.',
+        'Has alcanzado el límite de mensajes de IA de tu ciclo de facturación.',
       );
     }
 
     transaction.set(counterRef, {
       period,
+      periodStart: new Date(periodStartMs),
+      periodEnd: new Date(periodEndMs),
       chatsMonthly: current + 1,
       chatCount: current + 1,
       lastUpdated: FieldValue.serverTimestamp(),
@@ -290,18 +248,20 @@ const consumeMonthlyChatQuota = async (uid: string, userEmail?: string) => {
   });
 };
 
-const resolveAllowedModelForTier = (tier: string): string => {
-  switch (tier) {
-    case 'PREMIUM':
-    case 'ATLETA_PREMIUM':
-    case 'PRO_COACH':
-      return 'gemini-2.5-pro';
-    case 'PRO_ATHLETE':
-    case 'ATLETA_PRO':
-    case 'FREE':
-    default:
-      return 'gemini-2.5-flash';
-  }
+const releaseMonthlyChatQuota = async (uid: string, period: string) => {
+  const counterRef = db.collection('quota_counters').doc(uid);
+  await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(counterRef);
+    if (!snapshot.exists || snapshot.data()?.period !== period) return;
+    const data = snapshot.data() || {};
+    const current = Math.max(0, Number(data.chatsMonthly ?? data.chatCount ?? 0) || 0);
+    const next = Math.max(0, current - 1);
+    transaction.update(counterRef, {
+      chatsMonthly: next,
+      chatCount: next,
+      lastUpdated: FieldValue.serverTimestamp(),
+    });
+  });
 };
 
 const normalizeLanguage = (value: string | undefined): AppLanguage =>
@@ -314,9 +274,9 @@ const normalizeConfidence = (value: unknown): 'low' | 'medium' | 'high' => {
   return 'medium';
 };
 
-const sanitizeText = (value: unknown, fallback = '') => {
+const sanitizeText = (value: unknown, fallback = '', maxLength = 12_000) => {
   if (typeof value !== 'string') return fallback;
-  return value.trim();
+  return value.trim().slice(0, maxLength);
 };
 
 const sanitizeOptionalText = (value: unknown) => {
@@ -351,9 +311,9 @@ const normalizeMetadataPayload = (value: unknown): MetadataPayload => {
     throw new HttpsError('invalid-argument', 'El campo metadata es obligatorio y debe ser un objeto.');
   }
 
-  const durationSeconds = clampNumber(value.durationSeconds, 0);
-  const width = clampNumber(value.width, 0);
-  const height = clampNumber(value.height, 0);
+  const durationSeconds = clampNumber(value.durationSeconds, 0, 3_600);
+  const width = clampNumber(value.width, 0, 16_384);
+  const height = clampNumber(value.height, 0, 16_384);
 
   if (durationSeconds <= 0) {
     throw new HttpsError('invalid-argument', 'metadata.durationSeconds debe ser mayor que 0.');
@@ -363,7 +323,7 @@ const normalizeMetadataPayload = (value: unknown): MetadataPayload => {
     throw new HttpsError('invalid-argument', 'metadata.width y metadata.height deben ser mayores que 0.');
   }
 
-  const mimeType = sanitizeText(value.mimeType);
+  const mimeType = sanitizeText(value.mimeType, '', 100);
 
   return {
     durationSeconds,
@@ -372,11 +332,11 @@ const normalizeMetadataPayload = (value: unknown): MetadataPayload => {
     estimatedFps:
       value.estimatedFps === null || value.estimatedFps === undefined
         ? null
-        : clampNumber(value.estimatedFps, 0),
+        : clampNumber(value.estimatedFps, 0, 1_000),
     frameCountEstimate:
       value.frameCountEstimate === null || value.frameCountEstimate === undefined
         ? null
-        : clampNumber(value.frameCountEstimate, 0),
+        : clampNumber(value.frameCountEstimate, 0, 10_000_000),
     aspectRatio:
       value.aspectRatio === null || value.aspectRatio === undefined
         ? width && height
@@ -385,11 +345,11 @@ const normalizeMetadataPayload = (value: unknown): MetadataPayload => {
         : clampNumber(value.aspectRatio, 0),
     orientation:
       width === height ? 'square' : width > height ? 'landscape' : 'portrait',
-    mimeType: mimeType || undefined,
+    mimeType: mimeType || null,
     sizeBytes:
       value.sizeBytes === null || value.sizeBytes === undefined
-        ? undefined
-        : clampNumber(value.sizeBytes, 0),
+        ? null
+        : clampNumber(value.sizeBytes, 0, 512 * 1024 * 1024),
   };
 };
 
@@ -421,7 +381,7 @@ const normalizeSegmentPlanPayload = (
     }
 
     return {
-      id: sanitizeText(rawSegment.id, `segment_${index + 1}`),
+      id: sanitizeText(rawSegment.id, `segment_${index + 1}`, 128),
       startTimeSeconds,
       endTimeSeconds,
       representativeTimeSeconds: clampNumber(
@@ -429,7 +389,7 @@ const normalizeSegmentPlanPayload = (
         startTimeSeconds,
         endTimeSeconds,
       ),
-      label: sanitizeText(rawSegment.label, `Segment ${index + 1}`),
+      label: sanitizeText(rawSegment.label, `Segment ${index + 1}`, 120),
     };
   });
 };
@@ -442,27 +402,39 @@ const normalizeSampleFramesPayload = (value: unknown): FrameArtifactPayload[] =>
     );
   }
 
-  return value.slice(0, MAX_SAMPLE_FRAMES).map((rawFrame, index) => {
+  const normalized = value.slice(0, MAX_SAMPLE_FRAMES).map((rawFrame, index) => {
     if (!isRecord(rawFrame)) {
       throw new HttpsError('invalid-argument', `sampleFrames[${index}] no tiene un formato válido.`);
     }
 
-    const base64Jpeg = sanitizeText(rawFrame.base64Jpeg);
+    const base64Jpeg = sanitizeText(rawFrame.base64Jpeg, '', MAX_FRAME_BASE64_LENGTH + 1);
     if (!base64Jpeg) {
       throw new HttpsError(
         'invalid-argument',
         `sampleFrames[${index}].base64Jpeg es obligatorio.`,
       );
     }
+    if (base64Jpeg.length > MAX_FRAME_BASE64_LENGTH || !/^[A-Za-z0-9+/=]+$/.test(base64Jpeg)) {
+      throw new HttpsError(
+        'invalid-argument',
+        `sampleFrames[${index}] supera el tamaño permitido o no contiene Base64 válido.`,
+      );
+    }
 
     return {
       timestampSeconds: clampNumber(rawFrame.timestampSeconds, 0),
-      label: sanitizeText(rawFrame.label, `Frame ${index + 1}`),
+      label: sanitizeText(rawFrame.label, `Frame ${index + 1}`, 120),
       base64Jpeg,
       width: clampNumber(rawFrame.width, 1),
       height: clampNumber(rawFrame.height, 1),
     };
   });
+
+  const totalBase64Length = normalized.reduce((total, frame) => total + frame.base64Jpeg.length, 0);
+  if (totalBase64Length > MAX_TOTAL_FRAME_BASE64_LENGTH) {
+    throw new HttpsError('invalid-argument', 'El conjunto de fotogramas supera el tamaño permitido.');
+  }
+  return normalized;
 };
 
 const normalizeSportContextPayload = (value: unknown): SportContext => {
@@ -471,9 +443,25 @@ const normalizeSportContextPayload = (value: unknown): SportContext => {
   }
 
   return {
-    sport: sanitizeText(value.sport),
-    discipline: sanitizeText(value.discipline),
+    sport: sanitizeText(value.sport, '', 120),
+    discipline: sanitizeText(value.discipline, '', 120),
   };
+};
+
+const normalizePoseSnapshotPayload = (value: unknown): PoseSnapshotPayload | null => {
+  if (!isRecord(value) || value.source !== 'mediapipe' || !isRecord(value.joints)) return null;
+  const joints: PoseSnapshotPayload['joints'] = {};
+  Object.entries(value.joints).slice(0, 40).forEach(([name, rawJoint]) => {
+    if (!/^[A-Za-z0-9_-]{1,80}$/.test(name) || !isRecord(rawJoint)) return;
+    joints[name] = {
+      x: clampNumber(rawJoint.x, 0, 1),
+      y: clampNumber(rawJoint.y, 0, 1),
+      visibility: rawJoint.visibility === undefined
+        ? undefined
+        : clampNumber(rawJoint.visibility, 0, 1),
+    };
+  });
+  return Object.keys(joints).length > 0 ? { source: 'mediapipe', joints } : null;
 };
 
 const normalizeUpsertVideoContextInput = (
@@ -484,13 +472,17 @@ const normalizeUpsertVideoContextInput = (
     throw new HttpsError('invalid-argument', 'El payload de upsertVideoContext es inválido.');
   }
 
-  const videoId = sanitizeText(data.videoId);
-  if (!videoId) {
+  const videoId = sanitizeText(data.videoId, '', 128);
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(videoId)) {
     throw new HttpsError('invalid-argument', 'videoId es obligatorio.');
   }
 
-  const videoUrl = sanitizeOptionalText(data.videoUrl);
-  const storagePath = sanitizeOptionalText(data.storagePath);
+  const videoUrl = sanitizeText(data.videoUrl, '', 2_048) || null;
+  const storagePath = sanitizeText(data.storagePath, '', 500) || null;
+  const targetUserId = sanitizeText(data.targetUserId, callerId, 128);
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(targetUserId)) {
+    throw new HttpsError('invalid-argument', 'targetUserId no es válido.');
+  }
 
   if (!videoUrl && !storagePath) {
     throw new HttpsError(
@@ -502,15 +494,15 @@ const normalizeUpsertVideoContextInput = (
   const metadata = normalizeMetadataPayload(data.metadata);
 
   return {
-    targetUserId: sanitizeText(data.targetUserId, callerId),
+    targetUserId,
     videoId,
-    videoName: sanitizeText(data.videoName),
+    videoName: sanitizeText(data.videoName, '', 255),
     videoUrl,
     storagePath,
     metadata,
     segmentPlan: normalizeSegmentPlanPayload(data.segments, metadata.durationSeconds),
     sampleFrames: normalizeSampleFramesPayload(data.sampleFrames),
-    samplingProfile: sanitizeText(data.samplingProfile, 'standard'),
+    samplingProfile: sanitizeText(data.samplingProfile, 'standard', 50),
     language: normalizeLanguage(sanitizeText(data.language)),
     sportContext: normalizeSportContextPayload(data.sportContext),
     force: parseBoolean(data.force),
@@ -874,13 +866,19 @@ const parseJsonResponse = (rawText: string) => {
   return JSON.parse(cleaned);
 };
 
-const getUserTier = async (uid: string, email: string | undefined) =>
-  resolveUserTier(uid, email);
+const getUserTier = async (uid: string, email: string | undefined, emailVerified = false) =>
+  resolveUserTier(uid, email, emailVerified);
 
 const validateTargetAccess = async (callerId: string, targetUserId: string) => {
   if (callerId === targetUserId) return;
   const relationSnap = await db.collection('requests').doc(`${callerId}_${targetUserId}`).get();
-  if (!relationSnap.exists || relationSnap.data()?.status !== 'accepted') {
+  const relation = relationSnap.data() || {};
+  if (
+    !relationSnap.exists
+    || relation.coachId !== callerId
+    || relation.athleteId !== targetUserId
+    || relation.status !== 'accepted'
+  ) {
     throw new HttpsError(
       'permission-denied',
       `No tienes acceso a los datos del usuario ${targetUserId}.`,
@@ -921,7 +919,7 @@ const embedText = async (
   taskType: TaskType,
 ) => {
   if (!text.trim()) return [];
-  const embedModel = genAI.getGenerativeModel({ model: 'gemini-embedding-001' });
+  const embedModel = genAI.getGenerativeModel({ model: 'gemini-embedding-2' });
   const result = await embedModel.embedContent({
     content: {
       role: 'user',
@@ -1049,6 +1047,7 @@ const executeUpsertVideoContextFlow = async ({
   request,
   callerId,
   callerEmail,
+  callerEmailVerified,
   requestId,
   input,
   logContext,
@@ -1056,6 +1055,7 @@ const executeUpsertVideoContextFlow = async ({
   request: CallableRequest<any>;
   callerId: string;
   callerEmail?: string;
+  callerEmailVerified?: boolean;
   requestId: string;
   input: NormalizedUpsertVideoContextInput;
   logContext: ReturnType<typeof buildUpsertVideoContextLog>;
@@ -1208,13 +1208,12 @@ const executeUpsertVideoContextFlow = async ({
       targetUserId: input.targetUserId,
     });
 
-    const tier = await getUserTier(callerId, callerEmail);
+    const tier = await getUserTier(callerId, callerEmail, callerEmailVerified);
     const modelName = resolveAllowedModelForTier(tier);
     const genAI = new GoogleGenerativeAI(getConfiguredGeminiApiKey());
     const processingModel = genAI.getGenerativeModel({
       model: modelName,
       generationConfig: {
-        temperature: 0.25,
         responseMimeType: 'application/json',
         responseSchema: VIDEO_CONTEXT_SCHEMA,
       },
@@ -1395,6 +1394,7 @@ const executeUpsertVideoContextFlow = async ({
 
 export const upsertVideoContext = onCall(
   {
+    ...callableSecurityOptions,
     region: 'europe-west1',
     maxInstances: 10,
     secrets: [geminiApiKey],
@@ -1422,6 +1422,7 @@ export const upsertVideoContext = onCall(
       request,
       callerId,
       callerEmail: request.auth.token.email,
+      callerEmailVerified: request.auth.token.email_verified === true,
       requestId,
       input,
       logContext,
@@ -1462,7 +1463,6 @@ export const upsertVideoContext = onCall(
     const processingModel = genAI.getGenerativeModel({
       model: modelName,
       generationConfig: {
-        temperature: 0.25,
         responseMimeType: 'application/json',
         responseSchema: VIDEO_CONTEXT_SCHEMA,
       },
@@ -1549,6 +1549,7 @@ export const upsertVideoContext = onCall(
 
 export const askVideoQuestion = onCall(
   {
+    ...callableSecurityOptions,
     region: 'europe-west1',
     maxInstances: 20,
     secrets: [geminiApiKey],
@@ -1559,34 +1560,56 @@ export const askVideoQuestion = onCall(
     }
 
     const callerId = request.auth.uid;
-    const targetUserId = sanitizeText(request.data?.targetUserId, callerId);
-    const videoId = sanitizeText(request.data?.videoId);
-    const message = sanitizeText(request.data?.message);
-    const sessionId = sanitizeText(request.data?.sessionId);
+    const targetUserId = sanitizeText(request.data?.targetUserId, callerId, 128);
+    const videoId = sanitizeText(request.data?.videoId, '', 128);
+    const message = sanitizeText(request.data?.message, '', 4_001);
+    const sessionId = sanitizeText(request.data?.sessionId, '', 128);
     const currentTimeSeconds =
       request.data?.currentTimeSeconds === null || request.data?.currentTimeSeconds === undefined
         ? null
-        : clampNumber(request.data?.currentTimeSeconds);
+        : clampNumber(request.data?.currentTimeSeconds, 0, 3_600);
     const durationSeconds =
       request.data?.durationSeconds === null || request.data?.durationSeconds === undefined
         ? null
-        : clampNumber(request.data?.durationSeconds);
-    const mode = sanitizeText(request.data?.mode, 'frame') as VideoQuestionMode;
+        : clampNumber(request.data?.durationSeconds, 0, 3_600);
+    const rawMode = sanitizeText(request.data?.mode, 'frame', 20);
+    const mode = (rawMode === 'range' || rawMode === 'summary' ? rawMode : 'frame') as VideoQuestionMode;
     const language = normalizeLanguage(request.data?.language);
-    const sportContext = (request.data?.sportContext || {}) as SportContext;
-    const poseSnapshot = (request.data?.poseSnapshot || null) as PoseSnapshotPayload | null;
+    const sportContext = normalizeSportContextPayload(request.data?.sportContext);
+    const poseSnapshot = normalizePoseSnapshotPayload(request.data?.poseSnapshot);
     const history = Array.isArray(request.data?.history)
-      ? (request.data.history as HistoryEntry[]).slice(-6)
+      ? (request.data.history as HistoryEntry[]).slice(-6).map((entry) => ({
+          role: entry?.role === 'model' ? 'model' as const : 'user' as const,
+          text: sanitizeText(entry?.text, '', 4_000),
+          activeTimestampSeconds: entry?.activeTimestampSeconds === null
+            || entry?.activeTimestampSeconds === undefined
+            ? null
+            : clampNumber(entry.activeTimestampSeconds, 0, 3_600),
+          mode: entry?.mode === 'range' || entry?.mode === 'summary' ? entry.mode : 'frame' as const,
+        })).filter((entry) => entry.text)
       : [];
     const currentFrame = request.data?.currentFrame
-      ? (request.data.currentFrame as FrameArtifactPayload)
+      ? normalizeSampleFramesPayload([request.data.currentFrame])[0]
       : null;
-    const windowFrames = Array.isArray(request.data?.windowFrames)
-      ? (request.data.windowFrames as FrameArtifactPayload[]).slice(0, MAX_QUERY_FRAMES)
+    const windowFrames = Array.isArray(request.data?.windowFrames) && request.data.windowFrames.length > 0
+      ? normalizeSampleFramesPayload(request.data.windowFrames).slice(0, MAX_QUERY_FRAMES)
       : [];
 
-    if (!videoId || !message) {
+    if (
+      !/^[A-Za-z0-9_-]{1,128}$/.test(targetUserId)
+      || !/^[A-Za-z0-9_-]{1,128}$/.test(videoId)
+      || (sessionId && !/^[A-Za-z0-9_-]{1,128}$/.test(sessionId))
+      || !message
+    ) {
       throw new HttpsError('invalid-argument', 'Faltan datos de la consulta.');
+    }
+    if (message.length > 4_000) {
+      throw new HttpsError('invalid-argument', 'El mensaje supera el tamaño permitido.');
+    }
+    const totalFrameLength = (currentFrame?.base64Jpeg.length || 0)
+      + windowFrames.reduce((total, frame) => total + frame.base64Jpeg.length, 0);
+    if (totalFrameLength > MAX_TOTAL_FRAME_BASE64_LENGTH) {
+      throw new HttpsError('invalid-argument', 'Los fotogramas de la consulta superan el tamaño permitido.');
     }
 
     await validateTargetAccess(callerId, targetUserId);
@@ -1600,10 +1623,16 @@ export const askVideoQuestion = onCall(
       ? (contextData?.keyMoments as PersistedKeyMoment[])
       : [];
 
-    const quota = await consumeMonthlyChatQuota(callerId, request.auth.token.email);
+    const quota = await consumeMonthlyChatQuota(
+      callerId,
+      request.auth.token.email,
+      request.auth.token.email_verified === true,
+    );
     const tier = quota.tier;
     const modelName = resolveAllowedModelForTier(tier);
     const genAI = new GoogleGenerativeAI(geminiApiKey.value());
+
+    try {
 
     let questionEmbedding: number[] = [];
     if (segments.some((segment) => Array.isArray(segment.embedding) && segment.embedding.length > 0)) {
@@ -1654,7 +1683,6 @@ export const askVideoQuestion = onCall(
     const answerModel = genAI.getGenerativeModel({
       model: modelName,
       generationConfig: {
-        temperature: 0.2,
         responseMimeType: 'application/json',
         responseSchema: VIDEO_ANSWER_SCHEMA,
       },
@@ -1767,5 +1795,15 @@ export const askVideoQuestion = onCall(
       structured,
       trace,
     };
+    } catch (error) {
+      await releaseMonthlyChatQuota(callerId, quota.period).catch((releaseError) => {
+        logger.error('[askVideoQuestion] quota_release_failed', {
+          callerId,
+          period: quota.period,
+          errorMessage: sanitizeErrorMessage(releaseError),
+        });
+      });
+      throw toHttpsError(error, 'internal', 'No se pudo responder a la consulta del vídeo.');
+    }
   },
 );

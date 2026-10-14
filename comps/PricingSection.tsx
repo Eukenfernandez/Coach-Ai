@@ -44,9 +44,9 @@ const TEXTS = {
     downgradeModalTitle: '¿Bajar al Plan Gratuito?',
     downgradeModalDesc: 'Serás redirigido al portal de Stripe para cancelar tu suscripción actual.',
     downgradeModalList: [
-      'Mantendrás tus privilegios hasta final de mes.',
+      'Mantendrás tus privilegios hasta el final del ciclo que ya has pagado.',
       'No se te cobrará el próximo ciclo.',
-      'Debes confirmar la cancelación en la página de Stripe.'
+      'Si superas el nuevo límite de galería, tendrás 3 días para elegir qué conservar.'
     ],
     downgradeConfirmBtn: 'Ir a Cancelar Suscripción',
     cancelBtn: 'Volver',
@@ -70,9 +70,9 @@ const TEXTS = {
     downgradeModalTitle: 'Downgrade to Free?',
     downgradeModalDesc: 'You will be redirected to the Stripe portal to cancel your current subscription.',
     downgradeModalList: [
-      'You keep benefits until the end of the month.',
+      'You keep your benefits until the end of the billing cycle you already paid for.',
       'You will not be charged for the next cycle.',
-      'You must confirm the cancellation on the Stripe page.'
+      'If your gallery exceeds the new limit, you will have 3 days to choose what to keep.'
     ],
     downgradeConfirmBtn: 'Go to Cancel Subscription',
     cancelBtn: 'Go Back',
@@ -96,9 +96,9 @@ const TEXTS = {
     downgradeModalTitle: 'Doako Planera Jaitsi?',
     downgradeModalDesc: 'Stripe atarira bideratuko zaitugu harpidetza ezeztatzeko.',
     downgradeModalList: [
-      'Abantailak hilabete amaiera arte mantenduko dituzu.',
+      'Ordaindutako fakturazio-zikloa amaitu arte abantailak mantenduko dituzu.',
       'Ez zaizu hurrengo zikloan kobratuko.',
-      'Stripe orrian ezeztapena berretsi behar duzu.'
+      'Galeriak muga berria gainditzen badu, 3 egun izango dituzu zer gorde aukeratzeko.'
     ],
     downgradeConfirmBtn: 'Joan Harpidetza Ezeztatzera',
     cancelBtn: 'Itzuli',
@@ -116,6 +116,13 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ currentUser, lan
   const currentTier = currentUser.profile?.subscriptionTier || 'FREE';
   const isPaidUser = currentTier !== 'FREE';
   const isCoach = currentUser.profile?.role === 'coach';
+  const localize = (es: string, ing: string, eus: string) => (
+    language === 'ing' ? ing : language === 'eus' ? eus : es
+  );
+  const actionForTier = (tier: string): 'checkout' | 'portal' | 'none' => {
+    if (currentTier === tier) return 'none';
+    return isPaidUser ? 'portal' : 'checkout';
+  };
 
   const processStripeAction = async (planId: string, actionType: 'checkout' | 'portal') => {
     setLoadingPriceId(planId);
@@ -136,9 +143,13 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ currentUser, lan
   const handlePlanAction = async (planId: string, actionType: 'checkout' | 'portal') => {
     if (planId === 'FREE' && actionType === 'portal') {
        const uData = await StorageService.getUserData(currentUser.id);
-       const targetLimit = getUserLimits('FREE').maxStoredVideos || 3;
-       if (uData.videos.length > targetLimit) {
-           setDowngradeWarning(`¡Cuidado! Tu galería tiene ${uData.videos.length} vídeos. El plan Gratuito solo permite ${targetLimit}. Si confirmas, entrarás en un periodo de gracia obligatorio de 3 días para borrar el exceso, o tu cuenta será eliminada permanentemente.`);
+       const freeLimits = getUserLimits('FREE');
+       const currentVideos = uData.videos || [];
+       const currentPdfs = uData.plans || [];
+       const videoOver = currentVideos.length > freeLimits.maxStoredVideos;
+       const pdfOver = currentPdfs.length > freeLimits.maxStoredPdfs;
+       if (videoOver || pdfOver) {
+           setDowngradeWarning(`Al terminar tu ciclo pagado, el plan Gratuito permitirá ${freeLimits.maxStoredVideos} vídeos y ${freeLimits.maxStoredPdfs} PDF. Ahora tienes ${currentVideos.length} vídeos y ${currentPdfs.length} PDF. Tendrás 3 días para ajustarlo; si alguna galería sigue excedida, se eliminarán todos sus archivos.`);
        } else {
            setDowngradeWarning(null);
        }
@@ -161,7 +172,13 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ currentUser, lan
     price: '0€',
     period: t.monthly,
     icon: <Circle className="text-neutral-400" size={24} />,
-    features: ['3 Análisis/mes', '10 Mensajes chat/mes', '3 Vídeos Máximos', '5 PDFs Máximos', 'Sin Comparador'],
+    features: [
+      localize('3 vídeos + 2 PDF por ciclo', '3 videos + 2 PDFs per cycle', '3 bideo + 2 PDF zikloko'),
+      localize('10 consultas IA esenciales', '10 essential AI questions', 'IAko oinarrizko 10 kontsulta'),
+      localize('Galería: 3 vídeos y 2 PDF', 'Gallery: 3 videos and 2 PDFs', 'Galeria: 3 bideo eta 2 PDF'),
+      localize('Coach IA Esencial · Gemini Flash-Lite', 'Essential AI Coach · Gemini Flash-Lite', 'Oinarrizko IA Coach · Gemini Flash-Lite'),
+      localize('Sin comparador de vídeo', 'No video comparison', 'Bideo-konparatzailerik gabe'),
+    ],
     buttonText: currentTier === 'FREE' ? t.current : t.downgrade,
     actionType: currentTier === 'FREE' ? 'none' : 'portal',
     disabled: currentTier === 'FREE',
@@ -177,27 +194,39 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ currentUser, lan
       price: '19,99€',
       period: t.monthly,
       icon: <Zap className="text-orange-500" size={24} />,
-      features: ['15 Vídeos/mes', '100 Mensajes chat/mes', 'Comparador de Vídeo', 'Gemini 2.5 Flash', 'Prioridad Soporte'],
+      features: [
+        localize('15 vídeos + 10 PDF por ciclo', '15 videos + 10 PDFs per cycle', '15 bideo + 10 PDF zikloko'),
+        localize('Galería ampliada: 15 vídeos y 10 PDF', 'Expanded gallery: 15 videos and 10 PDFs', 'Galeria handitua: 15 bideo eta 10 PDF'),
+        localize('100 consultas IA avanzadas', '100 advanced AI questions', 'IAko 100 kontsulta aurreratu'),
+        localize('Comparador técnico de vídeo', 'Technical video comparison', 'Bideo-konparaketa teknikoa'),
+        localize('Coach IA Avanzado · Gemini 3.6 Flash', 'Advanced AI Coach · Gemini 3.6 Flash', 'IA Coach aurreratua · Gemini 3.6 Flash'),
+      ],
       buttonText: currentTier === 'PRO_ATHLETE' ? t.current : (currentTier === 'FREE' ? t.upgrade : t.select),
-      actionType: currentTier === 'PRO_ATHLETE' ? 'none' : 'checkout',
+      actionType: actionForTier('PRO_ATHLETE'),
       disabled: currentTier === 'PRO_ATHLETE',
       highlight: true,
       tierId: 'PRO_ATHLETE'
     },
     {
-      id: STRIPE_PRICES.PRO_COACH,
+      id: STRIPE_PRICES.PREMIUM_ATHLETE,
       name: t.athletePremium,
       price: '49,99€',
       period: t.monthly,
       icon: <Crown className="text-yellow-500" size={24} />,
-      features: ['100 Vídeos/mes', '200 Mensajes chat/mes', 'Comparador 4K', 'Gemini 3 Pro', 'Máxima Prioridad'],
-      buttonText: currentTier === 'PRO_COACH' ? t.current : t.upgrade,
-      actionType: currentTier === 'PRO_COACH' ? 'none' : 'checkout',
-      disabled: currentTier === 'PRO_COACH',
+      features: [
+        localize('100 vídeos + 30 PDF por ciclo', '100 videos + 30 PDFs per cycle', '100 bideo + 30 PDF zikloko'),
+        localize('Galería élite: 100 vídeos y 30 PDF', 'Elite gallery: 100 videos and 30 PDFs', 'Elite galeria: 100 bideo eta 30 PDF'),
+        localize('200 consultas IA de nivel experto', '200 expert-level AI questions', 'Aditu-mailako IAko 200 kontsulta'),
+        localize('Comparación de alto detalle', 'High-detail comparison', 'Xehetasun handiko konparaketa'),
+        localize('Coach IA Élite · Gemini 3.5 Flash', 'Elite AI Coach · Gemini 3.5 Flash', 'Elite IA Coach · Gemini 3.5 Flash'),
+      ],
+      buttonText: currentTier === 'PREMIUM_ATHLETE' ? t.current : t.upgrade,
+      actionType: actionForTier('PREMIUM_ATHLETE'),
+      disabled: currentTier === 'PREMIUM_ATHLETE',
       highlight: false,
       isBlack: true,
       badge: t.bestValue,
-      tierId: 'PRO_COACH'
+      tierId: 'PREMIUM_ATHLETE'
     }
   ];
 
@@ -209,9 +238,15 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ currentUser, lan
       price: '49,99€',
       period: t.monthly,
       icon: <ShieldCheck className="text-blue-500" size={24} />,
-      features: ['100 Vídeos/mes', '200 Mensajes chat/mes', 'Comparador de Vídeo', 'Gemini 2.5 Flash', 'Gestión de 20 Atletas'],
+      features: [
+        localize('100 vídeos + 50 PDF por ciclo', '100 videos + 50 PDFs per cycle', '100 bideo + 50 PDF zikloko'),
+        localize('Galería de equipo: 100 vídeos y 50 PDF', 'Team gallery: 100 videos and 50 PDFs', 'Talde-galeria: 100 bideo eta 50 PDF'),
+        localize('200 consultas IA avanzadas', '200 advanced AI questions', 'IAko 200 kontsulta aurreratu'),
+        localize('Comparador técnico + Gemini 3.6 Flash', 'Technical comparison + Gemini 3.6 Flash', 'Konparaketa teknikoa + Gemini 3.6 Flash'),
+        localize('Gestión de hasta 20 atletas', 'Manage up to 20 athletes', 'Kudeatu gehienez 20 atleta'),
+      ],
       buttonText: currentTier === 'PRO_COACH' ? t.current : t.select,
-      actionType: currentTier === 'PRO_COACH' ? 'none' : 'checkout',
+      actionType: actionForTier('PRO_COACH'),
       disabled: currentTier === 'PRO_COACH',
       highlight: true,
       tierId: 'PRO_COACH'
@@ -222,9 +257,15 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ currentUser, lan
       price: '79,99€',
       period: t.monthly,
       icon: <Crown className="text-yellow-500" size={24} />,
-      features: ['300 Vídeos/mes', '500 Mensajes chat/mes', 'Comparador 4K', 'Gemini 3 Pro (Deep Analysis)', 'Gestión de 50 Atletas'],
+      features: [
+        localize('300 vídeos + 150 PDF por ciclo', '300 videos + 150 PDFs per cycle', '300 bideo + 150 PDF zikloko'),
+        localize('Archivo élite: 300 vídeos y 150 PDF', 'Elite archive: 300 videos and 150 PDFs', 'Elite artxiboa: 300 bideo eta 150 PDF'),
+        localize('500 consultas IA de nivel experto', '500 expert-level AI questions', 'Aditu-mailako IAko 500 kontsulta'),
+        localize('Coach IA Élite · Gemini 3.5 Flash', 'Elite AI Coach · Gemini 3.5 Flash', 'Elite IA Coach · Gemini 3.5 Flash'),
+        localize('Gestión de hasta 50 atletas', 'Manage up to 50 athletes', 'Kudeatu gehienez 50 atleta'),
+      ],
       buttonText: currentTier === 'PREMIUM' ? t.current : t.upgrade,
-      actionType: currentTier === 'PREMIUM' ? 'none' : 'checkout',
+      actionType: actionForTier('PREMIUM'),
       disabled: currentTier === 'PREMIUM',
       highlight: false,
       isBlack: true,
@@ -315,7 +356,7 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ currentUser, lan
 
               <ul className="space-y-3 mb-8 flex-1">
                 {plan.features.map((feature, idx) => {
-                  const isLimited = plan.tierId === 'FREE' && feature === 'Sin Comparador';
+                  const isLimited = plan.tierId === 'FREE' && idx === plan.features.length - 1;
                   return (
                     <li key={idx} className="flex items-center gap-2 text-xs">
                       {isLimited ? <XCircle size={14} className="text-red-500 shrink-0" /> : <Check size={14} className="text-green-500 shrink-0" />}

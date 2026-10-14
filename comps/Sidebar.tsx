@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
-import { Screen, User, Language, TEAM_SPORTS, NON_COMPETITIVE_SPORTS, GYM_RELATED_SPORTS } from '../types';
-import { LayoutDashboard, Video, Dumbbell, Target, MessageSquareQuote, LogOut, Trophy, FileText, X, Calculator, Users, ChevronDown, User as UserIcon, Settings, Sun, Moon, Trash2, AlertTriangle, Star, Pill, PanelLeft, Dribbble, Download } from 'lucide-react';
+import { Screen, User, Language, TEAM_SPORTS, NON_COMPETITIVE_SPORTS } from '../types';
+import { LayoutDashboard, Video, Dumbbell, Target, MessageSquareQuote, LogOut, Trophy, FileText, X, Users, ChevronDown, User as UserIcon, Settings, Sun, Moon, Trash2, AlertTriangle, Star, Pill, PanelLeft, Dribbble, Download } from 'lucide-react';
 import { StorageService } from '../svcs/storageService';
 import { useTheme } from '../hks/useTheme';
 
@@ -25,7 +25,6 @@ const SIDEBAR_TEXTS = {
       dashboard: 'Inicio',
       gallery: 'Video Análisis',
       strength: 'Fuerza & RM',
-      calculator: 'Calculadora Discos',
       planning: 'Entrenamientos',
       competition: 'Competiciones',
       training: 'Práctica Técnica',
@@ -56,7 +55,6 @@ const SIDEBAR_TEXTS = {
       dashboard: 'Dashboard',
       gallery: 'Video Analysis',
       strength: 'Strength & RM',
-      calculator: 'Plate Calculator',
       planning: 'Workout Plans',
       competition: 'Competitions',
       training: 'Technical Practice',
@@ -87,7 +85,6 @@ const SIDEBAR_TEXTS = {
       dashboard: 'Hasiera',
       gallery: 'Bideo Analisia',
       strength: 'Indarra & RM',
-      calculator: 'Disko Kalkulagailua',
       planning: 'Entrenamenduak',
       competition: 'Txapelketak',
       training: 'Praktika Teknikoa',
@@ -146,7 +143,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
    const isNonCompetitive = NON_COMPETITIVE_SPORTS.includes(userSport);
 
    // Enable features based on sport type
-   const showCalculator = GYM_RELATED_SPORTS.includes(userSport);
    const showSupplements = currentUser?.profile?.takesSupplements !== false;
 
    // Define MenuItem type for proper TypeScript inference
@@ -157,7 +153,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       { id: 'dashboard', label: t.dashboard, icon: LayoutDashboard },
       { id: 'gallery', label: t.gallery, icon: Video },
       { id: 'strength', label: t.strength, icon: Dumbbell },
-      ...(showCalculator ? [{ id: 'calculator', label: t.calculator, icon: Calculator }] : []),
       { id: 'planning', label: t.planning, icon: FileText },
    ];
 

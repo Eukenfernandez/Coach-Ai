@@ -1,8 +1,9 @@
 
-import React from 'react';
-import { VideoFile, StrengthRecord, ThrowRecord, Screen, UserProfile, Language } from '../types';
+import React, { useMemo } from 'react';
+import { VideoFile, StrengthRecord, ThrowRecord, Screen, UserProfile, Language, getMetricUnit, isTimeBased as checkTimeBased } from '../types';
 import { Activity, TrendingUp, Video, Trophy, Target, CalendarRange, Timer } from 'lucide-react';
-import { getTranslatedDiscipline } from '../utl/sportTranslations';
+import { getTranslatedDiscipline, getTranslatedExercise } from '../utl/sportTranslations';
+import { buildPerformanceChartData, getChartTimeRange, PerformancePoint } from '../utl/performanceChart';
 
 interface DashboardProps {
   userProfile?: UserProfile;
@@ -26,13 +27,13 @@ const TEXTS = {
     strength: 'REGISTROS FUERZA',
     entries: 'entradas',
     progress: 'Progreso de Carrera',
-    trend: 'Tendencia Normalizada',
-    emptyGraph: 'Añade registros para ver tu evolución global.',
+    trend: 'Índice de rendimiento · 100 = referencia inicial',
+    emptyGraph: 'Añade registros válidos para ver una evolución precisa.',
     comp: 'Competición',
     train: 'Entreno',
     force: 'Fuerza',
     start: 'INICIO',
-    now: 'ACTUALIDAD',
+    now: 'ÚLTIMO REGISTRO',
     time: 'TIEMPO',
     mark: 'MARCA'
   },
@@ -47,13 +48,13 @@ const TEXTS = {
     strength: 'STRENGTH LOGS',
     entries: 'entries',
     progress: 'Career Progress',
-    trend: 'Normalized Trend',
-    emptyGraph: 'Add records to see global evolution.',
+    trend: 'Performance index · 100 = initial reference',
+    emptyGraph: 'Add valid records to see an accurate progression.',
     comp: 'Competition',
     train: 'Training',
     force: 'Strength',
     start: 'START',
-    now: 'NOW',
+    now: 'LATEST RECORD',
     time: 'TIME',
     mark: 'MARK'
   },
@@ -68,13 +69,13 @@ const TEXTS = {
     strength: 'INDAR ERREGISTROAK',
     entries: 'sarrera',
     progress: 'Karrera Aurrerapena',
-    trend: 'Joera Normalizatua',
-    emptyGraph: 'Gehitu erregistroak bilakaera ikusteko.',
+    trend: 'Errendimendu-indizea · 100 = hasierako erreferentzia',
+    emptyGraph: 'Gehitu baliozko erregistroak bilakaera zehatza ikusteko.',
     comp: 'Txapelketa',
     train: 'Entrenamendua',
     force: 'Indarra',
     start: 'HASIERA',
-    now: 'ORAINA',
+    now: 'AZKEN ERREGISTROA',
     time: 'DENBORA',
     mark: 'MARKA'
   }
@@ -92,8 +93,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const t = TEXTS[language];
 
   // Determine metrics based on sport
-  const isTimeBased = userProfile?.sport === 'sprint' || userProfile?.sport === 'middle_distance';
-  const unit = isTimeBased ? 's' : 'm';
+  const discipline = userProfile?.discipline || '';
+  const isTimeBased = Boolean(discipline.trim()) && checkTimeBased(discipline);
+  const unit = getMetricUnit(discipline) || (isTimeBased ? 's' : 'm');
   const metricLabel = isTimeBased ? t.time : t.mark;
 
   // Best Record Logic (Min for time, Max for distance)
@@ -105,18 +107,29 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   const bestCompetition = getBest(throwRecords);
   const totalLifts = strengthRecords.length;
+  const performanceChart = useMemo(() => buildPerformanceChartData({
+    competitionRecords: throwRecords,
+    trainingRecords,
+    strengthRecords,
+    lowerMetricIsBetter: isTimeBased,
+  }), [isTimeBased, strengthRecords, throwRecords, trainingRecords]);
+  const dateLocale = language === 'ing' ? 'en-US' : language === 'eus' ? 'eu-ES' : 'es-ES';
+  const formatChartDate = (timestamp: number) => new Intl.DateTimeFormat(dateLocale, {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date(timestamp));
 
   // --- Graph Data Logic ---
   const renderGlobalGraph = () => {
-    // 1. Gather all dates
-    const allDates = [
-      ...throwRecords.map(r => r.date),
-      ...trainingRecords.map(r => r.date),
-      ...strengthRecords.map(r => r.date)
+    const allPoints = [
+      ...performanceChart.competition,
+      ...performanceChart.training,
+      ...performanceChart.strength,
     ];
 
-    // If absolutely no data, show placeholder
-    if (allDates.length === 0) {
+    if (allPoints.length === 0) {
       return (
         <div className="h-48 md:h-64 flex flex-col items-center justify-center text-neutral-500 bg-neutral-100 dark:bg-neutral-900/50 rounded-2xl border border-neutral-200 dark:border-neutral-800 transition-colors">
           <TrendingUp size={32} className="mb-2 opacity-50" />
@@ -125,121 +138,139 @@ export const Dashboard: React.FC<DashboardProps> = ({
       );
     }
 
-    // 2. Sort and find Range
-    const uniqueDates = [...new Set(allDates)].sort();
-    const minDateObj = new Date(uniqueDates[0]).getTime();
-    const maxDateObj = new Date(uniqueDates[uniqueDates.length - 1]).getTime();
-
-    let timeRange = maxDateObj - minDateObj;
-    if (timeRange === 0) timeRange = 24 * 60 * 60 * 1000;
-
-    // 3. Find Max Values for Normalization (0-100% scale)
-    const maxComp = Math.max(...throwRecords.map(r => r.distance), 1);
-    const maxTrain = Math.max(...trainingRecords.map(r => r.distance), 1);
-    const maxStrength = Math.max(...strengthRecords.map(r => r.weight), 1);
-
     const width = 1000;
     const height = 300;
-    const padding = 30;
-    const graphW = width - padding * 2;
-    const graphH = height - padding * 2;
+    const paddingX = 60;
+    const paddingY = 34;
+    const graphW = width - paddingX * 2;
+    const graphH = height - paddingY * 2;
+    const timeRange = getChartTimeRange(performanceChart.minTimestamp, performanceChart.maxTimestamp);
+    const scoreRange = performanceChart.maxScore - performanceChart.minScore;
 
-    const getX = (dateStr: string) => {
-      const t = new Date(dateStr).getTime();
-      const percent = (t - minDateObj) / timeRange;
-      return padding + percent * graphW;
+    const getX = (timestamp: number) => {
+      if (performanceChart.maxTimestamp === performanceChart.minTimestamp) return width / 2;
+      const percent = (timestamp - performanceChart.minTimestamp) / timeRange;
+      return paddingX + percent * graphW;
     };
 
-    const getY = (val: number, maxVal: number) => {
-      // For simplicity, we keep standard Y axis: High value = High on graph.
-      const normalized = val / maxVal;
-      return height - padding - (normalized * graphH);
+    const getY = (score: number) => {
+      const normalized = scoreRange > 0
+        ? (score - performanceChart.minScore) / scoreRange
+        : 0.5;
+      return height - paddingY - normalized * graphH;
     };
 
-    // 5. Build Points Data
-    const getPoints = (data: any[], valKey: string, maxVal: number) => {
-      if (data.length < 1) return [];
-      const sorted = [...data].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-      const grouped: Record<string, number[]> = {};
-      sorted.forEach(item => {
-        if (!grouped[item.date]) grouped[item.date] = [];
-        grouped[item.date].push(item[valKey]);
-      });
-
-      return Object.keys(grouped).sort().map((date) => {
-        const vals = grouped[date];
-        const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
-        return { x: getX(date), y: getY(avg, maxVal), val: avg, date };
-      });
+    const makePath = (points: PerformancePoint[]) => {
+      if (points.length < 2) return '';
+      return points.map((point, index) => (
+        `${index === 0 ? 'M' : 'L'} ${getX(point.timestamp)} ${getY(point.score)}`
+      )).join(' ');
     };
 
-    const compPoints = getPoints(throwRecords, 'distance', maxComp);
-    const trainPoints = getPoints(trainingRecords, 'distance', maxTrain);
-    const strengthPoints = getPoints(strengthRecords, 'weight', maxStrength);
-
-    // Helper to make path string
-    const makePath = (points: { x: number, y: number }[]) => {
-      if (points.length === 0) return "";
-      if (points.length === 1) return "";
-      return points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
-    };
-
-    const compPath = makePath(compPoints);
-    const trainPath = makePath(trainPoints);
-    const strengthPath = makePath(strengthPoints);
+    const gridScores = Array.from(new Set([
+      performanceChart.maxScore,
+      100,
+      performanceChart.minScore,
+    ].map((score) => Number(score.toFixed(4))))).sort((a, b) => b - a);
+    const formatRawValue = (value: number) => Number(value.toFixed(2)).toLocaleString(dateLocale);
+    const getPointTitle = (point: PerformancePoint, label: string, rawUnit: string) => (
+      `${label} · ${formatChartDate(point.timestamp)} · ${formatRawValue(point.rawValue)}${rawUnit ? ` ${rawUnit}` : ''} · índice ${point.score.toFixed(1)}`
+    );
+    const strengthLabel = performanceChart.strengthExercise
+      ? `${t.force} · ${getTranslatedExercise(performanceChart.strengthExercise, language)}`
+      : t.force;
 
     return (
       <div className="w-full overflow-hidden">
         <div className="w-full h-[200px] md:h-[300px] bg-white dark:bg-neutral-900 rounded-2xl border border-neutral-200 dark:border-neutral-800 relative shadow-sm dark:shadow-inner overflow-hidden transition-colors">
           {/* Legend Overlay */}
           <div className="absolute top-2 right-2 md:top-4 md:right-4 flex flex-col gap-1 md:gap-2 bg-white/80 dark:bg-neutral-950/80 p-2 md:p-3 rounded-lg md:rounded-xl border border-neutral-200 dark:border-neutral-800 backdrop-blur-sm z-10 text-[10px] md:text-xs">
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 md:w-3 md:h-3 bg-orange-500 rounded-full border border-neutral-300 dark:border-black shadow-[0_0_8px_rgba(249,115,22,0.8)]"></div>
-              <span className="text-neutral-700 dark:text-orange-200">{t.comp} ({unit})</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 md:w-3 md:h-3 bg-emerald-500 rounded-full border border-neutral-300 dark:border-black shadow-[0_0_8px_rgba(16,185,129,0.8)]"></div>
-              <span className="text-neutral-700 dark:text-emerald-200">{t.train} ({unit})</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 md:w-3 md:h-3 bg-purple-500 rounded-full border border-neutral-300 dark:border-black shadow-[0_0_8px_rgba(168,85,247,0.8)]"></div>
-              <span className="text-neutral-700 dark:text-purple-200">{t.force} (kg)</span>
-            </div>
+            {performanceChart.competition.length > 0 && (
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 md:w-3 md:h-3 bg-orange-500 rounded-full border border-neutral-300 dark:border-black shadow-[0_0_8px_rgba(249,115,22,0.8)]"></div>
+                <span className="text-neutral-700 dark:text-orange-200">{t.comp} · {unit}</span>
+              </div>
+            )}
+            {performanceChart.training.length > 0 && (
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 md:w-3 md:h-3 bg-emerald-500 rounded-full border border-neutral-300 dark:border-black shadow-[0_0_8px_rgba(16,185,129,0.8)]"></div>
+                <span className="text-neutral-700 dark:text-emerald-200">{t.train} · {unit}</span>
+              </div>
+            )}
+            {performanceChart.strength.length > 0 && (
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 md:w-3 md:h-3 bg-purple-500 rounded-full border border-neutral-300 dark:border-black shadow-[0_0_8px_rgba(168,85,247,0.8)]"></div>
+                <span className="max-w-40 truncate text-neutral-700 dark:text-purple-200" title={strengthLabel}>{strengthLabel}</span>
+              </div>
+            )}
           </div>
 
           {/* SVG Content */}
           <svg width="100%" height="100%" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" className="absolute inset-0">
             {/* Grid Guides */}
-            <line x1="0" y1={height - padding} x2={width} y2={height - padding} stroke="currentColor" strokeOpacity="0.1" strokeWidth="1" className="text-neutral-500" />
-            <line x1="0" y1={height / 2} x2={width} y2={height / 2} stroke="currentColor" strokeOpacity="0.1" strokeWidth="1" strokeDasharray="5,5" className="text-neutral-500" />
-            <line x1="0" y1={padding} x2={width} y2={padding} stroke="currentColor" strokeOpacity="0.1" strokeWidth="1" strokeDasharray="5,5" className="text-neutral-500" />
+            {gridScores.map((score) => (
+              <line
+                key={score}
+                x1={paddingX}
+                y1={getY(score)}
+                x2={width - paddingX}
+                y2={getY(score)}
+                stroke="currentColor"
+                strokeOpacity="0.1"
+                strokeWidth="1"
+                strokeDasharray="5,5"
+                className="text-neutral-500"
+              />
+            ))}
+            {performanceChart.minScore <= 100 && performanceChart.maxScore >= 100 && (
+              <line x1={paddingX} y1={getY(100)} x2={width - paddingX} y2={getY(100)} stroke="#f97316" strokeOpacity="0.28" strokeWidth="1.5" strokeDasharray="8,5" />
+            )}
 
             {/* Strength Layer */}
-            <path d={strengthPath} fill="none" stroke="#a855f7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="opacity-50" />
-            {strengthPoints.map((p, i) => (
-              <circle key={`s-${i}`} cx={p.x} cy={p.y} r="4" fill="#a855f7" className="stroke-white dark:stroke-neutral-900 stroke-2" />
+            <path d={makePath(performanceChart.strength)} fill="none" stroke="#a855f7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="opacity-70" />
+            {performanceChart.strength.map((point) => (
+              <circle key={`s-${point.dateKey}`} cx={getX(point.timestamp)} cy={getY(point.score)} r="4" fill="#a855f7" className="stroke-white dark:stroke-neutral-900 stroke-2">
+                <title>{getPointTitle(point, strengthLabel, '')}</title>
+              </circle>
             ))}
 
             {/* Training Layer */}
-            <path d={trainPath} fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="opacity-70" />
-            {trainPoints.map((p, i) => (
-              <circle key={`t-${i}`} cx={p.x} cy={p.y} r="4" fill="#10b981" className="stroke-white dark:stroke-neutral-900 stroke-2" />
+            <path d={makePath(performanceChart.training)} fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="opacity-80" />
+            {performanceChart.training.map((point) => (
+              <circle key={`t-${point.dateKey}`} cx={getX(point.timestamp)} cy={getY(point.score)} r="4" fill="#10b981" className="stroke-white dark:stroke-neutral-900 stroke-2">
+                <title>{getPointTitle(point, t.train, unit)}</title>
+              </circle>
             ))}
 
             {/* Competition Layer (Top) */}
-            <path d={compPath} fill="none" stroke="#f97316" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="drop-shadow-[0_0_10px_rgba(249,115,22,0.5)]" />
-            {compPoints.map((p, i) => (
-              <circle key={`c-${i}`} cx={p.x} cy={p.y} r="6" fill="#f97316" className="stroke-white dark:stroke-white stroke-2 shadow-[0_0_10px_rgba(249,115,22,1)]" />
+            <path d={makePath(performanceChart.competition)} fill="none" stroke="#f97316" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="drop-shadow-[0_0_10px_rgba(249,115,22,0.5)]" />
+            {performanceChart.competition.map((point) => (
+              <circle key={`c-${point.dateKey}`} cx={getX(point.timestamp)} cy={getY(point.score)} r="6" fill="#f97316" className="stroke-white dark:stroke-white stroke-2 shadow-[0_0_10px_rgba(249,115,22,1)]">
+                <title>{getPointTitle(point, t.comp, unit)}</title>
+              </circle>
             ))}
           </svg>
 
+          <div className="absolute inset-0 text-[9px] text-neutral-500 font-mono pointer-events-none">
+            {gridScores.map((score) => (
+              <span
+                key={score}
+                className={score === 100 ? 'text-orange-400/80' : ''}
+                style={{ position: 'absolute', left: 8, top: `${(getY(score) / height) * 100}%`, transform: 'translateY(-50%)' }}
+              >
+                {score.toFixed(1)}
+              </span>
+            ))}
+          </div>
+
           {/* Axis Label */}
           <div className="absolute bottom-1 left-2 md:bottom-2 md:left-4 text-[9px] md:text-[10px] text-neutral-500 font-mono">
-            {uniqueDates.length > 0 ? new Date(uniqueDates[0]).toLocaleDateString() : t.start}
+            {formatChartDate(performanceChart.minTimestamp)}
           </div>
           <div className="absolute bottom-1 right-2 md:bottom-2 md:right-4 text-[9px] md:text-[10px] text-neutral-500 font-mono">
-            {t.now}
+            {performanceChart.maxTimestamp > performanceChart.minTimestamp
+              ? formatChartDate(performanceChart.maxTimestamp)
+              : t.now}
           </div>
         </div>
       </div>
@@ -320,4 +351,3 @@ export const Dashboard: React.FC<DashboardProps> = ({
     </div>
   );
 };
-

@@ -179,7 +179,7 @@ function prepareRecipients(context) {
 
   if (!explicitConsentSeen) {
     summary.warnings.push(
-      "No se detectaron flags explícitos de marketing/newsletter en Firebase. campaign_safe usa una heurística conservadora sobre cuentas registradas reales."
+      "No se detectaron consentimientos explícitos de marketing/newsletter en Firebase. No se incluirá ninguna cuenta en campaign_safe hasta que acepte expresamente."
     );
   }
 
@@ -426,17 +426,6 @@ function classifyRecipient(meta) {
     rejectionReasons.push(meta.consent.reason || "consent_denied");
   }
 
-  let qualityScore = 0;
-  if (meta.fromAuth) qualityScore += 2;
-  if (meta.hasUsersDoc) qualityScore += 2;
-  if (meta.hasCustomerDoc) qualityScore += 1;
-  if (meta.hasReliableName) qualityScore += 1;
-  if (meta.role === "athlete") qualityScore += 1;
-  if (meta.role === "coach") qualityScore -= 1;
-  if (meta.requestOnlyLead) qualityScore -= 2;
-  if (!meta.hasReliableName) qualityScore -= 1;
-  if (looksRandomishLocalPart(localPart) && !meta.hasReliableName) qualityScore -= 1;
-
   let segment = "review_required";
   let consentStatus = "review_required";
   if (rejectionReasons.length) {
@@ -446,18 +435,9 @@ function classifyRecipient(meta) {
     segment = "campaign_safe";
     consentStatus = "explicit_marketing";
     notes.push(`consent:${meta.consent.reason}`);
-  } else if (
-    qualityScore >= 5 &&
-    meta.hasReliableName &&
-    !reviewReasons.includes("coach_account") &&
-    !reviewReasons.includes("request_only_lead")
-  ) {
-    segment = "campaign_safe";
-    consentStatus = "implicit_existing_user";
-    notes.push("consent:implicit_existing_contact");
   } else {
     reviewReasons.push("manual_consent_review");
-    notes.push("consent:review_required");
+    notes.push("consent:explicit_marketing_required");
   }
 
   if (meta.hasReliableName && meta.name_source) {
