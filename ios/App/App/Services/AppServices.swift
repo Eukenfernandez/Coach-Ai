@@ -1,4 +1,6 @@
+import CommonCrypto
 import Foundation
+import Security
 
 protocol APIClientProtocol {
     func perform(_ endpoint: String) async throws -> Data
@@ -307,13 +309,68 @@ struct LocalContentService: ContentServicing {
     }
 }
 
+// Salted PBKDF2-SHA256 for the locally stored credentials. UserDefaults ends up
+// in the preferences plist and in device backups, so the password itself is
+// never written there.
+private enum PasswordHasher {
+    private static let iterations: UInt32 = 310_000
+    private static let keyLength = 32
+
+    static func makeSalt() -> String {
+        var bytes = [UInt8](repeating: 0, count: 16)
+        if SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) != errSecSuccess {
+            bytes = Array(UUID().uuidString.utf8.prefix(16))
+        }
+        return Data(bytes).base64EncodedString()
+    }
+
+    static func hash(_ password: String, salt: String) -> String {
+        let passwordBytes = Array(password.utf8).map { CChar(bitPattern: $0) }
+        let saltBytes = Array(Data(base64Encoded: salt) ?? Data(salt.utf8))
+        var derived = [UInt8](repeating: 0, count: keyLength)
+        let status = CCKeyDerivationPBKDF(
+            CCPBKDFAlgorithm(kCCPBKDF2),
+            passwordBytes, passwordBytes.count,
+            saltBytes, saltBytes.count,
+            CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA256),
+            iterations,
+            &derived, derived.count
+        )
+        guard status == kCCSuccess else { return "" }
+        return Data(derived).base64EncodedString()
+    }
+
+    static func verify(_ password: String, hash expected: String, salt: String) -> Bool {
+        let actual = Array(hash(password, salt: salt).utf8)
+        let target = Array(expected.utf8)
+        guard !target.isEmpty, actual.count == target.count else { return false }
+        // Constant-time comparison.
+        return zip(actual, target).reduce(UInt8(0)) { $0 | ($1.0 ^ $1.1) } == 0
+    }
+}
+
 actor MockAuthService: AuthServicing {
     private struct StoredCredential: Codable, Equatable {
         let id: String
         var name: String
         var email: String
-        var password: String
+        var passwordHash: String
+        var passwordSalt: String
         var preferredLanguage: AppLanguage
+
+        init(id: String, name: String, email: String, password: String, preferredLanguage: AppLanguage) {
+            let salt = PasswordHasher.makeSalt()
+            self.id = id
+            self.name = name
+            self.email = email
+            self.passwordSalt = salt
+            self.passwordHash = PasswordHasher.hash(password, salt: salt)
+            self.preferredLanguage = preferredLanguage
+        }
+
+        func matches(password: String) -> Bool {
+            PasswordHasher.verify(password, hash: passwordHash, salt: passwordSalt)
+        }
 
         var user: AuthenticatedUser {
             AuthenticatedUser(
@@ -323,6 +380,15 @@ actor MockAuthService: AuthServicing {
                 preferredLanguage: preferredLanguage
             )
         }
+    }
+
+    // Records written before passwords were hashed; migrated on first load.
+    private struct LegacyStoredCredential: Codable {
+        let id: String
+        var name: String
+        var email: String
+        var password: String
+        var preferredLanguage: AppLanguage
     }
 
     private let defaults: UserDefaults
@@ -359,7 +425,7 @@ actor MockAuthService: AuthServicing {
             throw AuthServiceError.invalidCredentials
         }
 
-        guard credential.password == password else {
+        guard credential.matches(password: password) else {
             throw AuthServiceError.invalidCredentials
         }
 
@@ -440,11 +506,26 @@ actor MockAuthService: AuthServicing {
     private func loadUsers() -> [StoredCredential] {
         guard let data = defaults.data(forKey: usersKey) else { return [] }
 
-        do {
-            return try JSONDecoder().decode([StoredCredential].self, from: data)
-        } catch {
+        if let users = try? JSONDecoder().decode([StoredCredential].self, from: data) {
+            return users
+        }
+
+        // Plaintext records from older builds: hash them and overwrite right away
+        // so the cleartext passwords leave the preferences plist.
+        guard let legacyUsers = try? JSONDecoder().decode([LegacyStoredCredential].self, from: data) else {
             return []
         }
+        let migrated = legacyUsers.map {
+            StoredCredential(
+                id: $0.id,
+                name: $0.name,
+                email: $0.email,
+                password: $0.password,
+                preferredLanguage: $0.preferredLanguage
+            )
+        }
+        saveUsers(migrated)
+        return migrated
     }
 
     private func saveUsers(_ users: [StoredCredential]) {
