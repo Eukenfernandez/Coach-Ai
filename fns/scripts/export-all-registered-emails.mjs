@@ -553,11 +553,10 @@ async function writeOutputs(context) {
 }
 
 function inferUid(source, docMeta, objectValue) {
+  // Only the Auth record or the document path identify the owner: a nested
+  // `uid` field is whatever the (client-writable) document says it is.
   if (source === "auth") {
     return docMeta?.docId || "";
-  }
-  if (objectValue && typeof objectValue === "object" && typeof objectValue.uid === "string") {
-    return objectValue.uid;
   }
   if (docMeta?.docPath?.startsWith("users/")) {
     return docMeta.docId;
@@ -684,8 +683,15 @@ function maybeLogProgress(context, scope, value) {
   }
 }
 
+// Cells starting with = + - @ (or tab/CR) are evaluated as formulas by
+// Excel/Sheets even when quoted, and several columns come from user-writable
+// Firestore docs, so prefix them with ' to keep them as plain text.
 function csvEscape(value) {
-  return `"${String(value ?? "").replaceAll('"', '""')}"`;
+  let text = String(value ?? "");
+  if (typeof value !== "number" && /^[=+\-@\t\r]/.test(text)) {
+    text = `'${text}`;
+  }
+  return `"${text.replaceAll('"', '""')}"`;
 }
 
 function redactConfig(config) {

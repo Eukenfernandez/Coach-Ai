@@ -9,6 +9,7 @@ import {
   indexByEmail,
   indexByUid,
   isLikelyHumanName,
+  isTrustedAuthEntry,
   loadAuthUsers,
   loadFirestoreCollections,
   loadRegisteredEmailRows,
@@ -94,7 +95,9 @@ function prepareRecipients(context) {
   const customers = context.firestore.customers || [];
   const userdata = context.firestore.userdata || [];
 
-  const usersByUid = indexByUid(users, (entry) => entry.data?.uid || entry.id);
+  // Keyed by document id only: the `uid`/`email` fields of old users docs were
+  // client-writable and can't identify the account.
+  const usersByUid = indexByUid(users, (entry) => entry.id);
   const usersByEmail = indexByEmail(users, (entry) => entry.data?.email);
   const authByUid = indexByUid(
     context.authUsers,
@@ -233,14 +236,13 @@ function dedupeRows(rows) {
 
 function buildRecipientMeta(indices) {
   const { row } = indices;
-  const authUser =
-    indices.authByUid.get(row.uid) || indices.authByEmail.get(row.email) || null;
-  const userDoc =
-    indices.usersByUid.get(row.uid) || indices.usersByEmail.get(row.email) || null;
-  const userdataDoc =
-    indices.userdataByUid.get(row.uid) ||
-    (userDoc?.id ? indices.userdataByUid.get(userDoc.id) : null) ||
-    null;
+  // Link a row to an account through its email only. row.uid can come from a
+  // client-written document, and trusting it attached someone else's account
+  // (and its consent) to an arbitrary scraped address.
+  const authUser = indices.authByEmail.get(row.email) || null;
+  const authUid = authUser ? String(authUser.localId || authUser.uid || "") : "";
+  const userDoc = (authUid ? indices.usersByUid.get(authUid) : null) || null;
+  const userdataDoc = (authUid ? indices.userdataByUid.get(authUid) : null) || null;
   const customerDocs = indices.customersByEmail.get(row.email) || [];
   const requestDocs = indices.requestsByEmail.get(row.email) || [];
   const sourceSet = new Set(splitSourceList(row.source));
@@ -260,7 +262,8 @@ function buildRecipientMeta(indices) {
 
   return {
     email: row.email,
-    uid: row.uid || userDoc?.data?.uid || authUser?.localId || authUser?.uid || "",
+    uid: authUid,
+    identityTrusted: isTrustedAuthEntry(authUser),
     source: row.source,
     sourcePath: row.sourcePath,
     sourceSet,
@@ -437,16 +440,23 @@ function classifyRecipient(meta) {
   if (!meta.hasReliableName) qualityScore -= 1;
   if (looksRandomishLocalPart(localPart) && !meta.hasReliableName) qualityScore -= 1;
 
+  // Consent (explicit or implied by an existing account) only counts when the
+  // account provably owns the address.
+  if (!meta.identityTrusted) {
+    reviewReasons.push("unverified_email_owner");
+  }
+
   let segment = "review_required";
   let consentStatus = "review_required";
   if (rejectionReasons.length) {
     segment = "rejected";
     consentStatus = meta.consent.status === "denied" ? "denied" : "rejected";
-  } else if (meta.consent.status === "granted") {
+  } else if (meta.consent.status === "granted" && meta.identityTrusted) {
     segment = "campaign_safe";
     consentStatus = "explicit_marketing";
     notes.push(`consent:${meta.consent.reason}`);
   } else if (
+    meta.identityTrusted &&
     qualityScore >= 5 &&
     meta.hasReliableName &&
     !reviewReasons.includes("coach_account") &&
@@ -549,18 +559,51 @@ function buildInternalSeeds(nameStats) {
 }
 
 function isInternalSeedLocalPart(localPart, seeds) {
+  const localRuns = toCharRuns(localPart);
   return seeds.some((seed) => {
     if (localPart.includes(seed)) {
       return true;
     }
 
-    const regex = new RegExp(seed.split("").map((char) => `${char}+`).join(""));
-    if (regex.test(localPart)) {
+    if (matchesStretchedSeed(localRuns, toCharRuns(seed))) {
       return true;
     }
 
     return levenshtein(localPart, seed) <= 2;
   });
+}
+
+// Seeds are user-chosen profile names. Building /s+e+e+d+/ from them backtracks
+// exponentially on crafted local parts (ReDoS), so the same "each letter
+// stretched at least as much" match is done on run-length encodings instead,
+// in linear time per position.
+function toCharRuns(value) {
+  const runs = [];
+  for (const char of value) {
+    const last = runs[runs.length - 1];
+    if (last && last.char === char) {
+      last.count += 1;
+    } else {
+      runs.push({ char, count: 1 });
+    }
+  }
+  return runs;
+}
+
+function matchesStretchedSeed(localRuns, seedRuns) {
+  if (!seedRuns.length || seedRuns.length > localRuns.length) {
+    return false;
+  }
+  for (let start = 0; start + seedRuns.length <= localRuns.length; start += 1) {
+    const matches = seedRuns.every((seedRun, offset) => {
+      const localRun = localRuns[start + offset];
+      return localRun.char === seedRun.char && localRun.count >= seedRun.count;
+    });
+    if (matches) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function levenshtein(left, right) {

@@ -190,8 +190,14 @@ export function stableHash(value) {
   return crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
+// Cells starting with = + - @ (or tab/CR) are evaluated as formulas by
+// Excel/Sheets even when quoted, and names/uids/notes come from user-writable
+// Firestore docs, so prefix them with ' to keep them as plain text.
 export function csvEscape(value) {
-  const stringValue = value == null ? "" : String(value);
+  let stringValue = value == null ? "" : String(value);
+  if (typeof value !== "number" && /^[=+\-@\t\r]/.test(stringValue)) {
+    stringValue = `'${stringValue}`;
+  }
   return `"${stringValue.replace(/"/g, '""')}"`;
 }
 
@@ -724,6 +730,24 @@ async function getFirebaseCliAccessToken() {
   } catch {
     return "";
   }
+}
+
+// Accounts created before this date predate email verification in the app and
+// are trusted as-is (keep in sync with EMAIL_TRUST_CUTOFF_MS in fns/src/quota.ts).
+export const EMAIL_TRUST_CUTOFF_MS = Date.parse("2026-10-14T00:00:00Z");
+
+// Whether an Auth user (auth:export entry or UserRecord.toJSON()) has shown it
+// owns its email. Sign-up is open, so an unverified account may be squatting
+// someone else's address.
+export function isTrustedAuthEntry(entry) {
+  if (!entry) {
+    return false;
+  }
+  if (entry.emailVerified === true) {
+    return true;
+  }
+  const createdAt = Number(entry.createdAt) || Date.parse(entry.metadata?.creationTime || "") || 0;
+  return createdAt > 0 && createdAt < EMAIL_TRUST_CUTOFF_MS;
 }
 
 export function indexByEmail(items, selector) {

@@ -8,6 +8,7 @@ import {
   maybeLogProgress,
   normalizeRtdbPath,
 } from "./email-export-scan-helpers.mjs";
+import { isTrustedAuthEntry } from "./campaign-common.mjs";
 
 const EMAIL_REGEX =
   /^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/i;
@@ -28,16 +29,60 @@ const EMAIL_FIELD_HINTS = new Set([
 ]);
 
 let runtimeConsentConfig = null;
+// normalized email -> uids of the identity-bound docs it was found in
+let identityOwnersByEmail = new Map();
 
 export async function scanSources(context, admin) {
   runtimeConsentConfig = context.config.consent;
+  identityOwnersByEmail = new Map();
 
-  if (context.config.sources.firestore?.enabled) {
-    await collectFromFirestore(context, admin);
+  try {
+    if (context.config.sources.firestore?.enabled) {
+      await collectFromFirestore(context, admin);
+    }
+
+    if (context.config.sources.realtimeDatabase?.enabled) {
+      await collectFromRealtimeDatabase(context, admin);
+    }
+  } finally {
+    // Also on a partial scan (limits), which the caller may still export.
+    await verifyIdentityBoundGrants(context, admin);
+  }
+}
+
+// A users/{uid} doc only proves the address belongs to that uid if the Auth
+// account agrees and has shown it owns the address (verified, or older than
+// email verification in the app). Legacy docs and email squatters fail here.
+async function verifyIdentityBoundGrants(context, admin) {
+  const granted = [...context.dedupeMap.values()].filter(
+    (contact) => contact.consent.status === "granted" || contact.consent.status === "ambiguous"
+  );
+  if (!granted.length) {
+    return;
   }
 
-  if (context.config.sources.realtimeDatabase?.enabled) {
-    await collectFromRealtimeDatabase(context, admin);
+  const uids = [...new Set(granted.flatMap((contact) => [...(identityOwnersByEmail.get(contact.dedupeKey) || [])]))];
+  const authByUid = new Map();
+  try {
+    for (let index = 0; index < uids.length; index += 100) {
+      const result = await admin.auth().getUsers(uids.slice(index, index + 100).map((uid) => ({ uid })));
+      result.users.forEach((user) => authByUid.set(user.uid, user));
+    }
+  } catch (error) {
+    log(context, "warn", "CONSENT", "Could not verify consent owners in Auth; sending every grant to review", {
+      error: error?.message || String(error),
+    });
+  }
+
+  for (const contact of granted) {
+    const owners = [...(identityOwnersByEmail.get(contact.dedupeKey) || [])];
+    const owned = owners.some((uid) => {
+      const user = authByUid.get(uid);
+      return user && String(user.email || "").toLowerCase() === contact.dedupeKey && isTrustedAuthEntry(user);
+    });
+    if (!owned) {
+      contact.consent = withoutUntrustedGrant(contact.consent);
+    }
   }
 }
 
@@ -281,6 +326,8 @@ function processUnknownNode(context, node, source, location, ancestors, depth = 
         source,
         path: childPath,
         consent: detectConsent(node, ancestors),
+        identityBound: isIdentityBoundEmail(source, location, ancestors, key),
+        ownerUid: String(location || "").split("/")[1] || "",
       });
       continue;
     }
@@ -362,6 +409,15 @@ function registerCandidate(context, candidate) {
     return;
   }
 
+  const candidateConsent = candidate.identityBound
+    ? normalizeConsentResult(candidate.consent)
+    : withoutUntrustedGrant(normalizeConsentResult(candidate.consent));
+  if (candidate.identityBound && candidate.ownerUid) {
+    const owners = identityOwnersByEmail.get(normalized.normalized) || new Set();
+    owners.add(candidate.ownerUid);
+    identityOwnersByEmail.set(normalized.normalized, owners);
+  }
+
   const existing = context.dedupeMap.get(normalized.normalized);
   if (existing) {
     existing.duplicateCount += 1;
@@ -372,7 +428,7 @@ function registerCandidate(context, candidate) {
         path: candidate.path,
       });
     }
-    existing.consent = mergeConsentResults(existing.consent, normalizeConsentResult(candidate.consent));
+    existing.consent = mergeConsentResults(existing.consent, candidateConsent);
     return;
   }
 
@@ -393,8 +449,42 @@ function registerCandidate(context, candidate) {
       },
     ],
     duplicateCount: 1,
-    consent: normalizeConsentResult(candidate.consent),
+    consent: candidateConsent,
   });
+}
+
+// Documents whose top-level `email` is pinned to the owner's Auth email:
+// firestore.rules bind users/{uid}.email to the Auth token, and customers/{uid}
+// is written only by the Stripe extension. Anywhere else the address is just
+// text someone typed, so it can't carry that document's consent flags.
+const IDENTITY_BOUND_COLLECTIONS = new Set(["users", "customers"]);
+
+function isIdentityBoundEmail(source, location, ancestors, key) {
+  if (source !== "firestore" || ancestors.length > 0) {
+    return false;
+  }
+  const segments = String(location || "").split("/");
+  return (
+    segments.length === 2 &&
+    IDENTITY_BOUND_COLLECTIONS.has(segments[0]) &&
+    canonicalizeForInternalUse(key) === "email"
+  );
+}
+
+// An address that isn't the document owner's own identity may still be
+// suppressed by an opt-out, but a grant there is the writer's choice, not the
+// address owner's: send it to review instead of the marketing list.
+function withoutUntrustedGrant(consent) {
+  if (consent.status === "granted" || consent.status === "ambiguous") {
+    return {
+      status: "unknown",
+      scope: "none",
+      reason: "consent-not-bound-to-address-owner",
+      path: consent.path,
+      confidence: "low",
+    };
+  }
+  return consent;
 }
 
 function detectConsent(contextObject, ancestors) {

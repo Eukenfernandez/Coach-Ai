@@ -454,9 +454,18 @@ export function setPathValue(target, dottedPath, value) {
   current[parts[parts.length - 1]] = value;
 }
 
+// Cells starting with = + - @ (or tab/CR) are evaluated as formulas by
+// Excel/Sheets even when quoted; consentPath is an attacker-choosable field
+// name, so prefix them with ' to keep them as plain text.
 export function csvLine(values) {
   return values
-    .map((value) => `"${String(value ?? "").replaceAll('"', '""')}"`)
+    .map((value) => {
+      let text = String(value ?? "");
+      if (typeof value !== "number" && /^[=+\-@\t\r]/.test(text)) {
+        text = `'${text}`;
+      }
+      return `"${text.replaceAll('"', '""')}"`;
+    })
     .join(",");
 }
 
