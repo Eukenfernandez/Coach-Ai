@@ -9,7 +9,7 @@
 import { HttpsError } from 'firebase-functions/v2/https';
 import { getApps, initializeApp } from 'firebase-admin/app';
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
-import { getAuth } from 'firebase-admin/auth';
+import { getAuth, UserRecord } from 'firebase-admin/auth';
 
 if (!getApps().length) {
     initializeApp();
@@ -99,8 +99,7 @@ export const extractSubscriptionPriceId = (subscriptionData: any): string | unde
     return undefined;
 };
 
-export const getAuthBypassTier = (uid: string, authEmail?: string): string | null => {
-    if (authEmail && PREMIUM_EMAILS.includes(authEmail.toLowerCase())) return 'PREMIUM';
+export const getAuthBypassTier = (uid: string): string | null => {
     // Synthetic test UIDs can never exist in production Firebase Auth; keep the
     // shortcut for the emulator only so a crafted custom token can't use it.
     if (IS_EMULATOR && uid.startsWith('test-')) {
@@ -113,17 +112,36 @@ export const getAuthBypassTier = (uid: string, authEmail?: string): string | nul
     return null;
 };
 
-// Look up the trusted Auth-record email for server-side contexts (triggers,
-// cron) that have no ID token. Never fall back to `users/{uid}` fields: those
-// are client-writable and were previously usable to spoof a premium email.
-const resolveTrustedEmail = async (uid: string, tokenEmail?: string): Promise<string | undefined> => {
-    if (tokenEmail) return tokenEmail;
+// The app never verified emails before this date, so accounts created earlier
+// are trusted as-is. Anything newer must prove ownership of its email:
+// sign-up is open, so otherwise anyone could register an address they don't
+// own (an allow-listed PREMIUM email, or an athlete a coach is about to invite).
+// Same date in svcs/storageService.ts and fns/scripts/campaign-common.mjs.
+export const EMAIL_TRUST_CUTOFF_MS = Date.parse('2026-10-14T00:00:00Z');
+
+export const isAuthEmailTrusted = (authUser: { emailVerified?: boolean; metadata?: { creationTime?: string } }): boolean => {
+    if (authUser.emailVerified) return true;
+    const createdAt = Date.parse(authUser.metadata?.creationTime || '');
+    return Number.isFinite(createdAt) && createdAt < EMAIL_TRUST_CUTOFF_MS;
+};
+
+// PREMIUM_EMAILS only counts for the Auth account that really owns the
+// address. Never fall back to `users/{uid}` fields: those are client-writable
+// and were previously usable to spoof a premium email.
+const hasTrustedPremiumEmail = async (uid: string, tokenEmail?: string): Promise<boolean> => {
+    if (tokenEmail && !PREMIUM_EMAILS.includes(tokenEmail.toLowerCase())) return false;
+    let authUser: UserRecord;
     try {
-        const authUser = await getAuth().getUser(uid);
-        return authUser.email || undefined;
-    } catch {
-        return undefined;
+        authUser = await getAuth().getUser(uid);
+    } catch (error: any) {
+        // Only a missing account means "no premium email". Any other Auth error
+        // is rethrown: silently resolving FREE would suspend athletes or start
+        // asset grace periods for a paying/allow-listed user.
+        if (error?.code === 'auth/user-not-found') return false;
+        throw error;
     }
+    const authEmail = authUser.email?.toLowerCase();
+    return !!authEmail && PREMIUM_EMAILS.includes(authEmail) && isAuthEmailTrusted(authUser);
 };
 
 export const resolveUserTier = async (
@@ -131,9 +149,9 @@ export const resolveUserTier = async (
     tokenEmail?: string,
     transaction?: FirebaseFirestore.Transaction,
 ): Promise<string> => {
-    const trustedEmail = await resolveTrustedEmail(uid, tokenEmail);
-    const bypassTier = getAuthBypassTier(uid, trustedEmail);
+    const bypassTier = getAuthBypassTier(uid);
     if (bypassTier) return bypassTier;
+    if (await hasTrustedPremiumEmail(uid, tokenEmail)) return 'PREMIUM';
 
     const subscriptionQuery = db.collection('customers').doc(uid).collection('subscriptions')
         .where('status', 'in', ACTIVE_SUBSCRIPTION_STATUSES);

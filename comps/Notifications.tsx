@@ -87,7 +87,16 @@ export const Notifications: React.FC<NotificationsProps> = ({ currentUser, onRef
   }, [requestIdentity]);
 
   const handleResponse = async (req: CoachRequest, accept: boolean) => {
-    await StorageService.respondToCoachRequest(req, accept, currentUser);
+    try {
+      await StorageService.respondToCoachRequest(req, accept, currentUser);
+    } catch (error) {
+      // Usually a stale item: the coach cancelled it or it was already answered,
+      // and the rules only accept answers to pending requests. Reload the list.
+      console.error('Error responding to request', error);
+      setRequests((prev) => prev.filter((request) => request.id !== req.id));
+      void loadRequests('manual-refresh');
+      return;
+    }
     setRequests((prev) => prev.filter((request) => request.id !== req.id));
     if (accept) {
       onRefreshUser();

@@ -35,6 +35,8 @@ const TEXTS = {
       statusPending: 'Pendiente',
       statusAccepted: 'Aceptada',
       statusRejected: 'Rechazada',
+      statusSuspended: 'Suspendida (límite del plan)',
+      cancelRequest: 'Cancelar solicitud',
       noRequests: 'No hay solicitudes recientes.'
    },
    ing: {
@@ -59,6 +61,8 @@ const TEXTS = {
       statusPending: 'Pending',
       statusAccepted: 'Accepted',
       statusRejected: 'Rejected',
+      statusSuspended: 'Suspended (plan limit)',
+      cancelRequest: 'Cancel request',
       noRequests: 'No recent requests.'
    },
    eus: {
@@ -83,6 +87,8 @@ const TEXTS = {
       statusPending: 'Zain',
       statusAccepted: 'Onartua',
       statusRejected: 'Ukatua',
+      statusSuspended: 'Etenda (planaren muga)',
+      cancelRequest: 'Eskaera bertan behera utzi',
       noRequests: 'Ez dago eskaera berririk.'
    }
 };
@@ -152,6 +158,24 @@ export const CoachTeamManagement: React.FC<CoachTeamManagementProps> = ({ curren
       setAthleteToRemove({ id: athleteId, name: athleteName });
    };
 
+   // Pending invites hold a plan slot, so the coach needs a way to withdraw
+   // them; accepted rows go through the usual confirmation (this also covers
+   // athletes who deleted their account and no longer appear in the list).
+   const handleCancelRequest = async (req: { athleteId?: string; athleteName?: string; athleteEmail?: string; status?: string }) => {
+      if (!req.athleteId) return;
+      if (req.status === 'accepted') {
+         setAthleteToRemove({ id: req.athleteId, name: req.athleteName || req.athleteEmail || '' });
+         return;
+      }
+      setError(null);
+      try {
+         await StorageService.removeAthleteFromCoach(currentUser.id, req.athleteId);
+         loadAthletes();
+      } catch (err: any) {
+         setError(t.removeError + (err?.message || ''));
+      }
+   };
+
    const confirmRemove = async () => {
       if (!athleteToRemove) return;
 
@@ -172,6 +196,7 @@ export const CoachTeamManagement: React.FC<CoachTeamManagementProps> = ({ curren
             onSelectAthlete(currentUser.id);
          }
          setAthleteToRemove(null);
+         loadAthletes(); // refresh the sent-requests statuses
       } catch (err: any) {
          setError(t.removeError + err.message);
          // Close modal even on error so user can see the error message in the form
@@ -259,11 +284,24 @@ export const CoachTeamManagement: React.FC<CoachTeamManagementProps> = ({ curren
                                  <span className={`px-2 py-0.5 rounded-full font-bold uppercase ${
                                     req.status === 'pending' ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400' :
                                     req.status === 'accepted' ? 'bg-green-100 text-green-600 dark:bg-green-900/20 dark:text-green-400' :
+                                    req.status === 'suspended' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400' :
                                     'bg-red-100 text-red-600 dark:bg-red-900/20 dark:text-red-400'
                                  }`}>
-                                    {req.status === 'pending' ? t.statusPending : 
-                                     req.status === 'accepted' ? t.statusAccepted : t.statusRejected}
+                                    {req.status === 'pending' ? t.statusPending :
+                                     req.status === 'accepted' ? t.statusAccepted :
+                                     req.status === 'suspended' ? t.statusSuspended : t.statusRejected}
                                  </span>
+                                 {['pending', 'accepted', 'suspended'].includes(req.status) && req.athleteId && (
+                                    <button
+                                       type="button"
+                                       onClick={() => handleCancelRequest(req)}
+                                       title={t.cancelRequest}
+                                       aria-label={t.cancelRequest}
+                                       className="p-1 rounded-md text-neutral-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                                    >
+                                       <Trash2 size={14} />
+                                    </button>
+                                 )}
                               </div>
                            </div>
                         ))

@@ -376,7 +376,8 @@ export interface CoachRequest {
   athleteEmail: string;
   athleteName?: string;
   athleteDiscipline?: string;
-  status: 'pending' | 'accepted' | 'rejected';
+  // 'suspended' is set by the server when the coach is over their plan's athlete limit
+  status: 'pending' | 'accepted' | 'rejected' | 'suspended';
   createdAt: string;
 }
 

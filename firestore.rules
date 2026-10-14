@@ -130,14 +130,21 @@ service cloud.firestore {
         resource.data.athleteEmail == request.auth.token.email
       );
       allow create: if false; // Only the sendCoachRequest Cloud Function
-      // Status is the only mutable field. The athlete may accept or reject;
-      // the coach may only reject (cancel) — never accept on the athlete's behalf.
+      // Status is the only mutable field. The athlete may answer a pending
+      // request or leave an active one; a rejection is final until the coach
+      // re-sends through sendCoachRequest, otherwise a removed athlete could
+      // flip 'rejected' back to 'accepted' and undo the coach's revocation.
+      // 'suspended' is server-only (coach over their plan's athlete limit).
+      // The coach may only reject (cancel) — never accept on the athlete's behalf.
       allow update: if isAuth()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
         && (
           ((resource.data.athleteId == request.auth.uid ||
             resource.data.athleteEmail == request.auth.token.email)
-            && request.resource.data.status in ['accepted', 'rejected'])
+            && ((resource.data.status == 'pending'
+                  && request.resource.data.status in ['accepted', 'rejected'])
+                || (resource.data.status in ['accepted', 'suspended']
+                  && request.resource.data.status == 'rejected')))
           ||
           (resource.data.coachId == request.auth.uid
             && request.resource.data.status == 'rejected')

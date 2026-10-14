@@ -15,13 +15,14 @@ import { GoogleGenerativeAI, Schema, SchemaType } from "@google/generative-ai";
 import { getApps, initializeApp } from 'firebase-admin/app';
 import { getStorage } from 'firebase-admin/storage';
 import { FieldValue, Timestamp, getFirestore } from 'firebase-admin/firestore';
-import { getAuth } from 'firebase-admin/auth';
+import { getAuth, UserRecord } from 'firebase-admin/auth';
 import {
     PLAN_LIMITS,
     consumeMonthlyQuota,
     getServerMonthKey,
     normalizeMonthlyCounters,
     buildCounterUpdate,
+    isAuthEmailTrusted,
     resolveUserTier,
     resolveAllowedModelForTier,
     toMillis,
@@ -522,28 +523,24 @@ export const sendCoachRequest = onCall(
             throw new HttpsError("permission-denied", "Tu plan no permite gestionar atletas. Mejora tu suscripción.");
         }
 
-        const acceptedSnap = await db.collection("requests")
-            .where("coachId", "==", coachId)
-            .where("status", "==", "accepted")
-            .get();
-        if (acceptedSnap.size >= limits.athletes) {
-            throw new HttpsError("resource-exhausted", `Tu plan permite gestionar ${limits.athletes} atletas como máximo.`);
-        }
-
         // Resolve the athlete through the Auth record, never users/{uid}.username:
         // that field is client-writable, so anyone could set it to someone
         // else's email and receive the coach request (and the coach's uploads)
         // meant for that person.
-        let athleteId: string;
-        let verifiedAthleteEmail: string;
+        let athleteAuth: UserRecord;
         try {
-            const athleteAuth = await getAuth().getUserByEmail(athleteEmail);
-            athleteId = athleteAuth.uid;
-            verifiedAthleteEmail = (athleteAuth.email || athleteEmail).toLowerCase();
+            athleteAuth = await getAuth().getUserByEmail(athleteEmail);
         } catch {
             throw new HttpsError("not-found", "Atleta no encontrado.");
         }
+        const athleteId = athleteAuth.uid;
+        const verifiedAthleteEmail = (athleteAuth.email || athleteEmail).toLowerCase();
         if (athleteId === coachId) throw new HttpsError("invalid-argument", "No puedes enviarte una solicitud a ti mismo.");
+        // Holding the Auth email is not proof of owning it: anyone can register an
+        // address before its real owner does and receive the coach's uploads.
+        if (!isAuthEmailTrusted(athleteAuth)) {
+            throw new HttpsError("failed-precondition", "Este atleta aún no ha verificado su email. Pídele que abra el enlace de verificación que recibió al registrarse.");
+        }
         const athleteSnap = await db.collection("users").doc(athleteId).get();
         if (!athleteSnap.exists) throw new HttpsError("not-found", "Atleta no encontrado.");
         const athleteData = athleteSnap.data() as any;
@@ -552,25 +549,72 @@ export const sendCoachRequest = onCall(
         const coachProfile = coachSnap.exists ? (coachSnap.data() as any)?.profile : null;
 
         const reqRef = db.collection("requests").doc(`${coachId}_${athleteId}`);
-        const existing = await reqRef.get();
-        if (existing.exists && existing.data()?.status === 'accepted') {
-            return { success: true, alreadyAccepted: true };
-        }
+        // Pending invitations hold a slot too: counting only accepted ones let a
+        // coach send any number of invites and have all of them accepted.
+        const slotsQuery = db.collection("requests")
+            .where("coachId", "==", coachId)
+            .where("status", "in", ["accepted", "pending"]);
 
-        await reqRef.set({
-            coachId,
-            coachName: `${coachProfile?.firstName || ''} ${coachProfile?.lastName || ''}`.trim() || 'Entrenador',
-            athleteId,
-            athleteEmail: verifiedAthleteEmail,
-            athleteName: `${athleteData?.profile?.firstName || ''} ${athleteData?.profile?.lastName || ''}`.trim(),
-            athleteDiscipline: athleteData?.profile?.discipline || 'Atleta',
-            status: 'pending',
-            createdAt: new Date().toISOString()
-        }, { merge: true });
+        return await db.runTransaction(async (t) => {
+            const [existing, slotsSnap] = await Promise.all([t.get(reqRef), t.get(slotsQuery)]);
+            if (existing.exists && existing.data()?.status === 'accepted') {
+                return { success: true, alreadyAccepted: true };
+            }
+            // An unanswered invite stops holding a slot after 30 days; if it is
+            // accepted later, onCoachRequestWritten still enforces the limit.
+            const staleBefore = Date.now() - 30 * 24 * 60 * 60 * 1000;
+            const usedSlots = slotsSnap.docs.filter((doc) => doc.id !== reqRef.id
+                && (doc.data().status === 'accepted' || toMillis(doc.data().createdAt) >= staleBefore)).length;
+            if (usedSlots >= limits.athletes) {
+                throw new HttpsError("resource-exhausted", `Tu plan permite gestionar ${limits.athletes} atletas como máximo (las invitaciones pendientes también cuentan).`);
+            }
 
-        return { success: true };
+            t.set(reqRef, {
+                coachId,
+                coachName: `${coachProfile?.firstName || ''} ${coachProfile?.lastName || ''}`.trim() || 'Entrenador',
+                athleteId,
+                athleteEmail: verifiedAthleteEmail,
+                athleteName: `${athleteData?.profile?.firstName || ''} ${athleteData?.profile?.lastName || ''}`.trim(),
+                athleteDiscipline: athleteData?.profile?.discipline || 'Atleta',
+                status: 'pending',
+                createdAt: new Date().toISOString()
+            }, { merge: true });
+
+            return { success: true };
+        });
     }
 );
+
+// Keep a coach's active relationships within their plan's athlete limit: the
+// oldest ones stay 'accepted', the rest become 'suspended' (no data access),
+// and suspended ones come back on their own when the limit allows it again.
+// The tier is resolved here, not passed in: Stripe writes subscription docs in
+// quick bursts, and a stale tier from an older invocation must not win.
+const rebalanceCoachAthletes = async (coachId: string): Promise<void> => {
+    const tier = await resolveUserTier(coachId);
+    const limit = Math.max(0, (PLAN_LIMITS[tier] || PLAN_LIMITS.FREE).athletes);
+    const snap = await db.collection("requests")
+        .where("coachId", "==", coachId)
+        .where("status", "in", ["accepted", "suspended"])
+        .get();
+    if (snap.empty) return;
+
+    const ordered = [...snap.docs].sort((a, b) => toMillis(a.data().createdAt) - toMillis(b.data().createdAt));
+    const updates = ordered.flatMap((doc, index) => {
+        const target = index < limit ? 'accepted' : 'suspended';
+        if (doc.data().status === target) return [];
+        return [{ ref: doc.ref, data: target === 'suspended' ? { status: target, suspendedAt: new Date().toISOString() } : { status: target } }];
+    });
+
+    for (let i = 0; i < updates.length; i += 400) {
+        const batch = db.batch();
+        updates.slice(i, i + 400).forEach(({ ref, data }) => batch.update(ref, data));
+        await batch.commit();
+    }
+    if (updates.length) {
+        console.log(`[Coach Limit] Rebalanced ${updates.length} relationship(s) for coach ${coachId} (tier ${tier}, limit ${limit})`);
+    }
+};
 
 // Trigger: keep users' managedAthletes/coaches arrays in sync with request
 // status transitions. The clients used to write these cross-user updates
@@ -589,6 +633,34 @@ export const onCoachRequestWritten = onDocumentWritten(
         const athleteId = (after ?? before)?.athleteId;
         if (typeof coachId !== 'string' || typeof athleteId !== 'string' || !coachId || !athleteId) return;
 
+        // The athlete accepts with a direct write, so the plan's athlete limit is
+        // enforced here: an acceptance over the limit is parked as 'suspended'
+        // (the trigger then re-fires and removes the relationship arrays).
+        if (isAccepted && event.data?.after.exists) {
+            const requestRef = event.data.after.ref;
+            try {
+                const tier = await resolveUserTier(coachId);
+                const limit = (PLAN_LIMITS[tier] || PLAN_LIMITS.FREE).athletes;
+                const suspended = await db.runTransaction(async (t) => {
+                    const [fresh, acceptedSnap] = await Promise.all([
+                        t.get(requestRef),
+                        t.get(db.collection("requests").where("coachId", "==", coachId).where("status", "==", "accepted")),
+                    ]);
+                    if (fresh.data()?.status !== 'accepted' || acceptedSnap.size <= limit) return false;
+                    t.update(requestRef, { status: 'suspended', suspendedAt: new Date().toISOString() });
+                    return true;
+                });
+                if (suspended) {
+                    console.warn(`[Coach Limit] Suspended over-limit acceptance ${event.params.requestId} (tier ${tier}, limit ${limit})`);
+                    return;
+                }
+            } catch (error) {
+                // Never suspend on a guess (e.g. a transient Auth error resolving
+                // the tier); the next rebalance re-applies the limit.
+                console.error(`[Coach Limit] Could not check the athlete limit for ${event.params.requestId}`, error);
+            }
+        }
+
         const op = isAccepted ? FieldValue.arrayUnion : FieldValue.arrayRemove;
         await Promise.allSettled([
             db.collection("users").doc(coachId).set(
@@ -596,6 +668,15 @@ export const onCoachRequestWritten = onDocumentWritten(
             db.collection("users").doc(athleteId).set(
                 { profile: { coaches: op(coachId) } }, { merge: true }),
         ]);
+
+        // An active relationship ended: a suspended athlete may now fit the plan.
+        if (wasAccepted && after?.status === 'rejected') {
+            try {
+                await rebalanceCoachAthletes(coachId);
+            } catch (error) {
+                console.error(`[Coach Limit] Rebalance failed for coach ${coachId}`, error);
+            }
+        }
     }
 );
 
@@ -856,9 +937,75 @@ export const onSubscriptionChange = onDocumentWritten(
             subscriptionTierUpdatedAt: FieldValue.serverTimestamp(),
         }, { merge: true });
 
+        // A downgrade must not keep more athletes than the new plan allows; an
+        // upgrade restores the suspended ones. Independent of the asset check
+        // below, so a failure in one never skips the other.
+        try {
+            await rebalanceCoachAthletes(uid);
+        } catch (error) {
+            console.error(`[Coach Limit] Rebalance failed for coach ${uid}`, error);
+        }
+
         // After Stripe webhook has modified the record, assess stored assets and start grace period if out-of-bounds.
         console.log(`[Subscription Trigger] Evaluating quota compliance for UID: ${uid}`);
         await evaluateVideoQuotaCompliance(uid);
+    }
+);
+
+// Trigger: the root userdata/{uid} doc is client-writable, and its videos/plans
+// arrays feed the gallery. An entry added there without going through
+// register*InGallery (which writes the counted subcollection doc first) skipped
+// the monthly quota, so the server strips it.
+export const onUserDataAssetsWritten = onDocumentWritten(
+    { document: "userdata/{uid}", region: "europe-west1" },
+    async (event) => {
+        if (!event.data?.after.exists) return;
+        const uid = event.params.uid;
+        const before = event.data.before.exists ? event.data.before.data() : undefined;
+        const after = event.data.after.data();
+
+        // An entry is keyed by its id when that id can name a subcollection doc;
+        // anything else (no id, "a/b", "..", "__x__") can never be registered,
+        // and would make doc()/getAll() throw, so it is keyed by its content.
+        const isValidDocId = (id: unknown): id is string =>
+            typeof id === 'string' && id.length > 0 && Buffer.byteLength(id) <= 1500
+            && !id.includes('/') && id !== '.' && id !== '..' && !/^__.*__$/.test(id);
+        const entryKey = (asset: any): string =>
+            isValidDocId(asset?.id) ? `id:${asset.id}` : `raw:${JSON.stringify(asset ?? null)}`;
+        const entries = (value: unknown): any[] => (Array.isArray(value) ? value : []);
+
+        const unregistered: Partial<Record<StoredAssetKind, Set<string>>> = {};
+        for (const kind of ['videos', 'plans'] as StoredAssetKind[]) {
+            const previous = new Set(entries(before?.[kind]).map(entryKey));
+            const added = [...new Set(entries(after?.[kind]).map(entryKey).filter((key) => !previous.has(key)))];
+            if (!added.length) continue;
+
+            const invalid = added.filter((key) => key.startsWith('raw:'));
+            const ids = added.filter((key) => key.startsWith('id:')).map((key) => key.slice(3));
+            const snaps = ids.length
+                ? await db.getAll(...ids.map((id) => db.collection(`userdata/${uid}/${kind}`).doc(id)))
+                : [];
+            const missing = ids.filter((_, index) => !snaps[index].exists).map((id) => `id:${id}`);
+            if (missing.length || invalid.length) unregistered[kind] = new Set([...missing, ...invalid]);
+        }
+        if (!Object.keys(unregistered).length) return;
+
+        const rootRef = event.data.after.ref;
+        await db.runTransaction(async (t) => {
+            const snap = await t.get(rootRef);
+            if (!snap.exists) return;
+            const data = snap.data() || {};
+            const update: Record<string, unknown> = {};
+            for (const [kind, keys] of Object.entries(unregistered) as [StoredAssetKind, Set<string>][]) {
+                if (Array.isArray(data[kind])) {
+                    update[kind] = data[kind].filter((asset: any) => !keys.has(entryKey(asset)));
+                }
+            }
+            if (Object.keys(update).length) t.update(rootRef, update);
+        });
+        console.warn(`[Gallery Guard] Removed unregistered gallery entries for UID: ${uid}`, Object.fromEntries(
+            Object.entries(unregistered).map(([kind, keys]) => [kind, (keys as Set<string>).size]),
+        ));
     }
 );
 
