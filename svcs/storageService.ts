@@ -792,6 +792,43 @@ const sanitizeStorageFileName = (fileName: string) =>
 const buildUserAssetPath = (folder: 'videos' | 'plans', userId: string, assetId: string, fileName: string) =>
   `${folder}/${userId}/${assetId}_${sanitizeStorageFileName(fileName)}`;
 
+// Asset records live in userdata/{ownerId}, which the athlete can write freely.
+// A coach (or admin) viewing that gallery resolves and deletes those paths with
+// their own, broader Storage rights, so a record must never point outside the
+// owner's folder — otherwise an athlete could make the coach read or delete
+// the coach's own or another athlete's files. Mirrors assertOwnedStoragePath.
+const isOwnedAssetPath = (path: unknown, folder: 'videos' | 'plans', ownerId: string): path is string =>
+  typeof path === 'string'
+  && !!ownerId
+  && path.startsWith(`${folder}/${ownerId}/`)
+  && !path.split('/').some((segment) => segment === '' || segment === '.' || segment === '..');
+
+// Accounts created from this date on must verify their email before a coach can
+// invite them (see isAuthEmailTrusted in fns/src/quota.ts — keep both in sync).
+const EMAIL_VERIFICATION_CUTOFF_MS = Date.parse('2026-10-14T00:00:00Z');
+const EMAIL_VERIFICATION_RESEND_KEY = 'coachai_email_verification_sent_at';
+const EMAIL_VERIFICATION_RESEND_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+const sendEmailVerificationMaybe = async (fbUser: firebase.User) => {
+  try {
+    await fbUser.sendEmailVerification();
+    localStorage.setItem(`${EMAIL_VERIFICATION_RESEND_KEY}_${fbUser.uid}`, String(Date.now()));
+  } catch (error) {
+    console.warn('[Auth] Could not send the verification email', error);
+  }
+};
+
+// Login re-sends the link (at most once a day) so users who lost the first one
+// can still verify; older accounts are trusted without it.
+const resendEmailVerificationIfNeeded = async (fbUser: firebase.User) => {
+  if (fbUser.emailVerified) return;
+  const createdAt = Date.parse(fbUser.metadata?.creationTime || '');
+  if (!Number.isFinite(createdAt) || createdAt < EMAIL_VERIFICATION_CUTOFF_MS) return;
+  const lastSent = Number(localStorage.getItem(`${EMAIL_VERIFICATION_RESEND_KEY}_${fbUser.uid}`) || 0);
+  if (Date.now() - lastSent < EMAIL_VERIFICATION_RESEND_INTERVAL_MS) return;
+  await sendEmailVerificationMaybe(fbUser);
+};
+
 const extractPersistedAssetUrl = (asset: { downloadURL?: string; remoteUrl?: string; url?: string }) => {
   if (asset.downloadURL) return asset.downloadURL;
   if (asset.remoteUrl) return asset.remoteUrl;
@@ -833,7 +870,8 @@ const normalizeVideoRecord = (userId: string, video: VideoFile): VideoFile => {
     contentType: video.contentType || undefined,
     size: toNumberMaybe(video.size),
     createdAt: video.createdAt || toIsoStringMaybe((video as any).uploadedAt),
-    ownerId: video.ownerId || userId,
+    // The gallery owner, never the record's own (client-written) claim.
+    ownerId: userId,
     status: video.status || (persistedUrl || video.storagePath ? 'ready' : undefined),
     errorCode: video.errorCode || undefined,
     errorMessage: video.errorMessage || undefined,
@@ -852,7 +890,7 @@ const normalizePlanRecord = (userId: string, plan: PlanFile): PlanFile => {
     contentType: plan.contentType || undefined,
     size: toNumberMaybe(plan.size),
     createdAt: plan.createdAt || toIsoStringMaybe((plan as any).uploadedAt),
-    ownerId: plan.ownerId || userId,
+    ownerId: userId,
     status: plan.status || (persistedUrl || plan.storagePath ? 'ready' : undefined),
     errorCode: plan.errorCode || undefined,
     errorMessage: plan.errorMessage || undefined,
@@ -954,9 +992,20 @@ const resolveFromStoragePath = async (path: string): Promise<AssetDownloadResolu
   }
 };
 
-const resolveFromDownloadUrl = async (url: string): Promise<AssetDownloadResolution | null> => {
+const resolveFromDownloadUrl = async (
+  url: string,
+  folder: 'videos' | 'plans',
+  ownerId: string,
+): Promise<AssetDownloadResolution | null> => {
   try {
-    return await getReferenceDetails(storage.refFromURL(url));
+    const ref = storage.refFromURL(url);
+    if (!isOwnedAssetPath(ref.fullPath, folder, ownerId)) {
+      return {
+        errorCode: 'storage/invalid-asset-path',
+        errorMessage: 'El registro del archivo apunta fuera de la carpeta de su propietario.',
+      };
+    }
+    return await getReferenceDetails(ref);
   } catch (error) {
     return buildAssetErrorResolution(error, 'La URL persistida del archivo no es valida o ha quedado obsoleta.');
   }
@@ -980,7 +1029,7 @@ const resolveCloudAssetDownload = async ({
   if (!canUseCloudPersistence(userId)) return null;
 
   const candidatePaths = new Set<string>();
-  if (storagePath) candidatePaths.add(storagePath);
+  if (isOwnedAssetPath(storagePath, folder, userId)) candidatePaths.add(storagePath);
   if (assetId && fileName) candidatePaths.add(buildUserAssetPath(folder, userId, assetId, fileName));
 
   let lastResolution: AssetDownloadResolution | null = null;
@@ -995,7 +1044,7 @@ const resolveCloudAssetDownload = async ({
   }
 
   if (persistedUrl) {
-    const resolved = await resolveFromDownloadUrl(persistedUrl);
+    const resolved = await resolveFromDownloadUrl(persistedUrl, folder, userId);
     if (resolved?.url) {
       logStorageDebug('resolved-by-url', { folder, userId, assetId, path: resolved.path });
       return resolved;
@@ -1078,6 +1127,7 @@ export const StorageService = {
     if (isFirebaseConfigured && auth) {
       const userCredential = await auth.createUserWithEmailAndPassword(cleanUsername, cleanPassword);
       const fbUser = userCredential.user!;
+      await sendEmailVerificationMaybe(fbUser);
       const newUser: User = { id: fbUser.uid, username: cleanUsername, email: cleanUsername, createdAt: new Date().toISOString() };
 
       await db.collection("users").doc(fbUser.uid).set({ uid: fbUser.uid, email: cleanUsername, username: cleanUsername, profile: null, createdAt: newUser.createdAt });
@@ -1106,6 +1156,7 @@ export const StorageService = {
     if (isFirebaseConfigured && auth) {
       const userCredential = await auth.signInWithEmailAndPassword(cleanUsername, cleanPassword);
       const fbUser = userCredential.user!;
+      await resendEmailVerificationIfNeeded(fbUser);
 
       const userDoc = await db.collection("users").doc(fbUser.uid).get();
       const userData = userDoc.exists ? userDoc.data() : {};
@@ -1606,14 +1657,27 @@ export const StorageService = {
     });
   },
 
-  deleteFileFromCloud: async (url: string) => {
+  // Both deletes are scoped to the gallery owner's folder: the URL/path comes
+  // from a client-written record (see isOwnedAssetPath).
+  deleteFileFromCloud: async (url: string, folder: 'videos' | 'plans', ownerId: string) => {
     if (isFirebaseConfigured && url?.startsWith('http')) {
-      try { await storage.refFromURL(url).delete(); } catch { }
+      try {
+        const ref = storage.refFromURL(url);
+        if (!isOwnedAssetPath(ref.fullPath, folder, ownerId)) {
+          console.warn('[StorageService] Refusing to delete a file outside its owner folder', { folder, ownerId });
+          return;
+        }
+        await ref.delete();
+      } catch { }
     }
   },
 
-  deleteFileByPath: async (path: string) => {
+  deleteFileByPath: async (path: string, folder: 'videos' | 'plans', ownerId: string) => {
     if (isFirebaseConfigured && path) {
+      if (!isOwnedAssetPath(path, folder, ownerId)) {
+        console.warn('[StorageService] Refusing to delete a file outside its owner folder', { folder, ownerId });
+        return;
+      }
       try { await storage.ref(path).delete(); } catch { }
     }
   },

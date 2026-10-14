@@ -845,7 +845,7 @@ export default function App() {
         ...video,
         url: "",
         isLocal: false,
-        ownerId: video.ownerId || targetId,
+        ownerId: targetId,
       }))
     );
     setPlans(
@@ -854,7 +854,7 @@ export default function App() {
         url: "",
         file: undefined,
         isLocal: false,
-        ownerId: plan.ownerId || targetId,
+        ownerId: targetId,
       }))
     );
   };
@@ -1013,7 +1013,7 @@ export default function App() {
               duration: duration || video.duration,
               contentType: video.contentType || blob.type || undefined,
               size: video.size || blob.size,
-              ownerId: video.ownerId || targetId,
+              ownerId: targetId,
               status: video.status || "ready",
             };
           }
@@ -1044,7 +1044,7 @@ export default function App() {
                 contentType: found.contentType || video.contentType,
                 size: found.size ?? video.size,
                 createdAt: found.createdAt || video.createdAt,
-                ownerId: video.ownerId || targetId,
+                ownerId: targetId,
                 status: "ready",
                 errorCode: playbackStatus === "unplayable" ? "video/unplayable" : undefined,
                 errorMessage: playbackErrorMessage,
@@ -1075,7 +1075,7 @@ export default function App() {
                 remoteUrl: undefined,
                 url: "",
                 isLocal: false,
-                ownerId: video.ownerId || targetId,
+                ownerId: targetId,
                 status: "error",
                 errorCode: found.errorCode || "storage/object-not-found",
                 errorMessage: found.errorMessage || "No se ha podido localizar el video en Firebase Storage.",
@@ -1089,7 +1089,7 @@ export default function App() {
             ...video,
             url: "",
             isLocal: false,
-            ownerId: video.ownerId || targetId,
+            ownerId: targetId,
             status: video.status || "error",
             errorCode: video.errorCode || "storage/object-not-found",
             errorMessage: video.errorMessage || "No se ha podido localizar el video en Firebase Storage.",
@@ -1129,7 +1129,7 @@ export default function App() {
             isLocal: true,
             contentType: plan.contentType || blob.type || undefined,
             size: plan.size || blob.size,
-            ownerId: plan.ownerId || targetId,
+            ownerId: targetId,
             status: plan.status || "ready",
           };
         }
@@ -1147,7 +1147,7 @@ export default function App() {
               contentType: found.contentType || plan.contentType,
               size: found.size ?? plan.size,
               createdAt: found.createdAt || plan.createdAt,
-              ownerId: plan.ownerId || targetId,
+              ownerId: targetId,
               status: "ready",
               errorCode: undefined,
               errorMessage: undefined,
@@ -1161,7 +1161,7 @@ export default function App() {
               remoteUrl: undefined,
               downloadURL: undefined,
               isLocal: false,
-              ownerId: plan.ownerId || targetId,
+              ownerId: targetId,
               status: "error",
               errorCode: found.errorCode || "storage/object-not-found",
               errorMessage: found.errorMessage || "No se ha podido localizar el documento en Firebase Storage.",
@@ -1173,7 +1173,7 @@ export default function App() {
           ...plan,
           url: "",
           isLocal: false,
-          ownerId: plan.ownerId || targetId,
+          ownerId: targetId,
           status: plan.status || "error",
           errorCode: plan.errorCode || "storage/object-not-found",
           errorMessage: plan.errorMessage || "No se ha podido localizar el documento en Firebase Storage.",
@@ -1553,7 +1553,7 @@ export default function App() {
 
       if (!uploadingVideosRef.current.has(newId)) {
         if (cloudUrl) {
-          await StorageService.deleteFileFromCloud(cloudUrl);
+          await StorageService.deleteFileFromCloud(cloudUrl, 'videos', viewedUserId);
         }
         return;
       }
@@ -1643,7 +1643,7 @@ export default function App() {
       const uploadMessage = StorageService.getUploadErrorMessage(e, 'videos', language);
       if (isSubscriptionQuotaError(e)) {
         if (cloudUrl) {
-          await StorageService.deleteFileFromCloud(cloudUrl);
+          await StorageService.deleteFileFromCloud(cloudUrl, 'videos', viewedUserId);
         }
         await VideoStorage.deleteVideo(newId).catch(() => {});
         revokeObjectUrlMaybe(localDisplayUrl);
@@ -1677,9 +1677,9 @@ export default function App() {
 
     const videoCloudUrl = video?.downloadURL || video?.remoteUrl;
     if (videoCloudUrl) {
-      await StorageService.deleteFileFromCloud(videoCloudUrl);
+      await StorageService.deleteFileFromCloud(videoCloudUrl, 'videos', viewedUserId);
     } else if (video?.storagePath) {
-      await StorageService.deleteFileByPath(video.storagePath);
+      await StorageService.deleteFileByPath(video.storagePath, 'videos', viewedUserId);
     }
     await VideoStorage.deleteVideo(id);
     await FilmstripStorage.deleteFilmstrip(id);
@@ -1808,7 +1808,7 @@ export default function App() {
       console.error("Error uploading plan", e);
       // Rollback state
       if (cloudUrl) {
-        await StorageService.deleteFileFromCloud(cloudUrl);
+        await StorageService.deleteFileFromCloud(cloudUrl, 'plans', viewedUserId);
       }
       await PlanStorage.deletePlan(id).catch(() => {});
       revokeObjectUrlMaybe(planForState.url);
@@ -1827,9 +1827,9 @@ export default function App() {
     const plan = plans.find(p => p.id === id);
     const planCloudUrl = plan?.downloadURL || plan?.remoteUrl;
     if (planCloudUrl) {
-      await StorageService.deleteFileFromCloud(planCloudUrl);
+      await StorageService.deleteFileFromCloud(planCloudUrl, 'plans', viewedUserId);
     } else if (plan?.storagePath) {
-      await StorageService.deleteFileByPath(plan.storagePath);
+      await StorageService.deleteFileByPath(plan.storagePath, 'plans', viewedUserId);
     }
     await PlanStorage.deletePlan(id);
     revokeObjectUrlMaybe(plan?.url);

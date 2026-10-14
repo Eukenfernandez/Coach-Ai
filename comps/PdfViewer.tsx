@@ -183,7 +183,11 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({ plan, onBack }) => {
           throw new Error('PDF Library not loaded');
         }
 
-        const loadedPdf = await pdfjsLib.getDocument({ data: fileData }).promise;
+        // Plan PDFs are written by the other side of a coach-athlete pair.
+        // isEvalSupported:false closes CVE-2024-4367 (a crafted font running
+        // JS through new Function) in this pdf.js 3.x build; the web CSP already
+        // blocks eval, but the Capacitor and Electron shells have no CSP.
+        const loadedPdf = await pdfjsLib.getDocument({ data: fileData, isEvalSupported: false }).promise;
         loadedPdfInstance = loadedPdf;
         if (cancelled) return;
 
