@@ -504,6 +504,16 @@ const DualScrubber: React.FC<DualScrubberProps> = ({
    );
 };
 
+// iOS Safari stops at HAVE_METADATA until a user gesture starts playback, so
+// `loadeddata` never fires and the player keeps its spinner (and a comparison
+// video stays black). A media-fragment start time is the one thing that makes it
+// fetch and decode the first frame on its own — measured in iOS Safari: with
+// `#t=0.001` loadeddata fired after 0.28s; a plain, muted, or seek-on-metadata
+// element stayed at readyState 1.
+const withFirstFrameFragment = (url: string) => (
+   url && !url.includes('#') ? `${url}#t=0.001` : url
+);
+
 const clampMediaTime = (value: number, duration?: number) => {
    const upper = Number.isFinite(duration) && duration && duration > 0 ? duration : Number.MAX_SAFE_INTEGER;
    return Math.max(0, Math.min(value, upper));
@@ -1728,8 +1738,15 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
    const applySeekInstant = useCallback((element: HTMLVideoElement, time: number, options?: { exact?: boolean }) => {
       const clamped = clampMediaTime(time, element.duration);
       const canFastSeek = typeof (element as HTMLVideoElement & { fastSeek?: (value: number) => void }).fastSeek === 'function';
+      // Only forward seeks may be approximate. WebKit gives a backward fastSeek()
+      // unlimited tolerance, so it lands on an earlier keyframe — measured on
+      // iOS Safari: asking for 10.47s showed 10.00s, and near the start of a
+      // clip that keyframe is the first frame. The drag queue's own backward
+      // flag is not enough: it follows the last pointer event, and a repeated
+      // touch position clears it while the video still sits ahead of the target.
+      const isBackward = clamped < element.currentTime;
 
-      if (!options?.exact && canFastSeek) {
+      if (!options?.exact && !isBackward && canFastSeek) {
          try {
             (element as HTMLVideoElement & { fastSeek: (value: number) => void }).fastSeek(clamped);
             return;
@@ -2492,7 +2509,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
                         >
                            <video
                               ref={videoRef}
-                              src={activeUrl}
+                              src={withFirstFrameFragment(activeUrl)}
                               crossOrigin="anonymous"
                               preload="auto"
                               className="w-full h-full object-contain pointer-events-none select-none block"
@@ -2574,7 +2591,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
                         >
                            <video
                               ref={videoRef2}
-                              src={compareVideo.url}
+                              src={withFirstFrameFragment(compareVideo.url)}
                               crossOrigin="anonymous"
                               preload="auto"
                               className="w-full h-full object-contain pointer-events-none select-none block"
