@@ -17,7 +17,7 @@
         "campaign:send": "node ./scripts/send-brevo-campaign.mjs"
     },
     "engines": {
-        "node": "20"
+        "node": "22"
     },
     "main": "lib/index.js",
     "dependencies": {
