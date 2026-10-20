@@ -1072,14 +1072,11 @@ export default function App() {
     }, 600);
   };
 
-  // --- Local video cache (IndexedDB) for cloud videos ---
-  // Streaming from Firebase Storage makes scrubbing and pose analysis choppy; once the
-  // file is cached, hydration serves a blob URL and playback behaves like a local file.
-  // The download never blocks playback: it starts after the player has had time to
-  // buffer, and the blob is only used from the next hydration on, so the active
-  // player's source never changes under it.
-  const videoCacheInFlightRef = useRef<Set<string>>(new Set());
-
+  // --- Local video cache (IndexedDB) ---
+  // Hydration plays a video from its local blob when one exists (uploads made
+  // on this device). Cloud videos are no longer downloaded whole in the
+  // background: on a phone that 60+ MB fetch competed with the player for the
+  // connection while the user was scrubbing.
   useEffect(() => {
     // Ask the browser not to evict the cached videos from IndexedDB under storage pressure.
     try {
@@ -1088,60 +1085,6 @@ export default function App() {
       // no-op
     }
   }, []);
-
-  const cacheRemoteVideoLocally = async (video: VideoFile): Promise<void> => {
-    if (!video?.id || video.isUploading) return;
-    if (video.status === 'error' || video.playbackStatus === 'unplayable') return;
-    if (video.url?.startsWith('blob:')) return;
-    const remoteUrl = video.downloadURL || video.remoteUrl || (/^https?:/i.test(video.url || '') ? video.url : '');
-    if (!remoteUrl) return;
-    if (videoCacheInFlightRef.current.has(video.id)) return;
-    videoCacheInFlightRef.current.add(video.id);
-
-    try {
-      const expectedSize = typeof video.size === 'number' && video.size > 0 ? video.size : undefined;
-      if (await VideoStorage.getVideo(video.id)) return;
-
-      if (expectedSize && navigator.storage?.estimate) {
-        try {
-          const { quota, usage } = await navigator.storage.estimate();
-          if (typeof quota === 'number' && typeof usage === 'number' && quota - usage < expectedSize * 1.2) {
-            return;
-          }
-        } catch {
-          // estimate unavailable: attempt the download anyway
-        }
-      }
-
-      const response = await fetch(remoteUrl, { mode: 'cors', credentials: 'omit' });
-      if (!response.ok) return;
-      const downloaded = await response.blob();
-      if (!downloaded.size) return;
-      // A size mismatch means a truncated or stale download; keep streaming in that case.
-      if (expectedSize && downloaded.size !== expectedSize) return;
-
-      // A large write can outlive VideoStorage's operation timeout while it
-      // still commits.
-      try {
-        await VideoStorage.saveVideo(video.id, downloaded);
-      } catch (saveError) {
-        console.warn('[VideoCache] Local cache write did not confirm', video.id, saveError);
-      }
-    } catch (error) {
-      console.warn('[VideoCache] No se pudo cachear el video localmente', video.id, error);
-    } finally {
-      videoCacheInFlightRef.current.delete(video.id);
-    }
-  };
-
-  const VIDEO_CACHE_START_DELAY_MS = 20000;
-
-  const scheduleVideoCacheAfterPlaybackStarts = (video: VideoFile) => {
-    if ((navigator as any).connection?.saveData) return;
-    window.setTimeout(() => {
-      void cacheRemoteVideoLocally(video);
-    }, VIDEO_CACHE_START_DELAY_MS);
-  };
 
   // A persisted download URL is served as-is: re-resolving it costs two Storage
   // round trips per video, and the analyzer already recovers a stale URL when
@@ -2483,7 +2426,7 @@ export default function App() {
         <div className="flex-1 min-h-0 overflow-hidden relative">
           <Suspense fallback={<ScreenLoader />}>
             {currentScreen === "dashboard" && <Dashboard userProfile={currentUser.profile} videos={videos} strengthRecords={strengthRecords} throwRecords={competitionRecords} trainingRecords={trainingRecords} onNavigate={navigateTo} language={language} />}
-            {currentScreen === "gallery" && <Gallery videos={videos} overrideCount={galleryVideoCount} quotaPending={isCloudQuotaPending} onSelectVideo={(v: VideoFile) => { setSelectedVideo(v); setCurrentScreen("analyzer"); scheduleVideoCacheAfterPlaybackStarts(v); }} onUpload={handleUploadVideo} onDelete={handleDeleteVideo} language={language} usage={displayedUsage} limits={finalUserLimits} onNavigate={navigateTo} />}
+            {currentScreen === "gallery" && <Gallery videos={videos} overrideCount={galleryVideoCount} quotaPending={isCloudQuotaPending} onSelectVideo={(v: VideoFile) => { setSelectedVideo(v); setCurrentScreen("analyzer"); }} onUpload={handleUploadVideo} onDelete={handleDeleteVideo} language={language} usage={displayedUsage} limits={finalUserLimits} onNavigate={navigateTo} />}
             {currentScreen === "analyzer" && selectedVideo && <VideoAnalyzer video={selectedVideo} targetUserId={viewedUserId!} onBack={() => navigateTo("gallery")} usage={displayedUsage} limits={finalUserLimits} onIncrementUsage={handleIncrementChat} language={language} onNavigate={navigateTo} userProfile={activeAnalysisProfile} />}
             {currentScreen === "planning" && <PlanGallery plans={plans} overrideCount={galleryPlanCount} quotaPending={isCloudQuotaPending} onSelectPlan={(p: PlanFile) => { setSelectedPlan(p); setCurrentScreen("planViewer"); }} onUpload={handleUploadPlan} onDelete={handleDeletePlan} language={language} usage={displayedUsage} limits={finalUserLimits} onNavigate={navigateTo} />}
             {currentScreen === "planViewer" && selectedPlan && <PdfViewer plan={selectedPlan} onBack={() => navigateTo("planning")} />}

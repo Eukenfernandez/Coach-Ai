@@ -30,6 +30,10 @@ const toOrientation = (width: number, height: number): VideoTechnicalMetadata['o
   return width > height ? 'landscape' : 'portrait';
 };
 
+// A hidden sampling element on a slow or stalled remote file may never fire
+// the event; without a deadline the sampling lock and its element stayed alive.
+const VIDEO_EVENT_TIMEOUT_MS = 20000;
+
 const waitForEvent = (target: EventTarget, eventName: string) =>
   new Promise<void>((resolve, reject) => {
     const onSuccess = () => {
@@ -40,7 +44,12 @@ const waitForEvent = (target: EventTarget, eventName: string) =>
       cleanup();
       reject(new Error(`Video event failed: ${eventName}`));
     };
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error(`Video event timed out: ${eventName}`));
+    }, VIDEO_EVENT_TIMEOUT_MS);
     const cleanup = () => {
+      clearTimeout(timer);
       target.removeEventListener(eventName, onSuccess);
       target.removeEventListener('error', onError);
     };
@@ -48,25 +57,57 @@ const waitForEvent = (target: EventTarget, eventName: string) =>
     target.addEventListener('error', onError, { once: true });
   });
 
+// The visible player counts as busy while it plays, while it is seeking, and
+// for a moment after any seek: scrubbing pauses it, and treating that pause as
+// idle let sampling compete with the drag for bandwidth and the decoder.
+const PLAYER_QUIET_AFTER_SEEK_MS = 1500;
+const lastPlayerSeekAt = new WeakMap<HTMLVideoElement, number>();
+
+const trackPlayerSeeks = (video: HTMLVideoElement) => {
+  if (lastPlayerSeekAt.has(video)) return;
+  lastPlayerSeekAt.set(video, 0);
+  video.addEventListener('seeking', () => lastPlayerSeekAt.set(video, performance.now()));
+};
+
 // Preserve the sampling loop and completed frames while the visible player runs.
 export const waitForVideoIdle = (video?: HTMLVideoElement | null, signal?: AbortSignal) =>
   new Promise<void>((resolve, reject) => {
+    let quietTimer: ReturnType<typeof setTimeout> | null = null;
     const cleanup = () => {
+      if (quietTimer !== null) clearTimeout(quietTimer);
       video?.removeEventListener('pause', check);
       video?.removeEventListener('ended', check);
+      video?.removeEventListener('seeked', check);
       signal?.removeEventListener('abort', check);
     };
     const check = () => {
+      if (quietTimer !== null) {
+        clearTimeout(quietTimer);
+        quietTimer = null;
+      }
       if (signal?.aborted) {
         cleanup();
         reject(new DOMException('Video sampling cancelled.', 'AbortError'));
-      } else if (!video || video.paused || video.ended) {
+        return;
+      }
+      if (!video) {
         cleanup();
         resolve();
+        return;
       }
+      if ((!video.paused && !video.ended) || video.seeking) return;
+      const quietFor = performance.now() - (lastPlayerSeekAt.get(video) || 0);
+      if (quietFor < PLAYER_QUIET_AFTER_SEEK_MS) {
+        quietTimer = setTimeout(check, PLAYER_QUIET_AFTER_SEEK_MS - quietFor);
+        return;
+      }
+      cleanup();
+      resolve();
     };
+    if (video) trackPlayerSeeks(video);
     video?.addEventListener('pause', check);
     video?.addEventListener('ended', check);
+    video?.addEventListener('seeked', check);
     signal?.addEventListener('abort', check);
     check();
   });

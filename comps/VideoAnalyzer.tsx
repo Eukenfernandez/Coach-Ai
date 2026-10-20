@@ -172,8 +172,11 @@ const VIDEO_CONTEXT_TEXTS = {
 };
 
 
-const AUTO_CONTEXT_PREPARATION_DELAY_MS = 10000;
 const POSE_WARMUP_DELAY_MS = 3000;
+const VIDEO_LOAD_DEADLINE_MS = 25000;
+const PRIMARY_SEEK_WATCHDOG_MS = 250;
+// Longest a drag waits on one seek before issuing the next target anyway.
+const PRIMARY_SEEK_STALL_MS = 3000;
 interface VideoAnalyzerProps {
    video: VideoFile;
    targetUserId: string;
@@ -672,6 +675,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
   const isVideoLoaded = videoLoadState === 'ready';
   const [videoError, setVideoError] = useState<string | null>(null);
   const [resolvedRemoteUrl, setResolvedRemoteUrl] = useState<string>(video.downloadURL || video.remoteUrl || '');
+  const [recoveredUrl, setRecoveredUrl] = useState('');
   const [isRecoveringVideoSource, setIsRecoveringVideoSource] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef1 = useRef<HTMLCanvasElement>(null);
@@ -716,7 +720,8 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
    );
 
   const primaryOwnUrl = primaryBlobFailed && video.url?.startsWith('blob:') ? '' : video.url;
-  const activeUrl = primaryOwnUrl || resolvedRemoteUrl || video.downloadURL || video.remoteUrl || "";
+  // A URL found by recoverVideoSource wins over the saved one that just failed.
+  const activeUrl = recoveredUrl || primaryOwnUrl || resolvedRemoteUrl || video.downloadURL || video.remoteUrl || "";
    const messagesUsed = usage?.chatCount || 0;
   const chatLimit = limits?.maxChatMessagesPerMonth === 'unlimited' ? Infinity : (limits?.maxChatMessagesPerMonth as number || 0);
   const isLimitReached = messagesUsed >= chatLimit;
@@ -973,6 +978,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
 
   useEffect(() => {
      setResolvedRemoteUrl(video.downloadURL || video.remoteUrl || (/^https?:/i.test(video.url || '') ? (video.url || '') : ''));
+     setRecoveredUrl('');
      setIsRecoveringVideoSource(false);
      videoRecoveryAttemptedRef.current = false;
      blobFallbackAttemptedRef.current = false;
@@ -986,9 +992,13 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
      try {
         const recovered = await StorageService.findVideoDownloadUrl(targetUserId, video);
         if (recovered?.url) {
-           setResolvedRemoteUrl(recovered.url);
+           const unchanged = recovered.url === activeUrl;
+           setRecoveredUrl(recovered.url);
            setVideoError(null);
            setVideoLoadState('loading');
+           // Same URL as the failed element: React will not touch src, so the
+           // element has to be told to load again or the spinner never clears.
+           if (unchanged) videoRef.current?.load();
            return true;
         }
 
@@ -1002,7 +1012,24 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
      } finally {
         setIsRecoveringVideoSource(false);
      }
-  }, [getVideoErrorMessage, targetUserId, video]);
+  }, [activeUrl, getVideoErrorMessage, targetUserId, video]);
+
+  // A load that never reaches loadeddata (stalled connection, a decoder that
+  // gives up silently) used to leave the spinner up indefinitely: retry the
+  // source once, then show the error with its retry button.
+  useEffect(() => {
+     if (videoLoadState !== 'loading' || !activeUrl) return;
+     const timer = window.setTimeout(() => {
+        if (!videoRecoveryAttemptedRef.current && (video.storagePath || video.downloadURL || video.remoteUrl)) {
+           videoRecoveryAttemptedRef.current = true;
+           void recoverVideoSource();
+           return;
+        }
+        setVideoError(getVideoErrorMessage(undefined, null));
+        setVideoLoadState('error');
+     }, VIDEO_LOAD_DEADLINE_MS);
+     return () => window.clearTimeout(timer);
+  }, [activeUrl, getVideoErrorMessage, recoverVideoSource, video.downloadURL, video.remoteUrl, video.storagePath, videoLoadState]);
 
   // Capture playback state when the SAME video changes source (remote → cached blob),
   // so the reload triggered by the src swap can resume where the user was.
@@ -1103,16 +1130,16 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
    }, [isVideoLoaded]);
 
    useEffect(() => {
-      // Sampling reads frames from the playback element, so wait until it has
-      // loaded, and then give the player a head start: preparing the context
-      // streams the same file again and would compete with the first seconds of
-      // playback. Asking a question still prepares it immediately.
-      if (!isVideoLoaded) return;
+      // Preparing the context opens two hidden players that stream and seek
+      // through the whole file. Started on a timer, it landed while the user was
+      // scrubbing a new video and starved the visible player, which froze. It
+      // now starts when the AI chat opens (asking a question also starts it).
+      if (!isChatOpen || !isVideoLoaded) return;
       if ((!activeUrl && !video.storagePath) || video.isUploading || video.status === 'error') return;
-      if (videoContext) return;
-      const timer = window.setTimeout(() => triggerVideoContextPreparation(false), AUTO_CONTEXT_PREPARATION_DELAY_MS);
-      return () => window.clearTimeout(timer);
-   }, [activeUrl, isVideoLoaded, triggerVideoContextPreparation, video.isUploading, video.status, video.storagePath, videoContext]);
+      if (!videoContext) {
+         triggerVideoContextPreparation(false);
+      }
+   }, [activeUrl, isChatOpen, isVideoLoaded, triggerVideoContextPreparation, video.isUploading, video.status, video.storagePath, videoContext]);
 
    // ÚNICA FUENTE DE VERDAD PARA ESTADO DE CARGA
   const handleLoadStart = () => {
@@ -1731,7 +1758,9 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
          if (videoRef.current) {
             videoRef.current.playbackRate = playbackRate;
          }
-         videoRef.current?.play();
+         // A rejected play() (decoder or network failure) must not leave the
+         // button showing "pause" over a stopped video.
+         videoRef.current?.play()?.catch(() => setIsPlaying(false));
          if (compareVideo && videoRef2.current) {
             if (isSynced && videoRef.current) {
                const maxCompareTime = Number.isFinite(compareDuration) && compareDuration > 0
@@ -1816,14 +1845,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
 
       const generation = ++primarySeekGenerationRef.current;
       primarySeekInFlightRef.current = true;
-      applySeekInstant(el, next, { exact: exactSeek });
-
-      // En modo comparación sincronizado, el secundario sigue al primario por su propia
-      // cola con gate de finalización, al ritmo de seeks emitidos (no del puntero).
-      const sync = syncStateRef.current;
-      if (sync.active && videoRef2.current) {
-         queueSecondarySeek(next + sync.offset);
-      }
+      const issuedAt = performance.now();
 
       const release = () => {
          // Un release obsoleto (invalidado por scrub-end/frameStep) no debe liberar
@@ -1841,12 +1863,39 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
          }
       };
 
+      // El watchdog solo rescata seeks que el navegador nunca cierra. Mientras el
+      // elemento siga buscando, se espera: en un vídeo remoto pesado un seek
+      // tarda más de 250 ms, y emitir el siguiente encima lo abortaba, así que
+      // la imagen no llegaba a pintarse nunca mientras se arrastraba.
+      const watchdog = () => {
+         if (primarySeekGenerationRef.current !== generation) return;
+         if (el.seeking && performance.now() - issuedAt < PRIMARY_SEEK_STALL_MS) {
+            primarySeekWatchdogRef.current = window.setTimeout(watchdog, PRIMARY_SEEK_WATCHDOG_MS);
+            return;
+         }
+         release();
+      };
+
       // Liberar SOLO cuando el decodificador termina: reescribir currentTime con un
-      // seek en curso lo aborta, y durante un arrastre eso congela la imagen. El
-      // timeout es un watchdog anti-cuelgue, no un mecanismo de ritmo.
+      // seek en curso lo aborta, y durante un arrastre eso congela la imagen.
+      // Los listeners van antes del seek para que una excepción no deje el gate
+      // cerrado.
       el.addEventListener('seeked', release, { once: true });
       el.addEventListener('error', release, { once: true });
-      primarySeekWatchdogRef.current = window.setTimeout(release, 250);
+      primarySeekWatchdogRef.current = window.setTimeout(watchdog, PRIMARY_SEEK_WATCHDOG_MS);
+      try {
+         applySeekInstant(el, next, { exact: exactSeek });
+      } catch {
+         release();
+         return;
+      }
+
+      // En modo comparación sincronizado, el secundario sigue al primario por su propia
+      // cola con gate de finalización, al ritmo de seeks emitidos (no del puntero).
+      const sync = syncStateRef.current;
+      if (sync.active && videoRef2.current) {
+         queueSecondarySeek(next + sync.offset);
+      }
    }, [applySeekInstant, queueSecondarySeek]);
 
    const seekSynced = useCallback((time: number, isDragging: boolean = false) => {

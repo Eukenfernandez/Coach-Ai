@@ -220,41 +220,61 @@ async function createMainThreadEngine(config: EngineConfig): Promise<PoseEngine>
 }
 
 let enginePromise: Promise<PoseEngine> | null = null;
+// True while enginePromise may still fall back to the main thread.
+let enginePromiseAllowsFallback = false;
 let readyEngine: PoseEngine | null = null;
 let engineConfig: EngineConfig | null = null;
 
-function getPoseEngine(): Promise<PoseEngine> {
-    if (readyEngine) return Promise.resolve(readyEngine);
-    if (enginePromise) return enginePromise;
-
-    engineConfig = getEngineConfig();
+function loadEngine(allowMainThread: boolean): Promise<PoseEngine> {
+    engineConfig = engineConfig ?? getEngineConfig();
     const config = engineConfig;
-    enginePromise = createWorkerEngine(config)
+    return createWorkerEngine(config)
         .catch((workerError) => {
+            if (!allowMainThread) throw workerError;
             poseWarn('[PoseDetection] Worker unavailable, using the main thread:', workerError);
             return createMainThreadEngine(config);
         })
         .then((engine) => {
             readyEngine = engine;
             return engine;
-        })
-        .catch((error) => {
-            // A failed load must stay retryable from the pose button.
-            enginePromise = null;
-            throw error;
         });
+}
 
+function getPoseEngine(): Promise<PoseEngine> {
+    if (readyEngine) return Promise.resolve(readyEngine);
+    if (!enginePromise || !enginePromiseAllowsFallback) {
+        // A background warm-up still in flight is reused; if it fails, the
+        // explicit request retries with the main-thread fallback allowed.
+        const warmUp = enginePromise;
+        const request: Promise<PoseEngine> = (warmUp ? warmUp.catch(() => loadEngine(true)) : loadEngine(true))
+            .catch((error) => {
+                // A failed load must stay retryable from the pose button.
+                if (enginePromise === request) enginePromise = null;
+                throw error;
+            });
+        enginePromise = request;
+        enginePromiseAllowsFallback = true;
+    }
     return enginePromise;
 }
 
 /**
  * Starts loading the detector in the background so the pose button responds
- * at once. Skipped on connections that ask to save data.
+ * at once. Desktop only: on a phone the download (~18 MB) and the WASM compile
+ * competed with the video the user was scrubbing, so phones load it when the
+ * button is pressed. It never falls back to the main thread on its own.
  */
 export function warmPoseDetector() {
+    if (isMobileDevice() || readyEngine || enginePromise) return;
     const connection = (navigator as any).connection;
     if (connection?.saveData || /(^|-)2g$|^3g$/.test(connection?.effectiveType || '')) return;
-    void getPoseEngine().catch(() => {});
+    const warmUp: Promise<PoseEngine> = loadEngine(false).catch((error) => {
+        if (enginePromise === warmUp) enginePromise = null;
+        throw error;
+    });
+    warmUp.catch(() => {});
+    enginePromise = warmUp;
+    enginePromiseAllowsFallback = false;
 }
 
 async function grabFrame(video: HTMLVideoElement, maxSide: number): Promise<ImageBitmap> {
