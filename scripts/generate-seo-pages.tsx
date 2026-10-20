@@ -62,6 +62,11 @@ function buildServiceWorkerScript() {
   return `<script src="/sw-register.js"></script>`;
 }
 
+// Vídeo de la portada: reproducción a la vista y botón de sonido (sin React en estas páginas).
+function buildLandingVideoScript(page: PublicPageContent) {
+  return page.id === "home" ? `<script src="/landing-video.js"></script>` : "";
+}
+
 // JSON-LD stays inline (browsers never execute it, so CSP doesn't apply), but
 // escape "<" so a value can never close the <script> element early.
 function serializeJsonLd(node: unknown) {
@@ -119,7 +124,7 @@ ${structuredDataScripts}`.trim();
 }
 
 function renderDocument(page: PublicPageContent, bodyMarkup: string, cssHrefs: string[], scriptHref?: string) {
-  const scripts = [buildAnalyticsScript(page), buildServiceWorkerScript()];
+  const scripts = [buildAnalyticsScript(page), buildServiceWorkerScript(), buildLandingVideoScript(page)].filter(Boolean);
   if (scriptHref) {
     scripts.push(`<script type="module" src="${scriptHref}"></script>`);
   }

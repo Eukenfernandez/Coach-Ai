@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Activity,
   ArrowRight,
@@ -15,6 +15,8 @@ import {
   TrendingUp,
   Users,
   Video,
+  Volume2,
+  VolumeX,
   Zap,
   type LucideIcon,
 } from "lucide-react";
@@ -75,6 +77,9 @@ const homeSports = [
 const uiCopy = {
   es: {
     watchDemo: "Mira cómo funciona",
+    videoTitle: "Todo lo que puedes hacer, en 37 segundos",
+    soundOn: "Activar sonido",
+    soundOff: "Silenciar",
     aiTitle: "Potenciado por Gemini AI",
     aiSubtitle: "Inteligencia artificial de Google al servicio de tu entrenamiento",
     aiShowcaseAlt: "Interfaz de Coach AI analizando un vídeo de entrenamiento",
@@ -93,6 +98,9 @@ const uiCopy = {
   },
   ing: {
     watchDemo: "See how it works",
+    videoTitle: "Everything you can do, in 37 seconds",
+    soundOn: "Turn sound on",
+    soundOff: "Mute",
     aiTitle: "Powered by Gemini AI",
     aiSubtitle: "Google's artificial intelligence at the service of your training",
     aiShowcaseAlt: "Coach AI interface analyzing a training video",
@@ -111,6 +119,9 @@ const uiCopy = {
   },
   eus: {
     watchDemo: "Ikusi nola funtzionatzen duen",
+    videoTitle: "Egin dezakezun guztia, 37 segundotan",
+    soundOn: "Soinua aktibatu",
+    soundOff: "Isilarazi",
     aiTitle: "Gemini IA-rekin Potentziaturik",
     aiSubtitle: "Google-ren adimen artifiziala zure entrenamenduaren zerbitzura",
     aiShowcaseAlt: "Coach AI interfazea entrenamendu bideo bat aztertzen",
@@ -147,6 +158,13 @@ const homeHeroScreenAltByLocale = {
   en: "Coach AI home screen showing technique and performance analysis",
   eu: "Coach AI hasierako pantaila teknika eta errendimendu analisia erakusten",
 } as const;
+// Vídeo de la portada (promo-video/src/landing). No hay versión en euskera: /eu usa la castellana.
+const homeVideoByLocale = {
+  es: { src: "/video/landing-es.mp4", poster: "/video/landing-es-poster.jpg" },
+  en: { src: "/video/landing-en.mp4", poster: "/video/landing-en-poster.jpg" },
+  eu: { src: "/video/landing-es.mp4", poster: "/video/landing-es-poster.jpg" },
+} as const;
+const LANDING_VIDEO_SCRIPT = "/landing-video.js";
 const primarySectionsId = "public-sections";
 const homeLocaleSwitchLinks = { es: "/es", en: "/en", eu: "/eu" } as const;
 
@@ -212,6 +230,79 @@ function useBenefitCards(page: PublicPageContent) {
 
     return trimCards([...primaryCards, ...relatedCards], 4);
   }, [page]);
+}
+
+/**
+ * Vídeo de la portada, al final (antes de la banda naranja de «Crear Cuenta Gratis»): arranca en
+ * silencio (los navegadores no dejan reproducir solo con sonido) y el botón activa la música desde
+ * el principio. Las páginas públicas
+ * se sirven como HTML estático sin React, así que el comportamiento vive en pub/landing-video.js,
+ * que scripts/generate-seo-pages.tsx enlaza en la portada; aquí solo se carga cuando React está vivo.
+ */
+function HomeVideoSection({ page, copy }: { page: PublicPageContent; copy: (typeof uiCopy)[keyof typeof uiCopy] }) {
+  const video = homeVideoByLocale[page.locale];
+
+  useEffect(() => {
+    const init = (window as { coachaiInitLandingVideo?: () => void }).coachaiInitLandingVideo;
+    if (init) {
+      init();
+      return;
+    }
+    if (document.querySelector(`script[src="${LANDING_VIDEO_SCRIPT}"]`)) return;
+    const script = document.createElement("script");
+    script.src = LANDING_VIDEO_SCRIPT;
+    document.body.appendChild(script);
+  }, [video.src]);
+
+  return (
+    <section id="video" className="px-4 py-20">
+      <div className="mx-auto w-full max-w-6xl">
+        <p className="text-center text-xs font-semibold uppercase tracking-[0.28em] text-orange-500 dark:text-orange-400/80">
+          {copy.watchDemo}
+        </p>
+        <h2 className="mx-auto mt-3 max-w-3xl text-center text-3xl font-bold leading-tight md:text-4xl">
+          {copy.videoTitle}
+        </h2>
+        <div
+          data-landing-video
+          className="relative mt-8 overflow-hidden rounded-[22px] border border-white/10 bg-neutral-950 shadow-[0_30px_80px_rgba(0,0,0,0.5),0_0_60px_rgba(249,115,22,0.12)] md:mt-10 md:rounded-[28px]"
+        >
+          <video
+            key={video.src}
+            src={video.src}
+            poster={video.poster}
+            autoPlay
+            muted
+            loop
+            playsInline
+            preload="metadata"
+            width={1920}
+            height={1080}
+            aria-label={copy.videoTitle}
+            className="block aspect-video h-auto w-full"
+          />
+          <button
+            type="button"
+            data-landing-video-sound
+            data-cta-event="home-video-sound"
+            aria-pressed="false"
+            className="absolute bottom-2 right-2 rounded-full border border-white/15 bg-black/65 p-2 text-sm font-semibold leading-none text-white shadow-[0_8px_22px_rgba(0,0,0,0.35)] backdrop-blur transition-colors hover:bg-black/80 sm:bottom-4 sm:right-4 sm:px-4 sm:py-2.5 md:bottom-5 md:right-5"
+          >
+            {/* Sin clases de display en los span: el atributo hidden (lo cambia el script) debe ganar.
+                En el móvil solo se ve el icono, para no tapar el vídeo. */}
+            <span data-sound-off>
+              <VolumeX size={16} className="inline-block align-[-3px] text-orange-400 sm:mr-2" aria-hidden="true" />
+              <span className="sr-only sm:not-sr-only">{copy.soundOn}</span>
+            </span>
+            <span data-sound-on hidden>
+              <Volume2 size={16} className="inline-block align-[-3px] text-orange-400 sm:mr-2" aria-hidden="true" />
+              <span className="sr-only sm:not-sr-only">{copy.soundOff}</span>
+            </span>
+          </button>
+        </div>
+      </div>
+    </section>
+  );
 }
 
 export function PublicPageTemplate({
@@ -806,6 +897,8 @@ export function PublicPageTemplate({
             </div>
           </div>
         </section>
+
+        {isHomeHero ? <HomeVideoSection page={page} copy={copy} /> : null}
 
         <section className="py-24 px-4 bg-gradient-to-br from-orange-600 to-orange-700">
           <div className="max-w-3xl mx-auto text-center text-white">
