@@ -1,17 +1,22 @@
 
 /**
  * Configuration for Camera Recording.
- * Prioritizes 4K resolution (3840x2160) on the environment (back) camera.
- * Browsers will fall back to the highest available resolution if 4K is not supported.
+ * Targets 1080p at 30 fps on the environment (back) camera: enough detail for
+ * technique and pose analysis, while 4K recordings were several times larger
+ * and slow to upload, stream and scrub.
  */
 export const CAMERA_CONSTRAINTS: MediaStreamConstraints = {
   audio: true,
   video: {
     facingMode: 'environment', // Use back camera
-    width: { ideal: 3840 },    // Target 4K
-    height: { ideal: 2160 }
+    width: { ideal: 1920 },
+    height: { ideal: 1080 },
+    frameRate: { ideal: 30 }
   }
 };
+
+// Bitrate cap for in-app recordings (~1 MB per second of video).
+export const RECORDING_VIDEO_BITS_PER_SECOND = 8_000_000;
 
 /**
  * Generates a compact thumbnail from an early visible frame of a video file.

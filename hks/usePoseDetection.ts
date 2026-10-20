@@ -201,13 +201,6 @@ async function loadSecondaryModel(): Promise<PoseLandmarker | null> {
     return model2LoadPromise;
 }
 
-// Start preloading immediately when module is imported
-preloadModel();
-
-// Export for explicit preload call from App.tsx if needed
-export function preloadPoseModel() {
-    return preloadModel();
-}
 
 export function usePoseDetection(
     videoRef: React.RefObject<HTMLVideoElement>,
@@ -253,7 +246,9 @@ export function usePoseDetection(
         return ready;
     }, []);
 
-    // Keep the UI in sync with the primary model preload state even before the user enables detection.
+    // Keep the UI in sync with the primary model state. The model (WASM plus
+    // weights) only loads once the user enables detection, so opening a video
+    // never shares its bandwidth with it.
     useEffect(() => {
         let cancelled = false;
 
@@ -261,6 +256,11 @@ export function usePoseDetection(
             setIsReady(true);
             setIsLoading(false);
             setError(null);
+            return;
+        }
+
+        if (!enabled) {
+            setIsLoading(false);
             return;
         }
 
@@ -283,7 +283,7 @@ export function usePoseDetection(
         return () => {
             cancelled = true;
         };
-    }, []);
+    }, [enabled]);
 
     // Detection loop using SEPARATE model instances for each video
     const detectPose = useCallback(() => {

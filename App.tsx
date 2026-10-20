@@ -25,6 +25,7 @@ import {
   dismissMarketingTrialOffer,
   getMarketingTrialOffer,
   getSubscriptionTier,
+  readCachedSubscriptionTier,
   getUserLimits,
   waitForSubscriptionActive,
   type MarketingTrialOfferState,
@@ -572,18 +573,6 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (!currentUser) return;
-
-    const delay = currentScreen === "gallery" || currentScreen === "analyzer" ? 120 : 1800;
-
-    return scheduleIdleTask(() => {
-      void import("./hks/usePoseDetection").then((module) => {
-        void module.preloadPoseModel();
-      });
-    }, delay);
-  }, [currentScreen, currentUser]);
-
-  useEffect(() => {
     const localizedPrivateMetadata = {
       es: {
         loginTitle: "Acceso a CoachAI",
@@ -823,6 +812,7 @@ export default function App() {
       }
 
       let tier: SubscriptionTier = "FREE";
+      let refreshTierInBackground = false;
 
       // --- PLAN DETERMINATION LOGIC ---
       // The authoritative tier comes from the getSubscriptionState callable,
@@ -848,7 +838,16 @@ export default function App() {
             setPaymentMessage({ type: 'info', text: PAYMENT_PENDING_MESSAGE });
           }
         } else {
-          tier = await getSubscriptionTier(user.id, user.email || user.username, userRole);
+          // Render with the last confirmed tier and refresh it in the
+          // background: waiting here put a callable cold start in front of
+          // every app open.
+          const cachedTier = readCachedSubscriptionTier(user.id);
+          if (cachedTier) {
+            tier = cachedTier;
+            refreshTierInBackground = true;
+          } else {
+            tier = await getSubscriptionTier(user.id, user.email || user.username, userRole);
+          }
         }
       }
 
@@ -859,6 +858,17 @@ export default function App() {
 
       setCurrentUser(userWithTier);
       setIsProcessingPayment(false);
+
+      if (refreshTierInBackground) {
+        void getSubscriptionTier(user.id, user.email || user.username, userRole).then((freshTier) => {
+          if (freshTier === tier) return;
+          setCurrentUser((prev) => (
+            prev && prev.id === user.id && prev.profile
+              ? { ...prev, profile: { ...prev.profile, subscriptionTier: freshTier } }
+              : prev
+          ));
+        });
+      }
 
       if (userWithTier.profile?.role === "admin") {
         setMarketingTrialOffer(null);
@@ -874,26 +884,31 @@ export default function App() {
 
       setViewedUserId(userWithTier.id);
 
-      // Fetch fresh managedAthletes from Firestore for coaches (not from stale profile)
+      // Fetch fresh managedAthletes from Firestore for coaches (not from stale
+      // profile). The roster only feeds the athlete switcher, so it loads
+      // after the dashboard instead of in front of it.
       if (userWithTier.profile.role === "coach") {
-        try {
-          const freshCoachDoc = await db.collection("users").doc(userWithTier.id).get();
-          const freshProfile = freshCoachDoc.exists ? (freshCoachDoc.data() as any)?.profile : null;
-          if (freshProfile?.managedAthletes && freshProfile.managedAthletes.length > 0) {
-            const athletes = await StorageService.getManagedAthletes(freshProfile.managedAthletes);
-            setManagedAthletes(athletes);
-          } else {
-            setManagedAthletes([]);
+        const coachProfile = userWithTier.profile;
+        void (async () => {
+          try {
+            const freshCoachDoc = await db.collection("users").doc(userWithTier.id).get();
+            const freshProfile = freshCoachDoc.exists ? (freshCoachDoc.data() as any)?.profile : null;
+            if (freshProfile?.managedAthletes && freshProfile.managedAthletes.length > 0) {
+              const athletes = await StorageService.getManagedAthletes(freshProfile.managedAthletes);
+              setManagedAthletes(athletes);
+            } else {
+              setManagedAthletes([]);
+            }
+          } catch (e) {
+            console.warn("Could not fetch fresh coach data, using local profile", e);
+            if (coachProfile.managedAthletes) {
+              const athletes = await StorageService.getManagedAthletes(coachProfile.managedAthletes).catch(() => []);
+              setManagedAthletes(athletes);
+            } else {
+              setManagedAthletes([]);
+            }
           }
-        } catch (e) {
-          console.warn("Could not fetch fresh coach data, using local profile", e);
-          if (userWithTier.profile.managedAthletes) {
-            const athletes = await StorageService.getManagedAthletes(userWithTier.profile.managedAthletes);
-            setManagedAthletes(athletes);
-          } else {
-            setManagedAthletes([]);
-          }
-        }
+        })();
       } else {
         setManagedAthletes([]);
       }
@@ -1004,18 +1019,20 @@ export default function App() {
     setMatchRecords(data.matchRecords || []);
     setCustomExercises(data.customExercises || []);
     setSupplements(data.supplements || []);
+    // Saved assets are playable straight from their persisted URLs; hydration
+    // later swaps in local blobs and repairs anything missing.
     setVideos(
-      (data.videos || []).map((video) => ({
+      (data.videos || []).map((video) => toPersistedPlaybackVideo(video, targetId) || {
         ...video,
         url: "",
         isLocal: false,
         ownerId: targetId,
-      }))
+      })
     );
     setPlans(
       (data.plans || []).map((plan) => ({
         ...plan,
-        url: "",
+        url: plan.status !== "error" && !plan.errorCode ? plan.downloadURL || plan.remoteUrl || "" : "",
         file: undefined,
         isLocal: false,
         ownerId: targetId,
@@ -1058,6 +1075,9 @@ export default function App() {
   // --- Local video cache (IndexedDB) for cloud videos ---
   // Streaming from Firebase Storage makes scrubbing and pose analysis choppy; once the
   // file is cached, hydration serves a blob URL and playback behaves like a local file.
+  // The download never blocks playback: it starts after the player has had time to
+  // buffer, and the blob is only used from the next hydration on, so the active
+  // player's source never changes under it.
   const videoCacheInFlightRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -1080,51 +1100,33 @@ export default function App() {
 
     try {
       const expectedSize = typeof video.size === 'number' && video.size > 0 ? video.size : undefined;
-      let blob = await VideoStorage.getVideo(video.id);
+      if (await VideoStorage.getVideo(video.id)) return;
 
-      if (!blob) {
-        if (expectedSize && navigator.storage?.estimate) {
-          try {
-            const { quota, usage } = await navigator.storage.estimate();
-            if (typeof quota === 'number' && typeof usage === 'number' && quota - usage < expectedSize * 1.2) {
-              return;
-            }
-          } catch {
-            // estimate unavailable: attempt the download anyway
-          }
-        }
-
-        const response = await fetch(remoteUrl, { mode: 'cors', credentials: 'omit' });
-        if (!response.ok) return;
-        const downloaded = await response.blob();
-        if (!downloaded.size) return;
-        // A size mismatch means a truncated or stale download; keep streaming in that case.
-        if (expectedSize && downloaded.size !== expectedSize) return;
-
-        // A large write can outlive VideoStorage's operation timeout while it
-        // still commits; the downloaded blob is usable for this session anyway.
+      if (expectedSize && navigator.storage?.estimate) {
         try {
-          await VideoStorage.saveVideo(video.id, downloaded);
-        } catch (saveError) {
-          console.warn('[VideoCache] Local cache write did not confirm', video.id, saveError);
+          const { quota, usage } = await navigator.storage.estimate();
+          if (typeof quota === 'number' && typeof usage === 'number' && quota - usage < expectedSize * 1.2) {
+            return;
+          }
+        } catch {
+          // estimate unavailable: attempt the download anyway
         }
-        blob = downloaded;
       }
 
-      const blobUrl = URL.createObjectURL(blob);
-      let adopted = false;
-      setVideos((prev) => prev.map((v) => {
-        if (v.id !== video.id || v.isUploading || v.url?.startsWith('blob:')) return v;
-        adopted = true;
-        return {
-          ...v,
-          url: blobUrl,
-          isLocal: true,
-          contentType: v.contentType || blob!.type || undefined,
-          size: v.size || blob!.size,
-        };
-      }));
-      if (!adopted) revokeObjectUrlMaybe(blobUrl);
+      const response = await fetch(remoteUrl, { mode: 'cors', credentials: 'omit' });
+      if (!response.ok) return;
+      const downloaded = await response.blob();
+      if (!downloaded.size) return;
+      // A size mismatch means a truncated or stale download; keep streaming in that case.
+      if (expectedSize && downloaded.size !== expectedSize) return;
+
+      // A large write can outlive VideoStorage's operation timeout while it
+      // still commits.
+      try {
+        await VideoStorage.saveVideo(video.id, downloaded);
+      } catch (saveError) {
+        console.warn('[VideoCache] Local cache write did not confirm', video.id, saveError);
+      }
     } catch (error) {
       console.warn('[VideoCache] No se pudo cachear el video localmente', video.id, error);
     } finally {
@@ -1132,28 +1134,35 @@ export default function App() {
     }
   };
 
-  const warmVideoCacheInBackground = (targetId: string, requestId: number, hydratedVideos: VideoFile[]) => {
+  const VIDEO_CACHE_START_DELAY_MS = 20000;
+
+  const scheduleVideoCacheAfterPlaybackStarts = (video: VideoFile) => {
     if ((navigator as any).connection?.saveData) return;
+    window.setTimeout(() => {
+      void cacheRemoteVideoLocally(video);
+    }, VIDEO_CACHE_START_DELAY_MS);
+  };
 
-    const BACKGROUND_VIDEO_CACHE_LIMIT = 6;
-    const candidates = hydratedVideos
-      .filter((v) =>
-        !v.isUploading &&
-        v.status === 'ready' &&
-        v.playbackStatus !== 'unplayable' &&
-        !v.url?.startsWith('blob:') &&
-        Boolean(v.downloadURL || v.remoteUrl)
-      )
-      .slice(0, BACKGROUND_VIDEO_CACHE_LIMIT);
-    if (!candidates.length) return;
-
-    void (async () => {
-      // Sequential on purpose: don't compete with the app's own requests for bandwidth.
-      for (const candidate of candidates) {
-        if (bootstrapLoadRef.current.requestId !== requestId || bootstrapLoadRef.current.userId !== targetId) return;
-        await cacheRemoteVideoLocally(candidate);
-      }
-    })();
+  // A persisted download URL is served as-is: re-resolving it costs two Storage
+  // round trips per video, and the analyzer already recovers a stale URL when
+  // playback fails.
+  const toPersistedPlaybackVideo = (video: VideoFile, targetId: string): VideoFile | null => {
+    const persistedPlaybackUrl = video.downloadURL || video.remoteUrl;
+    if (
+      !persistedPlaybackUrl ||
+      video.status === "error" ||
+      video.playbackStatus === "unplayable" ||
+      video.errorCode
+    ) {
+      return null;
+    }
+    return {
+      ...video,
+      url: persistedPlaybackUrl,
+      isLocal: false,
+      ownerId: targetId,
+      status: "ready",
+    };
   };
 
   const hydrateVideosForBootstrap = async (targetId: string, requestId: number, loadedVideos: VideoFile[]) => {
@@ -1163,7 +1172,7 @@ export default function App() {
       count: loadedVideos.length,
     });
 
-    const batchSize = 3;
+    const batchSize = 12;
     const hydrated: VideoFile[] = [];
     const repairedVideos: VideoFile[] = [];
 
@@ -1187,6 +1196,9 @@ export default function App() {
               status: video.status || "ready",
             };
           }
+
+          const persistedVideo = toPersistedPlaybackVideo(video, targetId);
+          if (persistedVideo) return persistedVideo;
 
           if (StorageService.isCloudMode()) {
             const found = await StorageService.findVideoDownloadUrl(targetId, video);
@@ -1269,7 +1281,12 @@ export default function App() {
 
       hydrated.push(...batchResults);
       if (bootstrapLoadRef.current.requestId === requestId && bootstrapLoadRef.current.userId === targetId) {
-        setVideos([...hydrated]);
+        // Keep the not-yet-hydrated tail listed so the gallery never shrinks
+        // (and the open video is never dropped) while batches complete.
+        const pending = loadedVideos
+          .slice(i + batchSize)
+          .map((video) => toPersistedPlaybackVideo(video, targetId) || { ...video, url: "", isLocal: false, ownerId: targetId });
+        setVideos([...hydrated, ...pending]);
       }
     }
 
@@ -1301,6 +1318,17 @@ export default function App() {
             size: plan.size || blob.size,
             ownerId: targetId,
             status: plan.status || "ready",
+          };
+        }
+
+        const persistedPlanUrl = plan.downloadURL || plan.remoteUrl;
+        if (persistedPlanUrl && plan.status !== "error" && !plan.errorCode) {
+          return {
+            ...plan,
+            url: persistedPlanUrl,
+            isLocal: false,
+            ownerId: targetId,
+            status: "ready",
           };
         }
 
@@ -1459,7 +1487,6 @@ export default function App() {
             }
 
             scheduleMetadataRepair(targetId, requestId, videoResult.repairedVideos, planResult.repairedPlans);
-            warmVideoCacheInBackground(targetId, requestId, videoResult.hydrated);
             setDataSyncState({
               phase: StorageService.isOnline() ? "idle" : "offline",
               source: loadInfo?.source || "local",
@@ -2456,7 +2483,7 @@ export default function App() {
         <div className="flex-1 min-h-0 overflow-hidden relative">
           <Suspense fallback={<ScreenLoader />}>
             {currentScreen === "dashboard" && <Dashboard userProfile={currentUser.profile} videos={videos} strengthRecords={strengthRecords} throwRecords={competitionRecords} trainingRecords={trainingRecords} onNavigate={navigateTo} language={language} />}
-            {currentScreen === "gallery" && <Gallery videos={videos} overrideCount={galleryVideoCount} quotaPending={isCloudQuotaPending} onSelectVideo={(v: VideoFile) => { setSelectedVideo(v); setCurrentScreen("analyzer"); void cacheRemoteVideoLocally(v); }} onUpload={handleUploadVideo} onDelete={handleDeleteVideo} language={language} usage={displayedUsage} limits={finalUserLimits} onNavigate={navigateTo} />}
+            {currentScreen === "gallery" && <Gallery videos={videos} overrideCount={galleryVideoCount} quotaPending={isCloudQuotaPending} onSelectVideo={(v: VideoFile) => { setSelectedVideo(v); setCurrentScreen("analyzer"); scheduleVideoCacheAfterPlaybackStarts(v); }} onUpload={handleUploadVideo} onDelete={handleDeleteVideo} language={language} usage={displayedUsage} limits={finalUserLimits} onNavigate={navigateTo} />}
             {currentScreen === "analyzer" && selectedVideo && <VideoAnalyzer video={selectedVideo} targetUserId={viewedUserId!} onBack={() => navigateTo("gallery")} usage={displayedUsage} limits={finalUserLimits} onIncrementUsage={handleIncrementChat} language={language} onNavigate={navigateTo} userProfile={activeAnalysisProfile} />}
             {currentScreen === "planning" && <PlanGallery plans={plans} overrideCount={galleryPlanCount} quotaPending={isCloudQuotaPending} onSelectPlan={(p: PlanFile) => { setSelectedPlan(p); setCurrentScreen("planViewer"); }} onUpload={handleUploadPlan} onDelete={handleDeletePlan} language={language} usage={displayedUsage} limits={finalUserLimits} onNavigate={navigateTo} />}
             {currentScreen === "planViewer" && selectedPlan && <PdfViewer plan={selectedPlan} onBack={() => navigateTo("planning")} />}

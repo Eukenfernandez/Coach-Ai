@@ -1403,27 +1403,43 @@ export const StorageService = {
       return null;
     }
 
-    let userData: any = {};
-    try {
-      const userSnapshot = await db.collection('users').doc(authenticatedUser.uid).get({ source: 'server' as any });
-      userData = userSnapshot.exists ? userSnapshot.data() || {} : {};
-      if (!userSnapshot.exists) {
-        await ensureUserDocumentsExist(authenticatedUser);
-      }
-    } catch (error) {
-      if (!cachedUser) throw error;
-      userData = cachedUser;
-    }
-
-    const restoredUser: User = {
+    const buildRestoredUser = (userData: any): User => ({
       id: authenticatedUser.uid,
       username: authenticatedUser.email?.toLowerCase() || userData.username || cachedUser?.username || 'user',
       email: authenticatedUser.email?.toLowerCase() || userData.email || cachedUser?.email,
       profile: userData.profile || cachedUser?.profile,
       createdAt: toIsoStringMaybe(userData.createdAt) || cachedUser?.createdAt || new Date().toISOString(),
+    });
+
+    const readServerUser = async (): Promise<User> => {
+      const userSnapshot = await db.collection('users').doc(authenticatedUser.uid).get({ source: 'server' as any });
+      const userData = userSnapshot.exists ? userSnapshot.data() || {} : {};
+      if (!userSnapshot.exists) {
+        await ensureUserDocumentsExist(authenticatedUser);
+      }
+      const restoredUser = buildRestoredUser(userData);
+      localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(restoredUser));
+      return restoredUser;
     };
-    localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(restoredUser));
-    return restoredUser;
+
+    // A returning user with a saved profile opens the app from it; the server
+    // copy refreshes the saved one for the next session instead of holding up
+    // this one with a round trip.
+    if (cachedUser?.profile) {
+      void readServerUser().catch((error) => {
+        console.warn('[restoreCurrentUser] Background profile refresh failed', error);
+      });
+      return buildRestoredUser(cachedUser);
+    }
+
+    try {
+      return await readServerUser();
+    } catch (error) {
+      if (!cachedUser) throw error;
+      const restoredUser = buildRestoredUser(cachedUser);
+      localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(restoredUser));
+      return restoredUser;
+    }
   },
 
   updateUserProfile: async (userId: string, profile: UserProfile): Promise<User> => {
@@ -1484,6 +1500,16 @@ export const StorageService = {
       const defaults = buildDefaultUserData();
 
       if (canUseCloudPersistence(userId)) {
+        // The root document and both asset subcollections are independent
+        // reads: run them together instead of one after the other.
+        const assetsRead = Promise.all([
+          fetchAssetSubcollection<VideoFile>(`userdata/${userId}/videos`),
+          fetchAssetSubcollection<PlanFile>(`userdata/${userId}/plans`)
+        ]);
+        // Handled below; this only keeps a rejection from going unobserved
+        // while the root read is still pending.
+        assetsRead.catch(() => {});
+
         const userDocRead = await readDocumentWithCacheFallback(
           db.collection("userdata").doc(userId),
           'getUserData.rootDoc',
@@ -1499,10 +1525,7 @@ export const StorageService = {
         }
 
         try {
-          const [subVideos, subPlans] = await Promise.all([
-            fetchAssetSubcollection<VideoFile>(`userdata/${userId}/videos`),
-            fetchAssetSubcollection<PlanFile>(`userdata/${userId}/plans`)
-          ]);
+          const [subVideos, subPlans] = await assetsRead;
 
           if (!data) data = { ...defaults };
           if (subVideos.length > 0) {

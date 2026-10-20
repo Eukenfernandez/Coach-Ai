@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { VideoFile, Language, UserUsage, UserLimits, Screen } from '../types';
 import { Upload, Film, Trash2, Camera, X, AlertTriangle, Loader2, Info, Lock, RotateCcw } from 'lucide-react';
-import { CAMERA_CONSTRAINTS } from '../utl/videoUtils';
+import { CAMERA_CONSTRAINTS, RECORDING_VIDEO_BITS_PER_SECOND } from '../utl/videoUtils';
 
 interface GalleryProps {
   videos: VideoFile[];
@@ -156,6 +156,27 @@ const GalleryVideoThumbnail: React.FC<{ video: VideoFile }> = ({ video }) => {
     Boolean(video.thumbnail) && !video.thumbnail?.startsWith('data:image/svg+xml'),
   );
   const [videoFrameReady, setVideoFrameReady] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  // Frame previews stream the video itself, so only tiles near the viewport
+  // load one; a long gallery otherwise opens dozens of media requests at once.
+  const [isNearViewport, setIsNearViewport] = useState(false);
+
+  useEffect(() => {
+    const element = containerRef.current;
+    if (!element || isNearViewport) return;
+    if (typeof IntersectionObserver === 'undefined') {
+      setIsNearViewport(true);
+      return;
+    }
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        setIsNearViewport(true);
+        observer.disconnect();
+      }
+    }, { rootMargin: '200px' });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [isNearViewport]);
 
   useEffect(() => {
     setUseStoredThumbnail(
@@ -221,12 +242,12 @@ const GalleryVideoThumbnail: React.FC<{ video: VideoFile }> = ({ video }) => {
   };
 
   return (
-    <div className="absolute inset-0 overflow-hidden bg-neutral-950" aria-hidden="true">
+    <div ref={containerRef} className="absolute inset-0 overflow-hidden bg-neutral-950" aria-hidden="true">
       <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-neutral-900 to-black">
         <Film size={28} className="text-orange-500/70" />
       </div>
 
-      {!useStoredThumbnail && source && (
+      {!useStoredThumbnail && source && isNearViewport && (
         <video
           src={source}
           muted
@@ -249,6 +270,8 @@ const GalleryVideoThumbnail: React.FC<{ video: VideoFile }> = ({ video }) => {
         <img
           src={video.thumbnail}
           alt=""
+          loading="lazy"
+          decoding="async"
           onLoad={handleStoredThumbnailLoad}
           onError={() => setUseStoredThumbnail(false)}
           className="absolute inset-0 h-full w-full object-cover opacity-90 transition-all duration-700 group-hover:scale-110 group-hover:opacity-100"
@@ -345,7 +368,7 @@ export const Gallery: React.FC<GalleryProps> = ({ videos, onSelectVideo, onUploa
 
   const startRecording = () => {
     if (stream) {
-      const recorder = new MediaRecorder(stream);
+      const recorder = new MediaRecorder(stream, { videoBitsPerSecond: RECORDING_VIDEO_BITS_PER_SECOND });
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) setRecordedChunks((prev) => [...prev, e.data]);
       };

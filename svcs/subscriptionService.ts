@@ -260,6 +260,28 @@ const fetchAuthoritativeSubscriptionTier = async (): Promise<SubscriptionTier> =
   return isKnownTier(tier) ? tier : 'FREE';
 };
 
+// Last tier the server confirmed, per account. Sessions start from it so the
+// app never waits on the callable (and its cold start) to render; the backend
+// still enforces every limit, so a stale value can only affect what the UI shows.
+const SUBSCRIPTION_TIER_CACHE_PREFIX = 'coachai:subscriptionTier:';
+
+export const readCachedSubscriptionTier = (uid: string): SubscriptionTier | null => {
+  try {
+    const cached = localStorage.getItem(`${SUBSCRIPTION_TIER_CACHE_PREFIX}${uid}`);
+    return isKnownTier(cached) ? cached : null;
+  } catch {
+    return null;
+  }
+};
+
+const writeCachedSubscriptionTier = (uid: string, tier: SubscriptionTier) => {
+  try {
+    localStorage.setItem(`${SUBSCRIPTION_TIER_CACHE_PREFIX}${uid}`, tier);
+  } catch {
+    // Storage unavailable (private mode): the next session asks the server again.
+  }
+};
+
 export const getSubscriptionTier = async (
   uid: string,
   userEmail?: string,
@@ -269,8 +291,9 @@ export const getSubscriptionTier = async (
   let tier: SubscriptionTier = 'FREE';
   try {
     tier = await fetchAuthoritativeSubscriptionTier();
+    writeCachedSubscriptionTier(uid, tier);
   } catch (error) {
-    tier = 'FREE';
+    tier = readCachedSubscriptionTier(uid) || 'FREE';
   }
   // The server already grants allow-listed accounts their top plan; this only
   // covers a stale or unreachable callable so the owner's plan UI stays right.

@@ -171,6 +171,8 @@ const VIDEO_CONTEXT_TEXTS = {
    }
 };
 
+
+const AUTO_CONTEXT_PREPARATION_DELAY_MS = 10000;
 interface VideoAnalyzerProps {
    video: VideoFile;
    targetUserId: string;
@@ -1078,12 +1080,15 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
    }, [targetUserId, video.id]);
 
    useEffect(() => {
-      // Sampling reads frames from the playback element, so wait until it has loaded.
+      // Sampling reads frames from the playback element, so wait until it has
+      // loaded, and then give the player a head start: preparing the context
+      // streams the same file again and would compete with the first seconds of
+      // playback. Asking a question still prepares it immediately.
       if (!isVideoLoaded) return;
       if ((!activeUrl && !video.storagePath) || video.isUploading || video.status === 'error') return;
-      if (!videoContext) {
-         triggerVideoContextPreparation(false);
-      }
+      if (videoContext) return;
+      const timer = window.setTimeout(() => triggerVideoContextPreparation(false), AUTO_CONTEXT_PREPARATION_DELAY_MS);
+      return () => window.clearTimeout(timer);
    }, [activeUrl, isVideoLoaded, triggerVideoContextPreparation, video.isUploading, video.status, video.storagePath, videoContext]);
 
    // ÚNICA FUENTE DE VERDAD PARA ESTADO DE CARGA

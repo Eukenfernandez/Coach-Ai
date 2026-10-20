@@ -73,11 +73,25 @@ const cacheFirst = async (request) => {
     return response;
 };
 
+// On a slow connection, waiting for the network to fail can take far longer
+// than the cached copy needs: after this long, serve the cache (if any) and let
+// the network response refresh it in the background.
+const NETWORK_FIRST_TIMEOUT_MS = 3000;
+
 const networkFirst = async (request) => {
-    try {
-        const response = await fetch(request);
+    const network = fetch(request).then((response) => {
         if (isCacheableResponse(response)) putInCache(request, response);
         return response;
+    });
+    // Observed here so a failure after the cache already answered isn't reported
+    // as unhandled; the race below still sees it.
+    network.catch(() => {});
+    const cachedAfterTimeout = new Promise((resolve) => {
+        setTimeout(resolve, NETWORK_FIRST_TIMEOUT_MS);
+    }).then(async () => (await caches.match(request)) || network);
+
+    try {
+        return await Promise.race([network, cachedAfterTimeout]);
     } catch (error) {
         const cached = await caches.match(request);
         if (cached) return cached;

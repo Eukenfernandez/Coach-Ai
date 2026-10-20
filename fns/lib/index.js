@@ -1203,19 +1203,24 @@ export const getSubscriptionState = onCall({ ...callableSecurityOptions, region:
         throw new HttpsError('unauthenticated', 'Debes iniciar sesión.');
     const uid = request.auth.uid;
     const authIdentity = getVerifiedAuthEmail(request);
-    if (authIdentity.emailVerified && authIdentity.userEmail) {
-        await db.collection('users').doc(uid).set({
+    // The verification mirror and the tier resolution don't depend on each
+    // other: run them together so the write doesn't add a round trip.
+    const recordVerifiedEmail = authIdentity.emailVerified && authIdentity.userEmail
+        ? db.collection('users').doc(uid).set({
             emailVerified: true,
             verifiedEmail: authIdentity.userEmail.trim().toLowerCase(),
             emailVerifiedAt: FieldValue.serverTimestamp(),
-        }, { merge: true });
-    }
-    const context = await resolveSubscriptionContext({
-        db,
-        uid,
-        userEmail: authIdentity.userEmail,
-        emailVerified: authIdentity.emailVerified,
-    });
+        }, { merge: true })
+        : Promise.resolve();
+    const [, context] = await Promise.all([
+        recordVerifiedEmail,
+        resolveSubscriptionContext({
+            db,
+            uid,
+            userEmail: authIdentity.userEmail,
+            emailVerified: authIdentity.emailVerified,
+        }),
+    ]);
     return {
         tier: context.tier,
         role: context.role,
