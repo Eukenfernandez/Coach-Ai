@@ -9,7 +9,7 @@ import {
    FILMSTRIP_MIN_VIDEO_WIDTH,
    type Filmstrip,
 } from '../utl/filmstrip';
-import { usePoseDetection, drawPoseOnCanvas, drawPoseOnCanvasWithOffset, POSE_CONNECTIONS, BODY_KEYPOINTS } from '../hks/usePoseDetection';
+import { usePoseDetection, drawPoseOnCanvas, drawPoseOnCanvasWithOffset, POSE_CONNECTIONS, BODY_KEYPOINTS, warmPoseDetector } from '../hks/usePoseDetection';
 import { getBiomechanicalContext } from '../utl/biomechanics';
 import {
    Play, Pause, ChevronLeft, ChevronRight, X,
@@ -173,6 +173,7 @@ const VIDEO_CONTEXT_TEXTS = {
 
 
 const AUTO_CONTEXT_PREPARATION_DELAY_MS = 10000;
+const POSE_WARMUP_DELAY_MS = 3000;
 interface VideoAnalyzerProps {
    video: VideoFile;
    targetUserId: string;
@@ -198,6 +199,10 @@ const POSE_SNAPSHOT_MAP: Record<number, string> = {
    26: 'rightKnee',
    27: 'leftAnkle',
    28: 'rightAnkle',
+   29: 'leftHeel',
+   30: 'rightHeel',
+   31: 'leftToe',
+   32: 'rightToe',
 };
 
 const inferQuestionMode = (message: string): VideoQuestionMode => {
@@ -1088,6 +1093,14 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, targetUserI
 
       return unsubscribe;
    }, [targetUserId, video.id]);
+
+   // Load the pose detector in the background once the video is on screen, so
+   // the pose button responds at once instead of downloading the model then.
+   useEffect(() => {
+      if (!isVideoLoaded) return;
+      const timer = window.setTimeout(warmPoseDetector, POSE_WARMUP_DELAY_MS);
+      return () => window.clearTimeout(timer);
+   }, [isVideoLoaded]);
 
    useEffect(() => {
       // Sampling reads frames from the playback element, so wait until it has

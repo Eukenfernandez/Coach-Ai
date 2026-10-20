@@ -6,7 +6,8 @@
 // upgrade-insecure-requests). Keep all of them in sync.
 //
 // script-src has no 'unsafe-inline': every script is an external file in pub/.
-// - cdn.jsdelivr.net: MediaPipe tasks-vision WASM runtime (hks/usePoseDetection).
+// - cdn.jsdelivr.net: MediaPipe tasks-vision WASM runtime (pub/pose-worker.js and
+//   the main-thread fallback in hks/usePoseDetection).
 // - www.google.com/recaptcha, www.gstatic.com/recaptcha: App Check (reCAPTCHA v3).
 // - connect-src blob:/data:: fetch() of locally cached videos and PDFs.
 // pdf.js is bundled from npm (worker served from 'self'), so it needs no CDN.
